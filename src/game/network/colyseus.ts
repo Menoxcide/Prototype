@@ -18,6 +18,7 @@ interface PlayerSchema {
   level: number
   guildId?: string
   guildTag?: string
+  guildName?: string
 }
 
 interface EnemySchema {
@@ -321,7 +322,8 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
             maxMana: playerInState.maxMana,
             level: playerInState.level,
             guildId: playerInState.guildId || undefined,
-            guildTag: playerInState.guildTag || undefined
+            guildTag: playerInState.guildTag || undefined,
+            guildName: playerInState.guildName || undefined
           })
           if (import.meta.env.DEV && !hasMoved) {
             console.log('Initial player sync from room:', { 
@@ -355,7 +357,8 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
               mana: player.mana,
               maxMana: player.maxMana,
               guildId: player.guildId || undefined,
-              guildTag: player.guildTag || undefined
+              guildTag: player.guildTag || undefined,
+              guildName: player.guildName || undefined
             })
           }
         }
@@ -802,17 +805,26 @@ async function setupRoomListeners(room: Room) {
 
   // Listen for guild events
   room.onMessage('guildCreated', (data) => {
-    const { player } = useGameStore.getState()
+    const { player, setPlayer } = useGameStore.getState()
     if (player) {
-      player.guildId = data.guildId
-      // Guild tag will be updated by server state sync
+      setPlayer({
+        ...player,
+        guildId: data.guildId,
+        guildName: data.guildName,
+        guildTag: data.guildTag
+      })
     }
   })
 
   room.onMessage('guildJoined', (data) => {
-    const { player } = useGameStore.getState()
+    const { player, setPlayer } = useGameStore.getState()
     if (player) {
-      player.guildId = data.guildId
+      setPlayer({
+        ...player,
+        guildId: data.guildId,
+        guildName: data.guildName,
+        guildTag: data.guildTag
+      })
     }
   })
 
@@ -967,7 +979,8 @@ async function setupRoomListeners(room: Room) {
         mana: player.mana,
         maxMana: player.maxMana,
         guildId: player.guildId || undefined,
-        guildTag: player.guildTag || undefined
+        guildTag: player.guildTag || undefined,
+        guildName: player.guildName || undefined
       })
     })
   } else {
@@ -1004,12 +1017,14 @@ async function setupRoomListeners(room: Room) {
           const { isPlayerMoving } = useGameStore.getState()
           
           // If player is actively moving, NEVER update position from server (client-side prediction)
+          // This is critical for responsive movement
           if (isPlayerMoving) {
-            if (import.meta.env.DEV && positionDiff > 0.1) {
+            if (import.meta.env.DEV) {
               console.log('⏭️ Ignoring server position (player actively moving):', {
-                local: { x: currentPlayer.position.x.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
-                server: { x: player.x.toFixed(2), z: player.z.toFixed(2) },
-                diff: positionDiff.toFixed(2)
+                local: { x: currentPlayer.position.x.toFixed(3), z: currentPlayer.position.z.toFixed(3) },
+                server: { x: player.x.toFixed(3), z: player.z.toFixed(3) },
+                diff: positionDiff.toFixed(3),
+                isMoving: isPlayerMoving
               })
             }
             // Only update non-position stats, preserve local position completely
@@ -1022,7 +1037,8 @@ async function setupRoomListeners(room: Room) {
               maxMana: player.maxMana,
               level: player.level,
               guildId: player.guildId || undefined,
-              guildTag: player.guildTag || undefined
+              guildTag: player.guildTag || undefined,
+              guildName: player.guildName || undefined
             })
             return // Exit early - don't process position update at all
           }
@@ -1073,7 +1089,8 @@ async function setupRoomListeners(room: Room) {
             maxMana: player.maxMana,
             level: player.level,
             guildId: player.guildId || undefined,
-            guildTag: player.guildTag || undefined
+            guildTag: player.guildTag || undefined,
+            guildName: player.guildName || undefined
           })
         }
       } else {
@@ -1083,7 +1100,8 @@ async function setupRoomListeners(room: Room) {
           health: player.health,
           mana: player.mana,
           guildId: player.guildId || undefined,
-          guildTag: player.guildTag || undefined
+          guildTag: player.guildTag || undefined,
+          guildName: player.guildName || undefined
         })
       }
     })

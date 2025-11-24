@@ -1253,6 +1253,7 @@ export class NexusRoom extends Room<NexusRoomState> {
     // Add player to guild
     player.guildId = guild.id
     player.guildTag = guild.tag
+    player.guildName = guild.name
 
     // Broadcast guild creation
     this.broadcast('guildCreated', {
@@ -1264,7 +1265,7 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     const client = this.getClientBySessionId(playerId)
     if (client) {
-      client.send('guildCreated', { guildId: guild.id })
+      client.send('guildCreated', { guildId: guild.id, guildName: guild.name, guildTag: guild.tag })
     }
   }
 
@@ -1295,6 +1296,7 @@ export class NexusRoom extends Room<NexusRoomState> {
         }
       }
     player.guildTag = guild.tag
+    player.guildName = guild.name
 
     // Notify guild members
     guild.memberIds.forEach((memberId) => {
@@ -1311,7 +1313,7 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     const client = this.getClientBySessionId(playerId)
     if (client) {
-      client.send('guildJoined', { guildId: guild.id })
+      client.send('guildJoined', { guildId: guild.id, guildName: guild.name, guildTag: guild.tag })
     }
   }
 
@@ -1345,6 +1347,7 @@ export class NexusRoom extends Room<NexusRoomState> {
     // Remove player from guild
     player.guildId = ''
     player.guildTag = ''
+    player.guildName = ''
 
     // Notify guild members
     guild.memberIds.forEach((memberId) => {

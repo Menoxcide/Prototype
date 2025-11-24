@@ -3,7 +3,8 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { PerspectiveCamera } from '@react-three/drei'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
-import EnhancedPlayerMesh from './EnhancedPlayerMesh'
+import Player from './Player'
+import PlayerCamera from './PlayerCamera'
 import EnhancedEnemy from './EnhancedEnemy'
 import InstancedEnemies from './InstancedEnemies'
 import InstancedLootDrops from './InstancedLootDrops'
@@ -21,6 +22,10 @@ import { assetManager } from '../assets/assetManager'
 import PostProcessingSimple from './PostProcessingSimple'
 import WeatherSystem from './WeatherSystem'
 import DayNightCycleComponent from './DayNightCycleComponent'
+import MinecraftControls from './MinecraftControls'
+import EnhancedTerrain from './EnhancedTerrain'
+import SpaceSkybox from './SpaceSkybox'
+import PlayerDebugBoxes from './PlayerDebugBoxes'
 import { getMobileOptimizationFlags, isMobileDevice } from '../utils/mobileOptimizations'
 import { performanceProfiler, startReactProfiling } from '../utils/performanceProfiler'
 
@@ -91,7 +96,7 @@ function DebugPlayerIndicators({ player }: { player: any }) {
 }
 
 function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
-  const { player, enemies, resourceNodes, otherPlayers, lootDrops, cameraMode } = useGameStore()
+  const { player, enemies, resourceNodes, otherPlayers, lootDrops } = useGameStore()
   const cameraRef = useRef<THREE.PerspectiveCamera>(null)
   const frustumCuller = useMemo(() => createFrustumCuller(), [])
   const qualitySettings = useMemo(() => getQualitySettings(), [])
@@ -167,76 +172,16 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
     }
   }, [player?.id]) // Initialize when player is first set
 
-  // Camera follow player and update frustum culling
-  // On mobile, update non-critical systems less frequently
+  // Update frustum culling (less frequently on mobile)
+  // Camera is now handled by PlayerCamera component
   useFrame(() => {
     frameCountRef.current++
     const shouldUpdateCulling = !mobileFlags.isMobile || frameCountRef.current % 2 === 0 // Every 2 frames on mobile
     
     if (cameraRef.current) {
       const camera = cameraRef.current
-      
-      // Get fresh player state and camera mode from store every frame
       const currentPlayer = useGameStore.getState().player
-      const cameraMode = useGameStore.getState().cameraMode
       
-      if (currentPlayer) {
-        const oldCamX = camera.position.x
-        const oldCamZ = camera.position.z
-        
-        if (cameraMode === 'first-person') {
-          // First person: camera at player eye level, looking forward
-          const targetX = currentPlayer.position.x
-          const targetY = currentPlayer.position.y + 1.6 // Eye level
-          const targetZ = currentPlayer.position.z
-          
-          // Camera follows player position exactly (no lerp for first person)
-          camera.position.set(targetX, targetY, targetZ)
-          
-          // Look in the direction player is facing
-          const lookX = targetX + Math.sin(currentPlayer.rotation) * 5
-          const lookZ = targetZ + Math.cos(currentPlayer.rotation) * 5
-          camera.lookAt(lookX, targetY, lookZ)
-          
-          // Debug: Log camera updates in first person (every significant move)
-          if (import.meta.env.DEV && (Math.abs(oldCamX - targetX) > 0.01 || Math.abs(oldCamZ - targetZ) > 0.01)) {
-            console.log('📷 First-person camera:', {
-              mode: 'first-person',
-              pos: { x: targetX.toFixed(3), y: targetY.toFixed(3), z: targetZ.toFixed(3) },
-              lookAt: { x: lookX.toFixed(3), z: lookZ.toFixed(3) },
-              playerPos: { x: currentPlayer.position.x.toFixed(3), z: currentPlayer.position.z.toFixed(3) },
-              rotation: currentPlayer.rotation.toFixed(3)
-            })
-          }
-        } else {
-          // Third person: camera behind and above player
-          const targetX = currentPlayer.position.x
-          const targetY = currentPlayer.position.y + 10
-          const targetZ = currentPlayer.position.z + 10
-
-          // Smooth camera follow (always update) - faster lerp for responsiveness
-          camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.2) // Increased lerp speed
-          camera.lookAt(currentPlayer.position.x, currentPlayer.position.y, currentPlayer.position.z)
-          
-          // Debug: Log camera updates in third person (every significant move)
-          if (import.meta.env.DEV && (Math.abs(oldCamX - targetX) > 0.01 || Math.abs(oldCamZ - targetZ) > 0.01)) {
-            console.log('📷 Third-person camera:', {
-              mode: 'third-person',
-              actualPos: { x: camera.position.x.toFixed(3), y: camera.position.y.toFixed(3), z: camera.position.z.toFixed(3) },
-              target: { x: targetX.toFixed(3), y: targetY.toFixed(3), z: targetZ.toFixed(3) },
-              playerPos: { x: currentPlayer.position.x.toFixed(3), z: currentPlayer.position.z.toFixed(3) }
-            })
-          }
-        }
-        
-        // Force camera matrix update
-        camera.updateMatrixWorld(true)
-      } else {
-        // Default camera position when no player
-        camera.position.lerp(new THREE.Vector3(0, 10, 10), 0.05)
-        camera.lookAt(0, 0, 0)
-      }
-
       // Update frustum culling (less frequently on mobile)
       if (shouldUpdateCulling && currentPlayer) {
         frustumCuller.updateFrustum(camera)
@@ -470,99 +415,33 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
         />
       )}
 
-      {/* Enhanced Ground with Texture - Cyberpunk dark ground */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[200, 200, 32, 32]} />
-        <meshStandardMaterial
-          {...(groundTexture ? { map: groundTexture } : {})}
-          color="#1a1a2e"
-          emissive="#000011"
-          emissiveIntensity={0.3}
-          roughness={0.8}
-          metalness={0.1}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      {/* Space Skybox - Beautiful starry background */}
+      <SpaceSkybox />
 
-      {/* Debug cubes removed - no longer needed */}
-
-      {/* Enhanced Grid Lines with Glow - Always visible for better ground visibility - Brighter */}
-      {Array.from({ length: 21 }).map((_, i) => {
-        const pos = (i - 10) * 10
-        const points1 = [
-          new THREE.Vector3(-100, 0.02, pos),
-          new THREE.Vector3(100, 0.02, pos)
-        ]
-        const points2 = [
-          new THREE.Vector3(pos, 0.02, -100),
-          new THREE.Vector3(pos, 0.02, 100)
-        ]
-        const geometry1 = new THREE.BufferGeometry().setFromPoints(points1)
-        const geometry2 = new THREE.BufferGeometry().setFromPoints(points2)
-        return (
-          <group key={`grid-${i}`}>
-            <primitive 
-              object={new THREE.Line(
-                geometry1, 
-                new THREE.LineBasicMaterial({ 
-                  color: '#00ffff', 
-                  opacity: qualitySettings.preset === 'low' ? 0.7 : 0.8, 
-                  transparent: true,
-                  linewidth: 2
-                })
-              )} 
-            />
-            <primitive 
-              object={new THREE.Line(
-                geometry2, 
-                new THREE.LineBasicMaterial({ 
-                  color: '#00ffff', 
-                  opacity: qualitySettings.preset === 'low' ? 0.7 : 0.8, 
-                  transparent: true,
-                  linewidth: 2
-                })
-              )} 
-            />
-          </group>
-        )
-      })}
+      {/* Enhanced Terrain with textures and biomes */}
+      <EnhancedTerrain />
 
       {/* Debug cube removed - was causing visual issues */}
 
-      {/* Enhanced Player */}
-      {player && (
+      {/* TEST: Fixed position box to verify rendering works */}
+      {import.meta.env.DEV && (
+        <mesh position={[0, 5, 0]}>
+          <boxGeometry args={[5, 5, 5]} />
+          <meshStandardMaterial color="#00ff00" emissive="#00ff00" emissiveIntensity={20} />
+        </mesh>
+      )}
+
+      {/* Player - Simplified component */}
+      {player && <Player />}
+
+      {/* Camera Controller - Follows player */}
+      {player && <PlayerCamera />}
+
+      {/* Debug boxes for testing */}
+      {import.meta.env.DEV && player && (
         <>
-          <EnhancedPlayerMesh />
-          {/* Debug: Visual indicators at player position - always visible */}
-          {import.meta.env.DEV && (
-            <>
-              {/* Green box above player */}
-              <mesh position={[player.position.x, player.position.y + 4, player.position.z]}>
-                <boxGeometry args={[1, 1, 1]} />
-                <meshStandardMaterial color="#00ff00" emissive="#00ff00" emissiveIntensity={5} />
-              </mesh>
-              {/* Yellow box at exact player position */}
-              <mesh position={[player.position.x, player.position.y, player.position.z]}>
-                <boxGeometry args={[0.5, 0.5, 0.5]} />
-                <meshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={5} />
-              </mesh>
-              {/* Blue line from origin to player */}
-              <line>
-                <bufferGeometry>
-                  <bufferAttribute
-                    attach="attributes-position"
-                    count={2}
-                    array={new Float32Array([
-                      0, 0, 0,
-                      player.position.x, player.position.y, player.position.z
-                    ])}
-                    itemSize={3}
-                  />
-                </bufferGeometry>
-                <lineBasicMaterial color="#0000ff" linewidth={3} />
-              </line>
-            </>
-          )}
+          <DebugPlayerIndicators player={player} />
+          <PlayerDebugBoxes />
         </>
       )}
 
@@ -626,6 +505,10 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
 
       {/* Post-Processing Effects - Render last */}
       <PostProcessingSimple enabled={qualitySettings.preset !== 'low'} />
+
+      {/* Keyboard Controls - Must be inside Canvas to use useFrame */}
+      {/* Minecraft-style 3D movement controls */}
+      <MinecraftControls />
     </>
   )
 }

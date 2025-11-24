@@ -18,6 +18,7 @@ export interface Player {
   maxMana: number
   guildId?: string
   guildTag?: string
+  guildName?: string
   tradition?: 'hermetic' | 'shamanic' | 'technomancer' | 'adept' | 'none'
 }
 

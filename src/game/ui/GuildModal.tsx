@@ -65,7 +65,7 @@ export default function GuildModal() {
           <div>
             <div className="mb-4 p-3 bg-gray-800 rounded-lg">
               <div className="text-cyan-300 font-bold mb-1">
-                [{player.guildTag}] {player.guildId}
+                [{player.guildTag}] {player.guildName || player.guildId}
               </div>
               <div className="text-sm text-gray-400">You are in a guild</div>
             </div>

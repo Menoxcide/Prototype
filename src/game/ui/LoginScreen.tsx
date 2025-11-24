@@ -5,6 +5,9 @@
 
 import { useState, useEffect } from 'react'
 import { signInWithGoogle, onAuthStateChange, AuthUser, isFirebaseInitialized } from '../../firebase/auth'
+import { getRedirectResult } from 'firebase/auth'
+import { getAuth } from 'firebase/auth'
+import { shouldUseEmulators } from '../../firebase/config'
 
 interface LoginScreenProps {
   onAuthSuccess: (user: AuthUser) => void
@@ -23,15 +26,60 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
       return
     }
 
-    // Check if user is already authenticated
-    const unsubscribe = onAuthStateChange((user) => {
-      setInitializing(false)
-      if (user) {
-        onAuthSuccess(user)
+    let unsubscribe: (() => void) | null = null
+
+    // If using emulator, check for redirect result first
+    const checkRedirectResult = async () => {
+      if (shouldUseEmulators()) {
+        try {
+          const auth = getAuth()
+          const redirectResult = await getRedirectResult(auth)
+          if (redirectResult?.user) {
+            const user: AuthUser = {
+              uid: redirectResult.user.uid,
+              email: redirectResult.user.email,
+              displayName: redirectResult.user.displayName,
+              photoURL: redirectResult.user.photoURL
+            }
+            setInitializing(false)
+            onAuthSuccess(user)
+            return true // Indicate we handled redirect
+          }
+        } catch (error: any) {
+          console.error('Error checking redirect result:', error)
+          // Continue to normal auth state check
+        }
       }
+      return false
+    }
+
+    // Check redirect result, then set up auth state listener
+    checkRedirectResult().then((handledRedirect) => {
+      if (!handledRedirect) {
+        // Check if user is already authenticated
+        unsubscribe = onAuthStateChange((user) => {
+          setInitializing(false)
+          if (user) {
+            onAuthSuccess(user)
+          }
+        })
+      }
+    }).catch(() => {
+      // If redirect check fails, still set up auth state listener
+      unsubscribe = onAuthStateChange((user) => {
+        setInitializing(false)
+        if (user) {
+          onAuthSuccess(user)
+        }
+      })
     })
 
-    return unsubscribe
+    // Cleanup function
+    return () => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
+    }
   }, [onAuthSuccess])
 
   const handleGoogleSignIn = async () => {
@@ -42,9 +90,14 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
       const user = await signInWithGoogle()
       onAuthSuccess(user)
     } catch (err: any) {
+      // If using emulator and redirecting, the error message is expected
+      if (shouldUseEmulators() && err.message?.includes('Redirecting')) {
+        // Don't show error - redirect is happening
+        setLoading(true) // Keep loading state during redirect
+        return
+      }
       setError(err.message || 'Failed to sign in. Please try again.')
       console.error('Login error:', err)
-    } finally {
       setLoading(false)
     }
   }

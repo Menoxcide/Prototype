@@ -15,6 +15,7 @@ export class PlayerSchema extends Schema {
   @type('number') level: number = 1
   @type('string') guildId: string = ''
   @type('string') guildTag: string = ''
+  @type('string') guildName: string = ''
 }
 
 export class EnemySchema extends Schema {

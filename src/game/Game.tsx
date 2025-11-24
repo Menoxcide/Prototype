@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from './store/useGameStore'
 import EnhancedScene from './components/EnhancedScene'
 import TouchControls from './components/TouchControls'
-import KeyboardControls from './components/KeyboardControls'
 import { GAME_CONFIG } from './data/config'
 import { getItem } from './data/items'
 import { createSpellProjectile, updateSpellProjectile, checkSpellHit, SpellProjectile } from './systems/spellSystem'
@@ -249,7 +248,6 @@ export default function Game() {
     >
       <EnhancedScene spellProjectiles={spellProjectiles} />
       <TouchControls />
-      <KeyboardControls />
     </div>
   )
 }

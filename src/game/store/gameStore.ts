@@ -158,7 +158,7 @@ interface GameState {
   fps: number
   setFPS: (fps: number) => void
   
-  // Camera mode
+  // Camera mode - default to third-person so player is visible
   cameraMode: 'first-person' | 'third-person'
   setCameraMode: (mode: 'first-person' | 'third-person') => void
   toggleCameraMode: () => void
@@ -204,56 +204,23 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   updatePlayerPosition: (position) => {
     const { player } = get()
-    if (player) {
-      // Always update position - remove threshold check that might block updates
-      const currentPos = player.position
-      const changed = Math.abs(currentPos.x - position.x) > 0.001 || 
-                      Math.abs(currentPos.y - position.y) > 0.001 || 
-                      Math.abs(currentPos.z - position.z) > 0.001
-      
-      if (changed) {
-        // Create new player object with new position to ensure reactivity
-        const updatedPlayer = { 
-          ...player, 
-          position: { 
-            x: position.x, 
-            y: position.y, 
-            z: position.z 
-          } 
-        }
-        set({ player: updatedPlayer })
-        
-        // Debug: Log every position update in development (for debugging)
-        if (import.meta.env.DEV) {
-          const delta = {
-            x: position.x - currentPos.x,
-            y: position.y - currentPos.y,
-            z: position.z - currentPos.z
-          }
-          const distance = Math.sqrt(delta.x * delta.x + delta.z * delta.z)
-          
-          // Only log if movement is significant (reduces spam)
-          if (distance > 0.05) {
-            console.log('📍 Position updated:', { 
-              from: { x: currentPos.x.toFixed(2), y: currentPos.y.toFixed(2), z: currentPos.z.toFixed(2) }, 
-              to: { x: position.x.toFixed(2), y: position.y.toFixed(2), z: position.z.toFixed(2) },
-              delta: { x: delta.x.toFixed(3), y: delta.y.toFixed(3), z: delta.z.toFixed(3) },
-              distance: distance.toFixed(3)
-            })
-          }
-        }
-      } else if (import.meta.env.DEV) {
-        // Log when position update is blocked (for debugging)
-        console.warn('⚠️ Position update blocked (no change):', {
-          current: { x: currentPos.x, y: currentPos.y, z: currentPos.z },
-          requested: { x: position.x, y: position.y, z: position.z }
-        })
-      }
-    } else {
+    if (!player) {
       if (import.meta.env.DEV) {
         console.error('❌ updatePlayerPosition called but player is null!')
       }
+      return
     }
+    
+    // Always update position - create new object to ensure React reactivity
+    const updatedPlayer = { 
+      ...player, 
+      position: { 
+        x: position.x, 
+        y: position.y, 
+        z: position.z 
+      } 
+    }
+    set({ player: updatedPlayer })
   },
   
   updatePlayerRotation: (rotation) => {

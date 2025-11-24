@@ -119,8 +119,16 @@ export function stopMovementSync() {
 }
 
 export function reconcilePosition(serverPosition: { x: number; y: number; z: number }, rotation: number) {
-  const { player } = useGameStore.getState()
+  const { player, isPlayerMoving } = useGameStore.getState()
   if (!player) return
+
+  // CRITICAL: Don't reconcile position if player is actively moving
+  // This prevents server from overwriting client-side prediction during active movement
+  if (isPlayerMoving) {
+    // Still update lastServerPosition for reference, but don't apply the correction
+    lastServerPosition = { ...serverPosition }
+    return
+  }
 
   // Reconcile with server state using prediction system
   reconcileWithServer({

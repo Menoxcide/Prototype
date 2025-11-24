@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Player } from '../types'
 import { RACES } from '../data/races'
+import PlayerNameplate from './PlayerNameplate'
 
 interface OtherPlayerProps {
   player: Player
@@ -38,40 +39,11 @@ export default function OtherPlayer({ player }: OtherPlayerProps) {
         />
       </mesh>
 
-      {/* Name tag */}
-      <mesh position={[player.position.x, player.position.y + 2, player.position.z]}>
-        <planeGeometry args={[3, 0.6]} />
-        <meshBasicMaterial
-          color="#000000"
-          transparent
-          opacity={0.8}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-
-      {/* Name text would go here - for now just a placeholder */}
-      <mesh position={[player.position.x, player.position.y + 2.2, player.position.z + 0.01]}>
-        <planeGeometry args={[2.5, 0.3]} />
-        <meshBasicMaterial
-          color={raceData.color}
-          transparent
-          opacity={0.9}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-
-      {/* Guild tag */}
-      {player.guildTag && (
-        <mesh position={[player.position.x, player.position.y + 1.7, player.position.z + 0.01]}>
-          <planeGeometry args={[1.5, 0.25]} />
-          <meshBasicMaterial
-            color="#9d00ff"
-            transparent
-            opacity={0.9}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      )}
+      {/* Player Nameplate with HP Bar */}
+      <PlayerNameplate 
+        playerId={player.id} 
+        position={[player.position.x, player.position.y, player.position.z]} 
+      />
 
       {/* Glow effect */}
       <pointLight

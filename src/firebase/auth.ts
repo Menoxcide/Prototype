@@ -6,6 +6,8 @@
 import { 
   getAuth, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -60,6 +62,7 @@ export interface AuthUser {
 
 /**
  * Sign in with Google
+ * Uses redirect-based auth when using emulators (popup doesn't work well with emulator)
  */
 export async function signInWithGoogle(): Promise<AuthUser> {
   if (!auth) {
@@ -71,19 +74,51 @@ export async function signInWithGoogle(): Promise<AuthUser> {
     prompt: 'select_account'
   })
 
-  try {
-    const result = await signInWithPopup(auth, provider)
-    const user = result.user
-    
-    return {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL
+  // Check if we're using emulators - use redirect instead of popup
+  const useEmulator = shouldUseEmulators()
+  
+  if (useEmulator) {
+    // For emulator, use redirect-based auth (popup has iframe issues)
+    try {
+      // First check if we're returning from a redirect
+      const redirectResult = await getRedirectResult(auth)
+      if (redirectResult?.user) {
+        return {
+          uid: redirectResult.user.uid,
+          email: redirectResult.user.email,
+          displayName: redirectResult.user.displayName,
+          photoURL: redirectResult.user.photoURL
+        }
+      }
+      
+      // If no redirect result, initiate redirect
+      await signInWithRedirect(auth, provider)
+      // This will redirect the page, so we won't reach here
+      throw new Error('Redirecting to sign in...')
+    } catch (error: any) {
+      // If error is about redirecting, that's expected
+      if (error.message?.includes('Redirecting')) {
+        throw error
+      }
+      console.error('Error signing in with Google (redirect):', error)
+      throw new Error(error.message || 'Failed to sign in with Google')
     }
-  } catch (error: any) {
-    console.error('Error signing in with Google:', error)
-    throw new Error(error.message || 'Failed to sign in with Google')
+  } else {
+    // For production, use popup-based auth
+    try {
+      const result = await signInWithPopup(auth, provider)
+      const user = result.user
+      
+      return {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL
+      }
+    } catch (error: any) {
+      console.error('Error signing in with Google:', error)
+      throw new Error(error.message || 'Failed to sign in with Google')
+    }
   }
 }
 
