@@ -129,12 +129,23 @@ export default function HUD() {
         minHeight={40}
         resizable={false}
         className="pointer-events-auto"
-        header={<div className="w-full h-full cursor-grab active:cursor-grabbing" style={{ backgroundColor: 'rgba(0,0,0,0.01)', pointerEvents: 'auto' }} />}
+        header={
+          <div 
+            className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center px-2" 
+            style={{ 
+              backgroundColor: 'rgba(0,0,0,0.1)', 
+              pointerEvents: 'auto'
+            }} 
+          >
+            <div className="text-gray-400 text-xs font-bold select-none opacity-50">⋮⋮</div>
+          </div>
+        }
       >
         <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-2 neon-border flex gap-2 items-center" style={{ zIndex: 5, pointerEvents: 'none' }}>
-          <div className="flex gap-2 items-center w-full" style={{ pointerEvents: 'auto' }}>
+          <div className="flex gap-2 items-center w-full" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
             <button
               onClick={toggleQuest}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                 isQuestOpen
                   ? 'border-cyan-500 bg-cyan-500/20 text-cyan-400'
@@ -145,6 +156,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleBattlePass}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                 isBattlePassOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
@@ -155,6 +167,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleAchievement}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                 isAchievementOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
@@ -165,6 +178,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleShop}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                 isShopOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
@@ -175,6 +189,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleSkills}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
                 isSkillsOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
@@ -203,12 +218,23 @@ export default function HUD() {
         minHeight={50}
         resizable={false}
         className="pointer-events-auto"
-        header={<div className="w-full h-full cursor-grab active:cursor-grabbing" style={{ backgroundColor: 'rgba(0,0,0,0.01)', pointerEvents: 'auto' }} />}
+        header={
+          <div 
+            className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center px-2" 
+            style={{ 
+              backgroundColor: 'rgba(0,0,0,0.1)', 
+              pointerEvents: 'auto'
+            }} 
+          >
+            <div className="text-gray-400 text-xs font-bold select-none opacity-50">⋮⋮</div>
+          </div>
+        }
       >
         <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-2 neon-border flex items-center justify-center" style={{ zIndex: 5, pointerEvents: 'none' }}>
-          <div className="flex justify-center gap-2" style={{ pointerEvents: 'auto' }}>
+          <div className="flex justify-center gap-2" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
             <button
               onClick={toggleInventory}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`px-4 py-2 rounded-lg font-bold transition-all ${
                 isInventoryOpen
                   ? 'bg-cyan-600 text-white'
@@ -219,6 +245,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleCrafting}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`px-4 py-2 rounded-lg font-bold transition-all ${
                 isCraftingOpen
                   ? 'bg-cyan-600 text-white'
@@ -229,6 +256,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleMarket}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`px-4 py-2 rounded-lg font-bold transition-all ${
                 isMarketOpen
                   ? 'bg-cyan-600 text-white'
@@ -239,6 +267,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleSpellbook}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`px-4 py-2 rounded-lg font-bold transition-all ${
                 isSpellbookOpen
                   ? 'bg-cyan-600 text-white'
@@ -249,6 +278,7 @@ export default function HUD() {
             </button>
             <button
               onClick={toggleGuild}
+              onMouseDown={(e) => e.stopPropagation()}
               className={`px-4 py-2 rounded-lg font-bold transition-all ${
                 isGuildOpen
                   ? 'bg-cyan-600 text-white'
@@ -259,6 +289,7 @@ export default function HUD() {
             </button>
             <button
               onClick={() => setIsQualitySettingsOpen(true)}
+              onMouseDown={(e) => e.stopPropagation()}
               className="px-4 py-2 rounded-lg font-bold transition-all bg-gray-800 text-cyan-400 hover:bg-gray-700"
               title="Quality Settings"
             >

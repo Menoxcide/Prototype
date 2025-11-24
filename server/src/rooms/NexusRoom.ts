@@ -120,6 +120,9 @@ export class NexusRoom extends Room<NexusRoomState> {
   private gameLoopStartTime: number = 0
   private lastTickTime: number = Date.now()
   private tickTimeHistory: number[] = []
+  
+  // Track Firebase UID to sessionId mapping to prevent duplicate sessions
+  private playerIdToSessionId = new Map<string, string>()
 
   onCreate(options: any) {
     this.setState(new NexusRoomState())
@@ -476,6 +479,24 @@ export class NexusRoom extends Room<NexusRoomState> {
     // Use Firebase UID as player ID for persistence
     const playerId = firebaseUid!
     
+    // Check if this player already has an active session
+    const existingSessionId = this.playerIdToSessionId.get(playerId)
+    if (existingSessionId && existingSessionId !== client.sessionId) {
+      // Find and disconnect the old session
+      const oldClient = this.clients.find(c => c.sessionId === existingSessionId)
+      if (oldClient) {
+        console.log(`Disconnecting old session ${existingSessionId} for player ${playerId} (new session: ${client.sessionId})`)
+        oldClient.leave(1000, 'New connection from same player')
+        // Remove old session mapping
+        this.playerIdToSessionId.delete(playerId)
+        // Remove old player from state
+        this.state.players.delete(existingSessionId)
+      }
+    }
+    
+    // Map playerId to sessionId
+    this.playerIdToSessionId.set(playerId, client.sessionId)
+    
     // Only log if there are few clients to avoid spam
     if (this.clients.length <= 10) {
       console.log(`Client ${client.sessionId} joined as player ${playerId} (${this.clients.length} total)`)
@@ -593,19 +614,28 @@ export class NexusRoom extends Room<NexusRoomState> {
       console.log(`Client ${client.sessionId} left (${this.clients.length - 1} remaining)`)
     }
     
+    // Get player to find their playerId (Firebase UID)
+    const player = this.state.players.get(client.sessionId)
+    const playerId = player?.id || client.sessionId
+    
+    // Remove mapping if it exists
+    const mappedSessionId = this.playerIdToSessionId.get(playerId)
+    if (mappedSessionId === client.sessionId) {
+      this.playerIdToSessionId.delete(playerId)
+    }
+    
     // Log player leave
     this.monitoringService.logEvent('info', 'Player left', {
-      playerId: client.sessionId,
+      playerId,
       sessionId: client.sessionId,
       consented,
       remainingPlayers: this.clients.length - 1
     })
     
     // Save player data before leaving
-    const player = this.state.players.get(client.sessionId)
     if (player && this.playerDataRepository) {
       try {
-        await this.playerDataRepository.savePlayerData(client.sessionId, {
+        await this.playerDataRepository.savePlayerData(playerId, {
           name: player.name,
           race: player.race,
           level: player.level,
@@ -632,11 +662,11 @@ export class NexusRoom extends Room<NexusRoomState> {
             claimedTiers: []
           }
         })
-        console.log(`Saved player data for ${client.sessionId}`)
+        console.log(`Saved player data for ${playerId}`)
       } catch (error) {
-        console.error(`Failed to save player data for ${client.sessionId}:`, error)
+        console.error(`Failed to save player data for ${playerId}:`, error)
         this.monitoringService.logEvent('error', 'Failed to save player data', {
-          playerId: client.sessionId,
+          playerId,
           sessionId: client.sessionId,
           error: error instanceof Error ? error.message : String(error)
         })
@@ -2059,6 +2089,9 @@ export class NexusRoom extends Room<NexusRoomState> {
     
     // Clear pending updates
     this.pendingEntityUpdates.clear()
+    
+    // Clear player ID to session mapping
+    this.playerIdToSessionId.clear()
     
     console.log('NexusRoom disposed')
   }
