@@ -16,7 +16,7 @@ export const MOBILE_CONFIG = {
   enableShadows: false,
   shadowQuality: 'low' as const,
   renderDistance: 50,
-  targetFPS: 60
+  targetFPS: 30 // Default to 30 FPS, can be adjusted based on device capabilities
 }
 
 // Desktop performance settings

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { Race } from '../types'
 import { RACES, RACE_LIST } from '../data/races'
+import { getAllTraditions, MagicTradition } from '../data/magicTraditions'
 
 interface CharacterCreationProps {
   firebaseUid: string
@@ -11,6 +12,7 @@ interface CharacterCreationProps {
 export default function CharacterCreation({ firebaseUid, onComplete }: CharacterCreationProps) {
   const { setPlayer } = useGameStore()
   const [selectedRace, setSelectedRace] = useState<Race>('human')
+  const [selectedTradition, setSelectedTradition] = useState<MagicTradition>('none')
   const [playerName, setPlayerName] = useState('')
   const [error, setError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -45,12 +47,13 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
         xp: 0,
         xpToNext: 100,
         credits: 100,
-        position: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 }, // Y=1 to stand on ground (ground is at Y=0)
         rotation: 0,
         health: baseHealth,
         maxHealth: baseHealth,
         mana: baseMana,
-        maxMana: baseMana
+        maxMana: baseMana,
+        tradition: selectedTradition
       }
 
       setPlayer(player)
@@ -119,6 +122,32 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
                 <div className="mt-2 text-xs text-gray-500">
                   HP: +{race.bonuses.health} | MP: +{race.bonuses.mana} | Speed: {race.bonuses.speed}x
                 </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Magic Tradition Selection */}
+        <div className="mb-6">
+          <label className="block text-cyan-400 mb-3">Select Magic Tradition (Optional)</label>
+          <div className="grid grid-cols-2 gap-2">
+            {getAllTraditions().map((tradition) => (
+              <button
+                key={tradition.id}
+                onClick={() => setSelectedTradition(tradition.id)}
+                className={`p-3 border-2 rounded-lg transition-all text-sm ${
+                  selectedTradition === tradition.id
+                    ? 'border-cyan-500 bg-gray-800'
+                    : 'border-gray-700 bg-gray-900 hover:border-gray-600'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">{tradition.icon}</span>
+                  <span className="font-bold" style={{ color: tradition.color }}>
+                    {tradition.name}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400">{tradition.description}</div>
               </button>
             ))}
           </div>

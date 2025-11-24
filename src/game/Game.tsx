@@ -9,6 +9,7 @@ import { createSpellProjectile, updateSpellProjectile, checkSpellHit, SpellProje
 import { joinRoom, leaveRoom, sendSpellCast, sendLootPickup } from './network/colyseus'
 import { startMovementSync, stopMovementSync } from './network/syncSystem'
 import { setupOfflineHandler } from './utils/offlineHandler'
+import { getMobileOptimizationFlags, frameRateCap } from './utils/mobileOptimizations'
 
 export default function Game() {
   const {
@@ -114,13 +115,15 @@ export default function Game() {
     clearSpellCastQueue()
   }, [spellCastQueue, player, clearSpellCastQueue])
 
-  // Game loop
+  // Game loop with frame rate capping
   useEffect(() => {
     if (!player) return
 
-    const gameLoop = () => {
-      const deltaTime = 16 // ~60 FPS
+    const flags = getMobileOptimizationFlags()
+    const targetFPS = flags.targetFPS
+    const deltaTime = 1000 / targetFPS // Calculate delta based on target FPS
 
+    const gameLoop = () => {
       // Update spell projectiles
       setSpellProjectiles(prev => {
         const updated = prev
@@ -192,14 +195,25 @@ export default function Game() {
             }
         })
       }
-
-      gameLoopRef.current = requestAnimationFrame(gameLoop)
     }
 
-    gameLoopRef.current = requestAnimationFrame(gameLoop)
+    // Apply frame rate capping if on mobile
+    let stopCap: (() => void) | null = null
+    if (flags.isMobile && targetFPS < 60) {
+      stopCap = frameRateCap.cap(targetFPS, gameLoop)
+    } else {
+      // Desktop: use standard requestAnimationFrame
+      const standardLoop = () => {
+        gameLoop()
+        gameLoopRef.current = requestAnimationFrame(standardLoop)
+      }
+      gameLoopRef.current = requestAnimationFrame(standardLoop)
+    }
 
     return () => {
-      if (gameLoopRef.current) {
+      if (stopCap) {
+        stopCap()
+      } else if (gameLoopRef.current) {
         cancelAnimationFrame(gameLoopRef.current)
       }
     }
@@ -211,7 +225,7 @@ export default function Game() {
       // Respawn player
       setTimeout(() => {
         updatePlayerHealth(player.maxHealth)
-        useGameStore.getState().updatePlayerPosition({ x: 0, y: 0, z: 0 })
+        useGameStore.getState().updatePlayerPosition({ x: 0, y: 1, z: 0 }) // Y=1 to stand on ground
       }, 2000)
     }
   }, [player, updatePlayerHealth])

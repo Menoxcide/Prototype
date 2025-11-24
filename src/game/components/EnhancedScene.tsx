@@ -21,6 +21,8 @@ import { assetManager } from '../assets/assetManager'
 import PostProcessingSimple from './PostProcessingSimple'
 import WeatherSystem from './WeatherSystem'
 import DayNightCycleComponent from './DayNightCycleComponent'
+import { getMobileOptimizationFlags, isMobileDevice } from '../utils/mobileOptimizations'
+import { performanceProfiler, startReactProfiling } from '../utils/performanceProfiler'
 
 interface SceneContentProps {
   spellProjectiles?: any[]
@@ -31,6 +33,8 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
   const cameraRef = useRef<THREE.PerspectiveCamera>(null)
   const frustumCuller = useMemo(() => createFrustumCuller(), [])
   const qualitySettings = useMemo(() => getQualitySettings(), [])
+  const mobileFlags = useMemo(() => getMobileOptimizationFlags(), [])
+  const frameCountRef = useRef(0)
   const visibleEntities = useRef<{
     enemies: Set<string>
     otherPlayers: Set<string>
@@ -88,51 +92,68 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
   }, [player?.id]) // Initialize when player is first set
 
   // Camera follow player and update frustum culling
+  // On mobile, update non-critical systems less frequently
   useFrame(() => {
+    frameCountRef.current++
+    const shouldUpdateCulling = !mobileFlags.isMobile || frameCountRef.current % 2 === 0 // Every 2 frames on mobile
+    
     if (cameraRef.current && player) {
       const camera = cameraRef.current
       const targetX = player.position.x
       const targetY = player.position.y + 10
       const targetZ = player.position.z + 10
 
-      // Smooth camera follow
+      // Smooth camera follow (always update)
       camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.05)
       camera.lookAt(player.position.x, player.position.y, player.position.z)
 
-      // Update frustum culling
-      frustumCuller.updateFrustum(camera)
+      // Update frustum culling (less frequently on mobile)
+      if (shouldUpdateCulling) {
+        frustumCuller.updateFrustum(camera)
 
-      // Cull enemies
-      visibleEntities.current.enemies.clear()
-      enemies.forEach((enemy, id) => {
-        if (frustumCuller.isInFrustum(enemy.position, 2, camera)) {
-          visibleEntities.current.enemies.add(id)
-        }
-      })
+        // Cull enemies with LOD integration
+        visibleEntities.current.enemies.clear()
+        enemies.forEach((enemy, id) => {
+          const distance = Math.sqrt(
+            Math.pow(enemy.position.x - player.position.x, 2) +
+            Math.pow(enemy.position.y - player.position.y, 2) +
+            Math.pow(enemy.position.z - player.position.z, 2)
+          )
+          const renderDistance = qualitySettings.renderDistance
+          const result = frustumCuller.isInFrustumWithLOD(enemy.position, 2, camera, distance, renderDistance)
+          if (result.visible) {
+            visibleEntities.current.enemies.add(id)
+          }
+        })
 
-      // Cull other players
-      visibleEntities.current.otherPlayers.clear()
-      otherPlayers.forEach((otherPlayer, id) => {
-        if (frustumCuller.isInFrustum(otherPlayer.position, 1, camera)) {
-          visibleEntities.current.otherPlayers.add(id)
-        }
-      })
+        // Cull other players
+        visibleEntities.current.otherPlayers.clear()
+        otherPlayers.forEach((otherPlayer, id) => {
+          if (frustumCuller.isInFrustum(otherPlayer.position, 1, camera)) {
+            visibleEntities.current.otherPlayers.add(id)
+          }
+        })
 
-      // Cull resource nodes
-      visibleEntities.current.resourceNodes.clear()
-      resourceNodes.forEach((node, id) => {
-        if (frustumCuller.isInFrustum(node.position, 1, camera)) {
-          visibleEntities.current.resourceNodes.add(id)
+        // Cull resource nodes (every 3 frames on mobile)
+        if (!mobileFlags.isMobile || frameCountRef.current % 3 === 0) {
+          visibleEntities.current.resourceNodes.clear()
+          resourceNodes.forEach((node, id) => {
+            if (frustumCuller.isInFrustum(node.position, 1, camera)) {
+              visibleEntities.current.resourceNodes.add(id)
+            }
+          })
         }
-      })
 
-      // Cull loot drops
-      visibleEntities.current.lootDrops.clear()
-      lootDrops.forEach((loot, id) => {
-        if (frustumCuller.isInFrustum(loot.position, 0.5, camera)) {
-          visibleEntities.current.lootDrops.add(id)
+        // Cull loot drops (every 3 frames on mobile)
+        if (!mobileFlags.isMobile || frameCountRef.current % 3 === 0) {
+          visibleEntities.current.lootDrops.clear()
+          lootDrops.forEach((loot, id) => {
+            if (frustumCuller.isInFrustum(loot.position, 0.5, camera)) {
+              visibleEntities.current.lootDrops.add(id)
+            }
+          })
         }
-      })
+      }
     }
   })
 
@@ -213,7 +234,7 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
       /> */}
 
       {/* Enhanced Lighting */}
-      <ambientLight intensity={qualitySettings.preset === 'low' ? 0.7 : 0.8} />
+      <ambientLight intensity={qualitySettings.preset === 'low' ? 0.9 : 1.0} />
       <pointLight 
         position={[10, 10, 10]} 
         intensity={qualitySettings.preset === 'low' ? 1.5 : 2.0} 
@@ -255,11 +276,11 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
         <planeGeometry args={[200, 200, 32, 32]} />
         <meshStandardMaterial
           {...(groundTexture ? { map: groundTexture } : {})}
-          color="#1a1a2e"
-          emissive="#001122"
-          emissiveIntensity={0.6}
-          roughness={0.8}
-          metalness={0.1}
+          color="#3a3a5e"
+          emissive="#001144"
+          emissiveIntensity={1.0}
+          roughness={0.7}
+          metalness={0.2}
         />
       </mesh>
 
@@ -278,8 +299,8 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
         <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1} />
       </mesh>
 
-      {/* Enhanced Grid Lines with Glow */}
-      {qualitySettings.preset !== 'low' && Array.from({ length: 21 }).map((_, i) => {
+      {/* Enhanced Grid Lines with Glow - Always visible for better ground visibility */}
+      {Array.from({ length: 21 }).map((_, i) => {
         const pos = (i - 10) * 10
         const points1 = [
           new THREE.Vector3(-100, 0.02, pos),
@@ -298,7 +319,7 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
                 geometry1, 
                 new THREE.LineBasicMaterial({ 
                   color: '#00ffff', 
-                  opacity: 0.3, 
+                  opacity: qualitySettings.preset === 'low' ? 0.4 : 0.5, 
                   transparent: true,
                   linewidth: 2
                 })
@@ -309,7 +330,7 @@ function SceneContent({ spellProjectiles = [] }: SceneContentProps) {
                 geometry2, 
                 new THREE.LineBasicMaterial({ 
                   color: '#00ffff', 
-                  opacity: 0.3, 
+                  opacity: qualitySettings.preset === 'low' ? 0.4 : 0.5, 
                   transparent: true,
                   linewidth: 2
                 })
@@ -391,16 +412,33 @@ interface EnhancedSceneProps {
 }
 
 export default function EnhancedScene({ spellProjectiles = [] }: EnhancedSceneProps) {
+  const mobileFlags = getMobileOptimizationFlags()
+  const isMobile = isMobileDevice()
+  
+  // Mobile-optimized WebGL context settings
+  const glConfig = isMobile ? {
+    antialias: false, // Disable antialiasing on mobile
+    alpha: false,
+    powerPreference: 'high-performance' as const,
+    stencil: false,
+    depth: true,
+    precision: 'mediump' as const, // Lower precision on mobile for better performance
+    failIfMajorPerformanceCaveat: false
+  } : {
+    antialias: true,
+    alpha: false,
+    powerPreference: 'high-performance' as const,
+    stencil: false,
+    depth: true
+  }
+
+  // Use mobile-specific DPR (1 on mobile, [1, 2] on desktop)
+  const dpr = isMobile ? mobileFlags.devicePixelRatio : [1, 2]
+
   return (
     <Canvas
-      gl={{ 
-        antialias: true, 
-        alpha: false,
-        powerPreference: 'high-performance',
-        stencil: false,
-        depth: true
-      }}
-      dpr={[1, 2]}
+      gl={glConfig}
+      dpr={dpr}
       style={{ 
         width: '100%', 
         height: '100%', 
@@ -410,7 +448,7 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
         left: 0,
         zIndex: 0
       }}
-      shadows
+      shadows={!isMobile || mobileFlags.enableShadows}
       onCreated={({ gl, scene, camera }) => {
         console.log('EnhancedScene: Canvas created', { gl, scene, camera })
         gl.setClearColor('#000022', 1)
@@ -426,6 +464,21 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
         canvas.style.width = '100%'
         canvas.style.height = '100%'
         canvas.style.display = 'block'
+        
+        // Enable performance profiling
+        performanceProfiler.enable()
+        performanceProfiler.enableThreeInspector(gl)
+        startReactProfiling()
+        
+        // Log metrics every 5 seconds in development
+        if (import.meta.env.DEV) {
+          setInterval(() => {
+            const metrics = performanceProfiler.getMetrics()
+            if (metrics.fps < 30) {
+              console.warn('Low FPS detected:', metrics)
+            }
+          }, 5000)
+        }
       }}
       onError={(error) => {
         console.error('EnhancedScene: Canvas error:', error)

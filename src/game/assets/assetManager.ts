@@ -41,6 +41,13 @@ class AssetManager {
   private unusedAssetCheckInterval: NodeJS.Timeout | null = null
   private readonly UNUSED_ASSET_TIMEOUT = 60000 // 60 seconds
   private lastUsedTime: Map<string, number> = new Map()
+  
+  // Zone-based asset loading
+  private loadedZones: Set<string> = new Set()
+  private zoneAssets: Map<string, Set<string>> = new Map() // zone -> set of asset IDs
+  private assetZones: Map<string, Set<string>> = new Map() // asset ID -> set of zones
+  private loadingQueue: Array<{ id: string; priority: number; loadFn: () => Promise<void> }> = []
+  private isLoading: boolean = false
 
   /**
    * Generate procedural texture
@@ -420,8 +427,11 @@ class AssetManager {
     const { preloadExpandedTextures } = await import('./expandedTextures')
     preloadExpandedTextures()
     
-    // Create texture atlas for common textures
-    await this.createTextureAtlas()
+    // Create texture atlas for common textures (especially important on mobile)
+    const { isMobileDevice } = await import('../utils/mobileOptimizations')
+    if (isMobileDevice()) {
+      await this.createTextureAtlas()
+    }
     
     // Start automatic cleanup
     this.startAutoCleanup()
@@ -429,9 +439,13 @@ class AssetManager {
   
   /**
    * Create texture atlas for performance
+   * Mobile-optimized: uses smaller atlas size (1024x1024) on mobile
    */
   private async createTextureAtlas(): Promise<void> {
     const { textureAtlasManager } = await import('../utils/textureAtlas')
+    const { getMobileOptimizationFlags } = await import('../utils/mobileOptimizations')
+    
+    const mobileFlags = getMobileOptimizationFlags()
     
     // Collect textures to atlas
     const texturesToAtlas: Array<{ id: string; texture: THREE.Texture; width: number; height: number }> = []
@@ -452,7 +466,176 @@ class AssetManager {
     }
     
     if (texturesToAtlas.length > 0) {
-      textureAtlasManager.createAtlas('common', texturesToAtlas)
+      // Use mobile-specific atlas size
+      const atlasSize = mobileFlags.isMobile ? mobileFlags.textureAtlasSize : 2048
+      textureAtlasManager.createAtlas('common', texturesToAtlas, atlasSize)
+    }
+  }
+
+  /**
+   * Load assets for a specific zone
+   * Implements lazy loading - only loads assets needed for current zone
+   */
+  async loadAssetsForZone(zoneId: string, assetIds: string[]): Promise<void> {
+    // Mark zone as loaded
+    this.loadedZones.add(zoneId)
+    
+    if (!this.zoneAssets.has(zoneId)) {
+      this.zoneAssets.set(zoneId, new Set())
+    }
+    
+    const zoneAssetSet = this.zoneAssets.get(zoneId)!
+    
+    // Add assets to zone mapping
+    for (const assetId of assetIds) {
+      zoneAssetSet.add(assetId)
+      
+      if (!this.assetZones.has(assetId)) {
+        this.assetZones.set(assetId, new Set())
+      }
+      this.assetZones.get(assetId)!.add(zoneId)
+    }
+    
+    // Load assets with priority (critical assets first)
+    const criticalAssets = assetIds.filter(id => 
+      id.includes('player') || id.includes('ground') || id.includes('sky')
+    )
+    const normalAssets = assetIds.filter(id => !criticalAssets.includes(id))
+    
+    // Load critical assets first
+    for (const assetId of criticalAssets) {
+      await this.loadAsset(assetId, 1) // Priority 1 = high
+    }
+    
+    // Load normal assets progressively
+    for (const assetId of normalAssets) {
+      this.queueAssetLoad(assetId, 2) // Priority 2 = normal
+    }
+    
+    // Process loading queue
+    this.processLoadingQueue()
+  }
+  
+  /**
+   * Unload assets for a zone when leaving it
+   */
+  unloadZoneAssets(zoneId: string): void {
+    if (!this.zoneAssets.has(zoneId)) return
+    
+    const zoneAssetSet = this.zoneAssets.get(zoneId)!
+    
+    for (const assetId of zoneAssetSet) {
+      // Check if asset is used by other zones
+      const zones = this.assetZones.get(assetId)
+      if (zones && zones.size > 1) {
+        // Asset is used by other zones, don't unload
+        zones.delete(zoneId)
+        continue
+      }
+      
+      // Asset is only used by this zone, safe to unload
+      this.unloadAsset(assetId)
+      this.assetZones.delete(assetId)
+    }
+    
+    this.zoneAssets.delete(zoneId)
+    this.loadedZones.delete(zoneId)
+  }
+  
+  /**
+   * Unload unused assets
+   */
+  unloadUnusedAssets(): void {
+    const now = Date.now()
+    const toUnload: string[] = []
+    
+    // Find assets that haven't been used recently
+    this.lastUsedTime.forEach((lastUsed, id) => {
+      if (now - lastUsed > this.UNUSED_ASSET_TIMEOUT) {
+        const refCount = this.textureRefs.get(id) || 0
+        if (refCount === 0) {
+          toUnload.push(id)
+        }
+      }
+    })
+    
+    // Unload unused assets
+    toUnload.forEach(id => this.unloadAsset(id))
+  }
+  
+  /**
+   * Load a single asset
+   */
+  private async loadAsset(assetId: string, priority: number): Promise<void> {
+    // Check if already loaded
+    if (this.textures.has(assetId) || this.materials.has(assetId)) {
+      this.incrementTextureRef(assetId)
+      return
+    }
+    
+    // For now, assets are generated procedurally
+    // In a real implementation, this would load from files
+    // This is a placeholder for the lazy loading system
+    console.log(`Loading asset: ${assetId} (priority: ${priority})`)
+  }
+  
+  /**
+   * Queue an asset for loading
+   */
+  private queueAssetLoad(assetId: string, priority: number): void {
+    this.loadingQueue.push({
+      id: assetId,
+      priority,
+      loadFn: async () => {
+        await this.loadAsset(assetId, priority)
+      }
+    })
+    
+    // Sort by priority (lower number = higher priority)
+    this.loadingQueue.sort((a, b) => a.priority - b.priority)
+  }
+  
+  /**
+   * Process loading queue progressively
+   */
+  private async processLoadingQueue(): Promise<void> {
+    if (this.isLoading || this.loadingQueue.length === 0) return
+    
+    this.isLoading = true
+    
+    // Process a few assets at a time to avoid blocking
+    const batchSize = 3
+    const batch = this.loadingQueue.splice(0, batchSize)
+    
+    await Promise.all(batch.map(item => item.loadFn()))
+    
+    this.isLoading = false
+    
+    // Continue processing if more items in queue
+    if (this.loadingQueue.length > 0) {
+      // Use setTimeout to yield to browser, preventing blocking
+      setTimeout(() => this.processLoadingQueue(), 0)
+    }
+  }
+  
+  /**
+   * Unload a specific asset
+   */
+  private unloadAsset(assetId: string): void {
+    const texture = this.textures.get(assetId)
+    if (texture) {
+      texture.dispose()
+      this.textures.delete(assetId)
+      this.textureRefs.delete(assetId)
+      this.lastUsedTime.delete(assetId)
+    }
+    
+    const material = this.materials.get(assetId)
+    if (material) {
+      material.dispose()
+      this.materials.delete(assetId)
+      this.materialRefs.delete(assetId)
+      this.lastUsedTime.delete(assetId)
     }
   }
 
@@ -480,6 +663,10 @@ class AssetManager {
     
     // Clear tracking
     this.lastUsedTime.clear()
+    this.loadedZones.clear()
+    this.zoneAssets.clear()
+    this.assetZones.clear()
+    this.loadingQueue = []
   }
 }
 

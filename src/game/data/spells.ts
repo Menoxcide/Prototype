@@ -1,5 +1,7 @@
 import { Spell } from '../types'
 
+import { SpellCategory } from './magicTraditions'
+
 export const SPELLS: Spell[] = [
   {
     id: 'quantum_bolt',
@@ -11,7 +13,8 @@ export const SPELLS: Spell[] = [
     range: 15,
     castTime: 0.3,
     icon: '⚡',
-    color: '#00ffff'
+    color: '#00ffff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'plasma_burst',
@@ -23,7 +26,8 @@ export const SPELLS: Spell[] = [
     range: 12,
     castTime: 0.5,
     icon: '💥',
-    color: '#ff00ff'
+    color: '#ff00ff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'void_strike',
@@ -35,7 +39,8 @@ export const SPELLS: Spell[] = [
     range: 18,
     castTime: 0.6,
     icon: '🌑',
-    color: '#9d00ff'
+    color: '#9d00ff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'heal_circuit',
@@ -47,7 +52,8 @@ export const SPELLS: Spell[] = [
     range: 0, // Self-cast
     castTime: 0.4,
     icon: '💚',
-    color: '#00ff00'
+    color: '#00ff00',
+    category: 'health' as SpellCategory
   },
   {
     id: 'quantum_slash',
@@ -59,7 +65,8 @@ export const SPELLS: Spell[] = [
     range: 3,
     castTime: 0.2,
     icon: '⚔️',
-    color: '#0099ff'
+    color: '#0099ff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'chain_lightning',
@@ -71,7 +78,8 @@ export const SPELLS: Spell[] = [
     range: 15,
     castTime: 0.7,
     icon: '⚡',
-    color: '#00ffff'
+    color: '#00ffff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'shield_matrix',
@@ -83,7 +91,8 @@ export const SPELLS: Spell[] = [
     range: 0,
     castTime: 0.5,
     icon: '🛡️',
-    color: '#0099ff'
+    color: '#0099ff',
+    category: 'health' as SpellCategory
   },
   {
     id: 'teleport',
@@ -95,7 +104,8 @@ export const SPELLS: Spell[] = [
     range: 10,
     castTime: 0.3,
     icon: '🌀',
-    color: '#9d00ff'
+    color: '#9d00ff',
+    category: 'manipulation' as SpellCategory
   },
   {
     id: 'meteor_strike',
@@ -107,7 +117,8 @@ export const SPELLS: Spell[] = [
     range: 20,
     castTime: 1.5,
     icon: '☄️',
-    color: '#ff00ff'
+    color: '#ff00ff',
+    category: 'combat' as SpellCategory
   },
   {
     id: 'energy_drain',
@@ -119,7 +130,8 @@ export const SPELLS: Spell[] = [
     range: 8,
     castTime: 0.4,
     icon: '🔋',
-    color: '#00ff00'
+    color: '#00ff00',
+    category: 'manipulation' as SpellCategory
   }
 ]
 

@@ -2,28 +2,105 @@ import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { isMobile } from '../data/config'
 import { triggerHapticPattern, HAPTIC_PATTERNS } from '../utils/haptics'
+import { calculateResponsiveScale, hapticFeedback } from '../utils/mobileOptimizations'
+import { createGestureRecognizer, SwipeDirection } from '../utils/gestureRecognition'
 
 export default function TouchControls() {
   const { player, getEquippedSpell, updatePlayerPosition, updatePlayerRotation, updatePlayerMana } = useGameStore()
   const joystickRef = useRef<HTMLDivElement>(null)
   const spellWheelRef = useRef<HTMLDivElement>(null)
+  const gestureAreaRef = useRef<HTMLDivElement>(null)
   const [_joystick, setJoystick] = useState<any>(null)
   const [spellCooldowns, setSpellCooldowns] = useState<Map<number, number>>(new Map())
   const moveDirectionRef = useRef({ x: 0, y: 0 })
+  const gestureRecognizerRef = useRef<ReturnType<typeof createGestureRecognizer> | null>(null)
+  
+  // Debounce state for spell casting to reduce input lag
+  const lastSpellCastTime = useRef<number>(0)
+  const SPELL_CAST_DEBOUNCE = 20 // 20ms debounce
+
+  // Setup gesture recognition for swipe gestures (dodge/dash)
+  useEffect(() => {
+    if (!isMobile() || !gestureAreaRef.current) return
+
+    gestureRecognizerRef.current = createGestureRecognizer(gestureAreaRef.current, {
+      onSwipe: (direction: SwipeDirection, distance: number, velocity: number) => {
+        if (!player) return
+        
+        // Swipe gestures for dodge/dash
+        const dashDistance = 2.0 // Distance to dash
+        const dashSpeed = 0.3 // Speed multiplier for dash
+        
+        let dashX = 0
+        let dashZ = 0
+        
+        switch (direction) {
+          case 'up':
+            dashZ = -dashDistance
+            break
+          case 'down':
+            dashZ = dashDistance
+            break
+          case 'left':
+            dashX = -dashDistance
+            break
+          case 'right':
+            dashX = dashDistance
+            break
+        }
+        
+        // Apply dash movement with debouncing
+        setTimeout(() => {
+          if (player) {
+            const newX = player.position.x + dashX * dashSpeed
+            const newZ = player.position.z + dashZ * dashSpeed
+            updatePlayerPosition({ x: newX, y: player.position.y, z: newZ })
+            hapticFeedback.medium()
+          }
+        }, 20) // 20ms debounce
+      },
+      onLongPress: (position) => {
+        // Long press for context menu (future feature)
+        hapticFeedback.warning()
+      },
+      onPinch: (scale, center) => {
+        // Pinch to zoom camera (if camera zoom is implemented)
+        // For now, just provide haptic feedback
+        if (scale > 1.1 || scale < 0.9) {
+          hapticFeedback.light()
+        }
+      }
+    })
+
+    return () => {
+      gestureRecognizerRef.current?.destroy()
+      gestureRecognizerRef.current = null
+    }
+  }, [player, updatePlayerPosition])
 
   useEffect(() => {
     if (!isMobile() || !joystickRef.current) return
 
     // Dynamically import nipplejs
     import('nipplejs').then((nipplejs) => {
-      const manager = nipplejs.default.create({
+      const       manager = nipplejs.default.create({
         zone: joystickRef.current!,
         mode: 'static',
         position: { left: '80px', bottom: '80px' },
         color: '#00ffff',
         size: 100,
-        threshold: 0.1,
-        fadeTime: 250
+        threshold: 0.05, // Lower threshold for better responsiveness
+        fadeTime: 250,
+        dynamicPage: true, // Better touch handling
+        restOpacity: 0.5, // Visual feedback
+        catchDistance: 150 // Larger catch distance for easier interaction
+      })
+
+      let lastHapticTime = 0
+      const HAPTIC_INTERVAL = 200 // Haptic feedback every 200ms max
+
+      manager.on('start', () => {
+        hapticFeedback.light()
       })
 
       manager.on('move', (_, data) => {
@@ -33,10 +110,18 @@ export default function TouchControls() {
           x: Math.cos(angle) * force,
           y: Math.sin(angle) * force
         }
+        
+        // Provide subtle haptic feedback during movement (throttled)
+        const now = Date.now()
+        if (now - lastHapticTime > HAPTIC_INTERVAL && force > 0.8) {
+          hapticFeedback.light()
+          lastHapticTime = now
+        }
       })
 
       manager.on('end', () => {
         moveDirectionRef.current = { x: 0, y: 0 }
+        hapticFeedback.light()
       })
 
       setJoystick(manager)
@@ -47,11 +132,19 @@ export default function TouchControls() {
     })
   }, [])
 
-  // Movement update loop
+  // Movement update loop with debouncing to reduce input lag
   useEffect(() => {
     if (!player) return
 
+    let lastUpdateTime = 0
+    const UPDATE_INTERVAL = 16 // ~60 FPS, but with debouncing
+
     const interval = setInterval(() => {
+      const now = Date.now()
+      // Debounce movement updates by 20ms to reduce input lag
+      if (now - lastUpdateTime < 20) return
+      lastUpdateTime = now
+
       const { x, y } = moveDirectionRef.current
       if (x !== 0 || y !== 0) {
         const speed = 0.1
@@ -62,7 +155,7 @@ export default function TouchControls() {
         updatePlayerPosition({ x: newX, y: player.position.y, z: newZ })
         updatePlayerRotation(newRotation)
       }
-    }, 16) // ~60 FPS
+    }, UPDATE_INTERVAL)
 
     return () => clearInterval(interval)
   }, [player, updatePlayerPosition, updatePlayerRotation])
@@ -87,12 +180,30 @@ export default function TouchControls() {
   }, [])
 
   const handleSpellCast = (slot: number) => {
-    if (spellCooldowns.get(slot) && spellCooldowns.get(slot)! > 0) return
+    // Debounce spell casting to reduce input lag by 20ms
+    const now = Date.now()
+    if (now - lastSpellCastTime.current < SPELL_CAST_DEBOUNCE) {
+      return
+    }
+    lastSpellCastTime.current = now
+
+    if (spellCooldowns.get(slot) && spellCooldowns.get(slot)! > 0) {
+      // Haptic feedback for cooldown
+      hapticFeedback.warning()
+      return
+    }
 
     const spell = getEquippedSpell(slot)
-    if (!spell || !player) return
+    if (!spell || !player) {
+      hapticFeedback.light()
+      return
+    }
 
-    if (player.mana < spell.manaCost) return
+    if (player.mana < spell.manaCost) {
+      // Haptic feedback for insufficient mana
+      hapticFeedback.error()
+      return
+    }
 
     // Consume mana
     updatePlayerMana(player.mana - spell.manaCost)
@@ -104,30 +215,54 @@ export default function TouchControls() {
       return newCooldowns
     })
 
-    // Haptic feedback
+    // Haptic feedback for successful spell cast
     triggerHapticPattern(HAPTIC_PATTERNS.spellCast)
+    hapticFeedback.medium()
 
-    // Queue spell cast for Game component to process
-    useGameStore.getState().queueSpellCast(spell.id)
+    // Queue spell cast for Game component to process (with debounce)
+    setTimeout(() => {
+      useGameStore.getState().queueSpellCast(spell.id)
+    }, SPELL_CAST_DEBOUNCE)
   }
 
   if (!isMobile()) return null
 
+  const uiScale = calculateResponsiveScale()
+  const buttonSize = Math.max(uiScale.buttonSize, 44) // Ensure minimum 44px touch target
+
   return (
     <div className="fixed inset-0 pointer-events-none z-20">
+      {/* Gesture recognition area (covers entire screen for swipe gestures) */}
+      <div
+        ref={gestureAreaRef}
+        className="absolute inset-0 pointer-events-auto"
+        style={{ 
+          touchAction: 'none',
+          zIndex: 10
+        }}
+      />
+      
       {/* Left Joystick */}
       <div
         ref={joystickRef}
-        className="absolute left-0 bottom-0 w-32 h-32 pointer-events-auto"
-        style={{ touchAction: 'none' }}
+        className="absolute left-0 bottom-0 pointer-events-auto"
+        style={{ 
+          touchAction: 'none',
+          width: `${uiScale.buttonSize * 2.5}px`,
+          height: `${uiScale.buttonSize * 2.5}px`,
+          zIndex: 20
+        }}
       />
 
       {/* Right Side - Spell Wheel/Hotbar */}
       <div
         ref={spellWheelRef}
         className="absolute right-4 bottom-4 pointer-events-auto"
+        style={{
+          gap: `${uiScale.spacing}px`
+        }}
       >
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col" style={{ gap: `${uiScale.spacing}px` }}>
           {[0, 1, 2, 3, 4].map(slot => {
             const spell = getEquippedSpell(slot)
             const cooldown = spellCooldowns.get(slot) || 0
@@ -139,13 +274,18 @@ export default function TouchControls() {
                 key={slot}
                 onClick={() => handleSpellCast(slot)}
                 disabled={!canCast}
-                className={`relative w-14 h-14 rounded-lg border-2 font-bold text-xl transition-all ${
+                className={`relative rounded-lg border-2 font-bold text-xl transition-all ${
                   canCast
                     ? 'bg-gray-800 border-cyan-500 hover:border-cyan-400 active:scale-95'
                     : 'bg-gray-900 border-gray-700 opacity-50'
                 }`}
                 style={{
-                  touchAction: 'manipulation'
+                  touchAction: 'manipulation',
+                  width: `${buttonSize}px`,
+                  height: `${buttonSize}px`,
+                  fontSize: `${uiScale.fontSize}px`,
+                  minWidth: '44px',
+                  minHeight: '44px'
                 }}
               >
                 {spell && (

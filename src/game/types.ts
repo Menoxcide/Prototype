@@ -18,6 +18,7 @@ export interface Player {
   maxMana: number
   guildId?: string
   guildTag?: string
+  tradition?: 'hermetic' | 'shamanic' | 'technomancer' | 'adept' | 'none'
 }
 
 export interface Spell {
@@ -31,6 +32,8 @@ export interface Spell {
   castTime: number
   icon: string
   color: string
+  category?: 'combat' | 'manipulation' | 'detection' | 'health' | 'illusion'
+  tradition?: 'hermetic' | 'shamanic' | 'technomancer' | 'adept' | 'none'
 }
 
 export interface Item {

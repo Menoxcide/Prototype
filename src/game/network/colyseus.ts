@@ -140,6 +140,40 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     // Wait for state to be initialized before setting up listeners
     await waitForStateInitialization(room)
 
+    // Additional wait to ensure MapSchema methods (onAdd, onRemove, onChange) are available
+    // Sometimes the MapSchema structure exists but methods aren't ready yet
+    await new Promise<void>((resolve) => {
+      if (!room) {
+        resolve()
+        return
+      }
+      
+      const checkMethods = () => {
+        if (!room) {
+          resolve()
+          return
+        }
+        
+        if (room.state && 
+            room.state.players && typeof room.state.players.onAdd === 'function' &&
+            room.state.enemies && typeof room.state.enemies.onAdd === 'function' &&
+            room.state.lootDrops && typeof room.state.lootDrops.onAdd === 'function') {
+          resolve()
+        } else {
+          // Check again after a short delay
+          setTimeout(checkMethods, 50)
+        }
+      }
+      
+      // Set a timeout to prevent infinite waiting
+      setTimeout(() => {
+        console.warn('MapSchema methods not fully available, proceeding anyway')
+        resolve()
+      }, 1000)
+      
+      checkMethods()
+    })
+
     // Set up room event listeners
     await setupRoomListeners(room)
 
@@ -251,13 +285,20 @@ let listenersSetup = false
 
 /**
  * Wait for room state to be fully initialized
- * Checks that state properties are MapSchema instances with onAdd methods
+ * Checks that state properties are MapSchema instances
  */
 function waitForStateInitialization(room: Room): Promise<void> {
   return new Promise((resolve) => {
     // Helper to check if a property is a valid MapSchema
+    // Check for both onAdd method (when fully initialized) and MapSchema structure ($items, $indexes)
     const isMapSchema = (obj: any): boolean => {
-      return obj && typeof obj === 'object' && typeof obj.onAdd === 'function'
+      if (!obj || typeof obj !== 'object') return false
+      // Check for MapSchema structure (has $items and $indexes properties)
+      const hasMapSchemaStructure = obj.$items !== undefined && obj.$indexes !== undefined
+      // Check for onAdd method (when fully decoded)
+      const hasOnAddMethod = typeof obj.onAdd === 'function'
+      // Either structure or method indicates it's a MapSchema
+      return hasMapSchemaStructure || hasOnAddMethod
     }
 
     // If state is already initialized with MapSchema instances, resolve immediately
@@ -269,16 +310,11 @@ function waitForStateInitialization(room: Room): Promise<void> {
       return
     }
 
-    // Listen for state change event (more reliable than polling)
-    let stateChangeHandler: (() => void) | null = null
+    // Poll for state initialization (Colyseus doesn't have a generic 'statechange' event)
     let timeoutId: number | null = null
     let checkIntervalId: number | null = null
     
     const cleanup = () => {
-      if (stateChangeHandler) {
-        room.off('statechange', stateChangeHandler)
-        stateChangeHandler = null
-      }
       if (timeoutId !== null) {
         clearTimeout(timeoutId)
         timeoutId = null
@@ -306,13 +342,7 @@ function waitForStateInitialization(room: Room): Promise<void> {
       }
     }
 
-    // Set up state change listener
-    stateChangeHandler = () => {
-      checkState()
-    }
-    room.on('statechange', stateChangeHandler)
-
-    // Also poll periodically as a fallback (every 50ms)
+    // Poll periodically to check for state initialization (every 50ms)
     checkIntervalId = window.setInterval(checkState, 50)
 
     // Set timeout (2 seconds max wait)
@@ -645,23 +675,39 @@ async function setupRoomListeners(room: Room) {
 
   // Validate state properties exist and are MapSchema instances before accessing them
   // Do this BEFORE setting listenersSetup = true to ensure we don't mark as setup if validation fails
+  // Check for both MapSchema structure ($items, $indexes) and onAdd method
   const isMapSchema = (obj: any): boolean => {
-    return obj && typeof obj === 'object' && typeof obj.onAdd === 'function'
+    if (!obj || typeof obj !== 'object') return false
+    // Check for MapSchema structure (has $items and $indexes properties)
+    const hasMapSchemaStructure = obj.$items !== undefined && obj.$indexes !== undefined
+    // Check for onAdd method (when fully decoded)
+    const hasOnAddMethod = typeof obj.onAdd === 'function'
+    // Either structure or method indicates it's a MapSchema
+    return hasMapSchemaStructure || hasOnAddMethod
   }
 
+  // At this point, we've already waited for methods to be available
+  // But double-check to be safe
   if (!room.state.players || !isMapSchema(room.state.players)) {
-    console.error('room.state.players is not initialized or not a MapSchema', room.state.players)
+    console.error('room.state.players is not initialized or not a MapSchema after waiting', room.state.players)
+    // Wait a bit more and retry once as fallback
+    setTimeout(() => {
+      if (room && room.state && isMapSchema(room.state.players)) {
+        console.log('room.state.players became available, retrying listener setup')
+        setupRoomListeners(room)
+      }
+    }, 200)
     return
   }
 
   if (!room.state.enemies || !isMapSchema(room.state.enemies)) {
-    console.error('room.state.enemies is not initialized or not a MapSchema', room.state.enemies)
-    return
+    console.warn('room.state.enemies is not initialized or not a MapSchema, continuing anyway', room.state.enemies)
+    // Continue - enemies might not be critical for initial setup
   }
 
   if (!room.state.lootDrops || !isMapSchema(room.state.lootDrops)) {
-    console.error('room.state.lootDrops is not initialized or not a MapSchema', room.state.lootDrops)
-    return
+    console.warn('room.state.lootDrops is not initialized or not a MapSchema, continuing anyway', room.state.lootDrops)
+    // Continue - lootDrops might not be critical for initial setup
   }
 
   // Now set up state listeners AFTER message handlers are registered and validation passes

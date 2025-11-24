@@ -2,6 +2,150 @@
  * Mobile Optimizations - Haptic feedback, responsive UI, battery optimization, etc.
  */
 
+import { isMobile } from '../data/config'
+import { getQualityManager, setQualityPreset, QualityPreset } from './qualitySettings'
+
+/**
+ * Enhanced mobile device detection
+ */
+export function isMobileDevice(): boolean {
+  return isMobile()
+}
+
+/**
+ * Mobile optimization flags
+ */
+export interface MobileOptimizationFlags {
+  isMobile: boolean
+  targetFPS: 30 | 60
+  enablePostProcessing: boolean
+  enableShadows: boolean
+  enableAntialiasing: boolean
+  textureAtlasSize: 1024 | 2048
+  devicePixelRatio: 1 | 2
+  lodMultiplier: number
+  particleLimit: number
+  renderDistanceMultiplier: number
+  batteryOptimized: boolean
+  networkOptimized: boolean
+}
+
+/**
+ * Get mobile optimization flags based on device capabilities
+ */
+export function getMobileOptimizationFlags(): MobileOptimizationFlags {
+  const mobile = isMobileDevice()
+  
+  if (!mobile) {
+    // Desktop defaults
+    return {
+      isMobile: false,
+      targetFPS: 60,
+      enablePostProcessing: true,
+      enableShadows: true,
+      enableAntialiasing: true,
+      textureAtlasSize: 2048,
+      devicePixelRatio: 2,
+      lodMultiplier: 1.0,
+      particleLimit: 200,
+      renderDistanceMultiplier: 1.0,
+      batteryOptimized: false,
+      networkOptimized: false
+    }
+  }
+
+  // Check battery level
+  const batteryLevel = batteryMonitor.getLevel()
+  const isCharging = batteryMonitor.isCharging()
+  const batteryOptimized = batteryLevel !== null && batteryLevel < 0.2 && !isCharging
+
+  // Check network connection
+  const networkType = networkMonitor.getConnectionType()
+  const effectiveType = networkMonitor.getEffectiveType()
+  const networkOptimized = networkType === 'cellular' || 
+                          effectiveType === 'slow-2g' || 
+                          effectiveType === '2g' ||
+                          effectiveType === '3g'
+
+  // Determine target FPS based on device capabilities
+  // High-end mobile can handle 60fps, low-end should use 30fps
+  const screenWidth = window.innerWidth
+  const screenHeight = window.innerHeight
+  const pixelCount = screenWidth * screenHeight
+  const targetFPS: 30 | 60 = (pixelCount < 2000000 && !batteryOptimized) ? 60 : 30
+
+  // Apply battery and network optimizations
+  const lodMultiplier = batteryOptimized || networkOptimized ? 0.5 : 0.7
+  const renderDistanceMultiplier = batteryOptimized || networkOptimized ? 0.6 : 0.8
+  const particleLimit = batteryOptimized ? 25 : (networkOptimized ? 35 : 50)
+  const enablePostProcessing = !batteryOptimized && !networkOptimized
+  const enableShadows = !batteryOptimized && targetFPS === 60
+
+  return {
+    isMobile: true,
+    targetFPS,
+    enablePostProcessing,
+    enableShadows,
+    enableAntialiasing: false,
+    textureAtlasSize: batteryOptimized ? 1024 : 1024, // Always use 1024 on mobile
+    devicePixelRatio: 1, // Use 1 on mobile for better performance
+    lodMultiplier,
+    particleLimit,
+    renderDistanceMultiplier,
+    batteryOptimized,
+    networkOptimized
+  }
+}
+
+/**
+ * Apply mobile optimizations to quality settings
+ */
+export function applyMobileOptimizations(): void {
+  if (!isMobileDevice()) return
+
+  const flags = getMobileOptimizationFlags()
+  const qualityManager = getQualityManager()
+  const currentSettings = qualityManager.getSettings()
+
+  // Auto-set quality preset to 'low' on mobile if not already set
+  if (currentSettings.preset !== 'low') {
+    setQualityPreset('low')
+  }
+
+  // Apply mobile-specific overrides
+  qualityManager.updateSettings({
+    postProcessing: flags.enablePostProcessing,
+    shadows: flags.enableShadows,
+    antialiasing: flags.enableAntialiasing,
+    particleCount: flags.particleLimit,
+    renderDistance: Math.floor(currentSettings.renderDistance * flags.renderDistanceMultiplier),
+    lodDistance: {
+      high: Math.floor(currentSettings.lodDistance.high * flags.lodMultiplier),
+      medium: Math.floor(currentSettings.lodDistance.medium * flags.lodMultiplier),
+      low: Math.floor(currentSettings.lodDistance.low * flags.lodMultiplier)
+    }
+  })
+}
+
+// Auto-apply mobile optimizations on module load if on mobile
+if (isMobileDevice()) {
+  // Apply optimizations after a short delay to ensure quality manager is initialized
+  setTimeout(() => {
+    applyMobileOptimizations()
+    
+    // Monitor battery and network changes
+    batteryMonitor.onLevelChange((level) => {
+      if (level < 0.2 && !batteryMonitor.isCharging()) {
+        applyMobileOptimizations()
+      }
+    })
+
+    networkMonitor.onConnectionChange(() => {
+      applyMobileOptimizations()
+    })
+  }, 100)
+}
+
 export interface HapticFeedback {
   light(): void
   medium(): void
@@ -220,4 +364,79 @@ class AppLifecycleManagerImpl implements AppLifecycleManager {
 }
 
 export const appLifecycleManager = new AppLifecycleManagerImpl()
+
+/**
+ * Frame rate capping utility
+ */
+export interface FrameRateCap {
+  cap(targetFPS: number, callback: () => void): () => void
+}
+
+class FrameRateCapImpl implements FrameRateCap {
+  private lastTime: number = 0
+  private frameId: number | null = null
+  private isRunning: boolean = false
+
+  cap(targetFPS: number, callback: () => void): () => void {
+    if (this.isRunning) {
+      this.stop()
+    }
+
+    this.isRunning = true
+    const interval = 1000 / targetFPS
+    this.lastTime = performance.now()
+
+    const frame = (currentTime: number) => {
+      if (!this.isRunning) return
+
+      const deltaTime = currentTime - this.lastTime
+
+      if (deltaTime >= interval) {
+        this.lastTime = currentTime - (deltaTime % interval)
+        callback()
+      }
+
+      this.frameId = requestAnimationFrame(frame)
+    }
+
+    this.frameId = requestAnimationFrame(frame)
+
+    // Return stop function
+    return () => this.stop()
+  }
+
+  private stop(): void {
+    this.isRunning = false
+    if (this.frameId !== null) {
+      cancelAnimationFrame(this.frameId)
+      this.frameId = null
+    }
+  }
+}
+
+export const frameRateCap = new FrameRateCapImpl()
+
+/**
+ * Create a throttled version of a function that respects frame rate cap
+ */
+export function createThrottledFrameCallback(
+  targetFPS: number,
+  callback: () => void
+): () => void {
+  if (!isMobileDevice() || targetFPS >= 60) {
+    // No throttling needed for desktop or high FPS
+    return callback
+  }
+
+  let lastTime = 0
+  const interval = 1000 / targetFPS
+
+  return () => {
+    const currentTime = performance.now()
+    if (currentTime - lastTime >= interval) {
+      lastTime = currentTime
+      callback()
+    }
+  }
+}
 

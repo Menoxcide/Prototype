@@ -1,4 +1,5 @@
 import { getPerformanceConfig, isMobile } from '../data/config'
+import { getMobileOptimizationFlags } from '../utils/mobileOptimizations'
 
 export interface PerformanceSettings {
   maxParticles: number
@@ -59,11 +60,28 @@ export function adjustPerformanceForFPS(currentFPS: number) {
 }
 
 export function getLODLevel(distance: number, renderDistance: number): 'high' | 'medium' | 'low' {
-  if (!getPerformanceSettings().enableLOD) return 'high'
+  const settings = getPerformanceSettings()
+  if (!settings.enableLOD) return 'high'
   
-  const ratio = distance / renderDistance
-  if (ratio < 0.3) return 'high'
-  if (ratio < 0.7) return 'medium'
-  return 'low'
+  // Apply mobile-specific LOD multipliers for more aggressive LOD switching
+  const mobileFlags = getMobileOptimizationFlags()
+  const effectiveRenderDistance = mobileFlags.isMobile 
+    ? renderDistance * mobileFlags.lodMultiplier 
+    : renderDistance
+  
+  // Adjust distance thresholds for mobile (switch to lower LOD sooner)
+  const ratio = distance / effectiveRenderDistance
+  
+  if (mobileFlags.isMobile) {
+    // More aggressive LOD on mobile: switch to medium at 20%, low at 50%
+    if (ratio < 0.2) return 'high'
+    if (ratio < 0.5) return 'medium'
+    return 'low'
+  } else {
+    // Desktop: switch to medium at 30%, low at 70%
+    if (ratio < 0.3) return 'high'
+    if (ratio < 0.7) return 'medium'
+    return 'low'
+  }
 }
 

@@ -564,7 +564,7 @@ export class NexusRoom extends Room<NexusRoomState> {
       player.name = requestedName
       player.race = options.race || 'human'
       player.x = (Math.random() - 0.5) * 10
-      player.y = 0
+      player.y = 1 // Y=1 to stand on ground (ground is at Y=0)
       player.z = (Math.random() - 0.5) * 10
       player.rotation = 0
       player.health = 100

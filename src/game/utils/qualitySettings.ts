@@ -3,6 +3,8 @@
  * Supports dynamic quality adjustment based on performance
  */
 
+import { isMobile } from '../data/config'
+
 export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra'
 
 export interface QualitySettings {
@@ -104,16 +106,24 @@ class QualitySettingsManager {
   private listeners: Set<(settings: QualitySettings) => void> = new Set()
 
   constructor() {
-    // Load from localStorage or default to medium
+    // Load from localStorage or default based on device type
     const saved = localStorage.getItem('qualitySettings')
+    const defaultPreset = isMobile() ? 'low' : 'medium'
+    
     if (saved) {
       try {
-        this.currentSettings = { ...QUALITY_PRESETS.medium, ...JSON.parse(saved) }
+        const parsed = JSON.parse(saved)
+        // If on mobile and saved preset is not low, override to low
+        if (isMobile() && parsed.preset !== 'low') {
+          this.currentSettings = QUALITY_PRESETS.low
+        } else {
+          this.currentSettings = { ...QUALITY_PRESETS[defaultPreset], ...parsed }
+        }
       } catch {
-        this.currentSettings = QUALITY_PRESETS.medium
+        this.currentSettings = QUALITY_PRESETS[defaultPreset]
       }
     } else {
-      this.currentSettings = QUALITY_PRESETS.medium
+      this.currentSettings = QUALITY_PRESETS[defaultPreset]
     }
   }
 

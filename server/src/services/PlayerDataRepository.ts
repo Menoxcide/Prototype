@@ -137,7 +137,7 @@ export class PlayerDataRepository {
       xp: 0,
       xpToNext: 100,
       credits: 0,
-      position: { x: 0, y: 0, z: 0 },
+      position: { x: 0, y: 1, z: 0 }, // Y=1 to stand on ground (ground is at Y=0)
       rotation: 0,
       health: 100,
       maxHealth: 100,

@@ -28,18 +28,23 @@ export interface TextureAtlas {
 
 class TextureAtlasManager {
   private atlases: Map<string, TextureAtlas> = new Map()
-  private readonly ATLAS_SIZE = 2048 // 2048x2048 atlas
+  private readonly DEFAULT_ATLAS_SIZE = 2048 // 2048x2048 atlas for desktop
+  private readonly MOBILE_ATLAS_SIZE = 1024 // 1024x1024 atlas for mobile
 
   /**
    * Create a texture atlas from multiple textures
    */
   createAtlas(
     atlasId: string,
-    textures: Array<{ id: string; texture: THREE.Texture; width: number; height: number }>
+    textures: Array<{ id: string; texture: THREE.Texture; width: number; height: number }>,
+    atlasSize?: number
   ): TextureAtlas {
+    // Use mobile size if not specified and on mobile device
+    const size = atlasSize || (this.isMobile() ? this.MOBILE_ATLAS_SIZE : this.DEFAULT_ATLAS_SIZE)
+    
     const canvas = document.createElement('canvas')
-    canvas.width = this.ATLAS_SIZE
-    canvas.height = this.ATLAS_SIZE
+    canvas.width = size
+    canvas.height = size
     const ctx = canvas.getContext('2d')!
 
     const entries = new Map<string, AtlasEntry>()
@@ -50,7 +55,7 @@ class TextureAtlasManager {
     // Pack textures into atlas
     for (const { id, texture, width, height } of textures) {
       // Check if texture fits in current row
-      if (currentX + width > this.ATLAS_SIZE) {
+      if (currentX + width > size) {
         // Move to next row
         currentY += rowHeight
         currentX = 0
@@ -58,7 +63,7 @@ class TextureAtlasManager {
       }
 
       // Check if texture fits in atlas
-      if (currentY + height > this.ATLAS_SIZE) {
+      if (currentY + height > size) {
         console.warn(`Texture ${id} does not fit in atlas ${atlasId}`)
         continue
       }
@@ -73,10 +78,10 @@ class TextureAtlasManager {
       }
 
       // Calculate UVs
-      const u1 = currentX / this.ATLAS_SIZE
-      const v1 = currentY / this.ATLAS_SIZE
-      const u2 = (currentX + width) / this.ATLAS_SIZE
-      const v2 = (currentY + height) / this.ATLAS_SIZE
+      const u1 = currentX / size
+      const v1 = currentY / size
+      const u2 = (currentX + width) / size
+      const v2 = (currentY + height) / size
 
       entries.set(id, {
         id,
@@ -100,12 +105,21 @@ class TextureAtlasManager {
     const atlas: TextureAtlas = {
       texture: atlasTexture,
       entries,
-      width: this.ATLAS_SIZE,
-      height: this.ATLAS_SIZE
+      width: size,
+      height: size
     }
 
     this.atlases.set(atlasId, atlas)
     return atlas
+  }
+
+  /**
+   * Check if running on mobile device
+   */
+  private isMobile(): boolean {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    ) || window.innerWidth < 768
   }
 
   /**
