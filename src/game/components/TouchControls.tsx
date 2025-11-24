@@ -24,7 +24,7 @@ export default function TouchControls() {
     if (!isMobile() || !gestureAreaRef.current) return
 
     gestureRecognizerRef.current = createGestureRecognizer(gestureAreaRef.current, {
-      onSwipe: (direction: SwipeDirection, distance: number, velocity: number) => {
+      onSwipe: (direction: SwipeDirection, _distance: number, _velocity: number) => {
         if (!player) return
         
         // Swipe gestures for dodge/dash
@@ -59,11 +59,11 @@ export default function TouchControls() {
           }
         }, 20) // 20ms debounce
       },
-      onLongPress: (position) => {
+      onLongPress: (_position) => {
         // Long press for context menu (future feature)
         hapticFeedback.warning()
       },
-      onPinch: (scale, center) => {
+      onPinch: (scale, _center) => {
         // Pinch to zoom camera (if camera zoom is implemented)
         // For now, just provide haptic feedback
         if (scale > 1.1 || scale < 0.9) {
@@ -90,10 +90,7 @@ export default function TouchControls() {
         color: '#00ffff',
         size: 100,
         threshold: 0.05, // Lower threshold for better responsiveness
-        fadeTime: 250,
-        dynamicPage: true, // Better touch handling
-        restOpacity: 0.5, // Visual feedback
-        catchDistance: 150 // Larger catch distance for easier interaction
+        fadeTime: 250
       })
 
       let lastHapticTime = 0

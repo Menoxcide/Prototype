@@ -5,11 +5,9 @@
  */
 
 import { useState } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { useGameStore } from '../store/useGameStore'
 import { isMobile } from '../data/config'
-import { calculateResponsiveScale, hapticFeedback } from '../utils/mobileOptimizations'
-import { NetworkHost, ICE, getICEColor } from '../systems/DeckingSystem'
+import { hapticFeedback } from '../utils/mobileOptimizations'
+import { NetworkHost, getICEColor } from '../systems/DeckingSystem'
 
 interface DeckingViewProps {
   host: NetworkHost
@@ -19,7 +17,6 @@ interface DeckingViewProps {
 
 export default function DeckingView({ host, onAction, onClose }: DeckingViewProps) {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const uiScale = calculateResponsiveScale()
 
   if (!isMobile()) return null
 

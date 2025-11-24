@@ -41,7 +41,7 @@ export default function EmoteMenu() {
           x: typeof window !== 'undefined' ? 16 : 16, 
           y: typeof window !== 'undefined' ? window.innerHeight - 128 : 400 
         }}
-        defaultSize={{ width: 'auto', height: 'auto' }}
+        defaultSize={{ width: 200, height: 150 }}
         resizable={false}
         draggable={true}
         className="pointer-events-auto z-30"

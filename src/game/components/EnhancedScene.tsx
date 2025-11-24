@@ -433,7 +433,7 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
   }
 
   // Use mobile-specific DPR (1 on mobile, [1, 2] on desktop)
-  const dpr = isMobile ? mobileFlags.devicePixelRatio : [1, 2]
+  const dpr: number | [number, number] = isMobile ? mobileFlags.devicePixelRatio : [1, 2]
 
   return (
     <Canvas

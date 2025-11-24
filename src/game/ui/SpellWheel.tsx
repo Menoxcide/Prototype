@@ -7,7 +7,7 @@
 import { useMemo } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { SPELLS } from '../data/spells'
-import { SPELL_CATEGORIES, SpellCategory } from '../data/magicTraditions'
+import { SpellCategory } from '../data/magicTraditions'
 import { getTradition } from '../data/magicTraditions'
 import { calculateResponsiveScale, hapticFeedback } from '../utils/mobileOptimizations'
 import { isMobile } from '../data/config'

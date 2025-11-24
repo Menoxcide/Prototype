@@ -20,7 +20,6 @@ class PerformanceProfiler {
   private fpsHistory: number[] = []
   private frameTimeHistory: number[] = []
   private lastFrameTime = performance.now()
-  private frameCount = 0
   private metrics: PerformanceMetrics = {
     fps: 60,
     frameTime: 16.67,
@@ -74,8 +73,8 @@ class PerformanceProfiler {
       this.metrics.frameTime = Math.round(avgFrameTime * 100) / 100
 
       // Get Three.js renderer info if available
-      if (window.threeRenderer) {
-        const info = (window.threeRenderer as any).info
+      if ((window as any).threeRenderer) {
+        const info = ((window as any).threeRenderer as any).info
         if (info) {
           this.metrics.drawCalls = info.render.calls
           this.metrics.triangles = info.render.triangles

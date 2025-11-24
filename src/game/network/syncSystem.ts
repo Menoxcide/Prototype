@@ -1,6 +1,6 @@
 import { useGameStore } from '../store/useGameStore'
 import { sendMovement, sendSpellCast } from './colyseus'
-import { initializeMessageBatcher, addMessage, flushMessages, getPendingCount } from './messageBatcher'
+import { initializeMessageBatcher, addMessage, flushMessages } from './messageBatcher'
 import { initializePrediction, predictMovement, reconcileWithServer, getPredictedState } from './prediction'
 import { isMobileDevice, getMobileOptimizationFlags } from '../utils/mobileOptimizations'
 
@@ -190,7 +190,7 @@ export function batchStateUpdate(key: string, value: any): void {
     pendingStateUpdates.clear()
     
     // Apply updates to store (shallow equality check already done in messageBatcher)
-    updates.forEach(([key, value]) => {
+    updates.forEach(([_key, _value]) => {
       // This would be called by the store update functions
       // The actual implementation depends on what state needs updating
     })

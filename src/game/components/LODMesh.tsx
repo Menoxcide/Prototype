@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useGameStore } from '../store/useGameStore'
-import { getLODLevel, getPerformanceSettings } from '../systems/performanceSystem'
+import { getLODLevel } from '../systems/performanceSystem'
 import { getQualitySettings } from '../utils/qualitySettings'
 import { getMobileOptimizationFlags } from '../utils/mobileOptimizations'
 
@@ -13,7 +13,6 @@ interface LODMeshProps {
 
 export default function LODMesh({ position, highDetail, mediumDetail, lowDetail }: LODMeshProps) {
   const { player } = useGameStore()
-  const performanceSettings = getPerformanceSettings()
   const qualitySettings = getQualitySettings()
   const mobileFlags = getMobileOptimizationFlags()
 

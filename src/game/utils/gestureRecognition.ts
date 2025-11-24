@@ -148,7 +148,7 @@ export class GestureRecognizer {
     }
   }
 
-  private handleTouchEnd(event: TouchEvent): void {
+  private handleTouchEnd(_event: TouchEvent): void {
     if (!this.touchState || !this.isEnabled) return
 
     // Clear long press timer

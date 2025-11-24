@@ -3,7 +3,7 @@
  */
 
 import { isMobile } from '../data/config'
-import { getQualityManager, setQualityPreset, QualityPreset } from './qualitySettings'
+import { getQualityManager, setQualityPreset } from './qualitySettings'
 
 /**
  * Enhanced mobile device detection

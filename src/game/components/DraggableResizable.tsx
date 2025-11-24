@@ -73,8 +73,8 @@ export default function DraggableResizable({
     return {
       x: defaultPosition.x,
       y: defaultPosition.y,
-      width: defaultSize?.width,
-      height: defaultSize?.height,
+      width: defaultSize?.width ?? 400,
+      height: defaultSize?.height ?? 300,
       isMinimized: false
     }
   }
@@ -202,7 +202,6 @@ export default function DraggableResizable({
     if (!isResizingRef.current || !componentRef.current) return
 
     const bounds = getBounds()
-    const rect = componentRef.current.getBoundingClientRect()
     const { edge, width: startWidth, height: startHeight, x: startX, y: startY } = resizeStartRef.current
 
     let newWidth = startWidth

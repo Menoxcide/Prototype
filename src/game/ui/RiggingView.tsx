@@ -4,10 +4,9 @@
  */
 
 import { useState } from 'react'
-import { useGameStore } from '../store/useGameStore'
 import { isMobile } from '../data/config'
-import { calculateResponsiveScale, hapticFeedback } from '../utils/mobileOptimizations'
-import { DroneSwarm, ControlTier } from '../systems/RiggerSystem'
+import { hapticFeedback } from '../utils/mobileOptimizations'
+import { DroneSwarm } from '../systems/RiggerSystem'
 
 interface RiggingViewProps {
   swarm: DroneSwarm
@@ -17,7 +16,6 @@ interface RiggingViewProps {
 
 export default function RiggingView({ swarm, onDroneControl, onClose }: RiggingViewProps) {
   const [selectedDrone, setSelectedDrone] = useState<string | null>(null)
-  const uiScale = calculateResponsiveScale()
 
   if (!isMobile()) return null
 

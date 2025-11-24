@@ -99,7 +99,7 @@ export default function ProximityVoice() {
         x: typeof window !== 'undefined' ? window.innerWidth - 200 : 200, 
         y: typeof window !== 'undefined' ? window.innerHeight - 200 : 400 
       }}
-      defaultSize={{ width: 'auto', height: 'auto' }}
+      defaultSize={{ width: 200, height: 150 }}
       resizable={false}
       draggable={true}
       className="pointer-events-auto z-30"

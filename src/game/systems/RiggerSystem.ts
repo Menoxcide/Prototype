@@ -72,7 +72,7 @@ export function calculateDroneDefense(drone: Drone): number {
     case 'remote':
       return drone.piloting + 2
     case 'autopilot':
-      return drone.piloting + drone.autosoft.evasion || 0
+      return drone.piloting + (drone.autosoft?.evasion ?? 0)
     default:
       return drone.piloting
   }
