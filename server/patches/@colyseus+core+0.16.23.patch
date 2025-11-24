@@ -1,0 +1,11 @@
+diff --git a/node_modules/@colyseus/core/build/utils/Utils.mjs b/node_modules/@colyseus/core/build/utils/Utils.mjs
+index d4ae4d9..a3306a4 100644
+--- a/node_modules/@colyseus/core/build/utils/Utils.mjs
++++ b/node_modules/@colyseus/core/build/utils/Utils.mjs
+@@ -1,5 +1,5 @@
+ // packages/core/src/utils/Utils.ts
+-import nanoid from "nanoid";
++import { nanoid } from "nanoid";
+ import { EventEmitter } from "events";
+ import { debugAndPrintError } from "../Debug.mjs";
+ var REMOTE_ROOM_SHORT_TIMEOUT = Number(process.env.COLYSEUS_PRESENCE_SHORT_TIMEOUT || 2e3);

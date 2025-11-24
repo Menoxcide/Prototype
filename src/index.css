@@ -1,0 +1,339 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Orbitron', monospace;
+  background: #0a0a0a;
+  color: #00ffff;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+/* Cyberpunk neon glow effects */
+.neon-glow {
+  text-shadow: 
+    0 0 5px currentColor,
+    0 0 10px currentColor,
+    0 0 15px currentColor,
+    0 0 20px currentColor;
+}
+
+.neon-border {
+  box-shadow: 
+    0 0 5px currentColor,
+    0 0 10px currentColor,
+    inset 0 0 5px currentColor;
+}
+
+/* Mobile touch optimizations */
+@media (max-width: 768px) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #00ffff;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff00ff;
+}
+
+/* Enhanced Cyberpunk Effects */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.8;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
+}
+
+/* Enhanced Text Effects */
+.text-cyberpunk {
+  font-family: 'Orbitron', monospace;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 
+    0 0 10px currentColor,
+    0 0 20px currentColor,
+    0 0 30px currentColor;
+}
+
+/* Glitch Effect */
+@keyframes glitch {
+  0%, 100% {
+    transform: translate(0);
+  }
+  20% {
+    transform: translate(-2px, 2px);
+  }
+  40% {
+    transform: translate(-2px, -2px);
+  }
+  60% {
+    transform: translate(2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
+}
+
+.glitch-effect {
+  animation: glitch 0.3s infinite;
+}
+
+/* Holographic Effect */
+@keyframes hologram {
+  0%, 100% {
+    opacity: 1;
+    filter: hue-rotate(0deg);
+  }
+  50% {
+    opacity: 0.8;
+    filter: hue-rotate(90deg);
+  }
+}
+
+.hologram-effect {
+  animation: hologram 3s ease-in-out infinite;
+}
+
+/* Energy Pulse */
+@keyframes energy-pulse {
+  0%, 100% {
+    box-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 20px currentColor, 0 0 40px currentColor, 0 0 60px currentColor;
+  }
+}
+
+.energy-pulse {
+  animation: energy-pulse 2s ease-in-out infinite;
+}
+
+/* Matrix Rain Effect (for background) */
+@keyframes matrix-rain {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+/* Enhanced Button Hover Effects */
+.button-cyberpunk {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.button-cyberpunk::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.button-cyberpunk:hover::after {
+  width: 300px;
+  height: 300px;
+}
+
+/* Enhanced Input Focus */
+.input-cyberpunk:focus {
+  outline: none;
+  border-color: #00ffff;
+  box-shadow: 
+    0 0 10px rgba(0, 255, 255, 0.5),
+    inset 0 0 10px rgba(0, 255, 255, 0.1);
+}
+
+/* Loading Animation */
+@keyframes loading-dots {
+  0%, 20% {
+    content: '.';
+  }
+  40% {
+    content: '..';
+  }
+  60%, 100% {
+    content: '...';
+  }
+}
+
+.loading::after {
+  content: '';
+  animation: loading-dots 1.5s steps(4, end) infinite;
+}
+
+/* Particle Background */
+.particle-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(255, 0, 255, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 40% 20%, rgba(157, 0, 255, 0.1) 0%, transparent 50%);
+}
+
+/* Enhanced Selection */
+::selection {
+  background: rgba(0, 255, 255, 0.3);
+  color: #00ffff;
+}
+
+::-moz-selection {
+  background: rgba(0, 255, 255, 0.3);
+  color: #00ffff;
+}
+
+/* Screen reader only - visually hidden but accessible to assistive technologies */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Draggable Resizable UI Component Styles */
+.draggable-resizable {
+  transition: box-shadow 0.2s ease;
+}
+
+.draggable-resizable.hovered {
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+.draggable-resizable .drag-handle {
+  transition: background-color 0.2s ease;
+}
+
+.draggable-resizable .drag-handle:hover {
+  background-color: rgba(0, 255, 255, 0.1) !important;
+}
+
+.draggable-resizable .drag-handle:active {
+  background-color: rgba(0, 255, 255, 0.2) !important;
+}
+
+/* Resize handles */
+.resize-handle {
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+
+.draggable-resizable.hovered .resize-handle {
+  opacity: 0.5;
+}
+
+.resize-handle:hover {
+  opacity: 1 !important;
+  background-color: rgba(0, 255, 255, 0.6) !important;
+}
+
+.resize-handle:active {
+  background-color: rgba(0, 255, 255, 0.8) !important;
+}
+
+/* Corner resize handles */
+.resize-handle-nw,
+.resize-handle-ne,
+.resize-handle-sw,
+.resize-handle-se {
+  border: 2px solid transparent;
+  border-radius: 2px;
+}
+
+.draggable-resizable.hovered .resize-handle-nw,
+.draggable-resizable.hovered .resize-handle-ne,
+.draggable-resizable.hovered .resize-handle-sw,
+.draggable-resizable.hovered .resize-handle-se {
+  border-color: rgba(0, 255, 255, 0.5);
+  background-color: rgba(0, 255, 255, 0.2);
+}
+
+/* Edge resize handles */
+.resize-handle-n,
+.resize-handle-s,
+.resize-handle-w,
+.resize-handle-e {
+  background-color: transparent;
+}
+
+.draggable-resizable.hovered .resize-handle-n,
+.draggable-resizable.hovered .resize-handle-s {
+  background-color: rgba(0, 255, 255, 0.3);
+}
+
+.draggable-resizable.hovered .resize-handle-w,
+.draggable-resizable.hovered .resize-handle-e {
+  background-color: rgba(0, 255, 255, 0.3);
+}
+
