@@ -69,8 +69,8 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
   const selectedRaceData = RACES[selectedRace]
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center p-4 z-50">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-md w-full neon-border">
+    <div className="fixed inset-0 bg-black flex items-start justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-md w-full neon-border my-4">
         <h1 className="text-3xl font-bold text-cyan-400 neon-glow mb-6 text-center">
           NEX://VOID
         </h1>

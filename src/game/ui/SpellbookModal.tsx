@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { SPELLS } from '../data/spells'
 
@@ -9,7 +10,22 @@ export default function SpellbookModal() {
     setEquippedSpell
   } = useGameStore()
 
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null)
+
   if (!isSpellbookOpen) return null
+
+  const handleSpellClick = (spellId: string) => {
+    if (selectedSlot !== null) {
+      // Assign to selected slot
+      setEquippedSpell(selectedSlot, spellId)
+      setSelectedSlot(null) // Clear selection after assigning
+    } else {
+      // Fallback: Find first empty slot or replace last slot
+      const emptySlot = equippedSpells.findIndex(s => !s)
+      const slot = emptySlot >= 0 ? emptySlot : equippedSpells.length - 1
+      setEquippedSpell(slot, spellId)
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
@@ -24,6 +40,12 @@ export default function SpellbookModal() {
           </button>
         </div>
 
+        {selectedSlot !== null && (
+          <div className="mb-3 p-2 bg-cyan-500/20 border border-cyan-500 rounded text-cyan-300 text-sm">
+            Selected: Slot {selectedSlot + 1} - Click a spell to assign it
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           {/* Equipped Spells */}
           <div>
@@ -31,11 +53,17 @@ export default function SpellbookModal() {
             <div className="space-y-2">
               {equippedSpells.map((spellId, slot) => {
                 const spell = SPELLS.find(s => s.id === spellId)
+                const isSelected = selectedSlot === slot
 
                 return (
-                  <div
+                  <button
                     key={slot}
-                    className="bg-gray-800 border-2 border-cyan-500 rounded-lg p-3"
+                    onClick={() => setSelectedSlot(slot)}
+                    className={`w-full text-left bg-gray-800 border-2 rounded-lg p-3 transition-all ${
+                      isSelected
+                        ? 'border-cyan-400 bg-cyan-500/20 shadow-lg shadow-cyan-500/50'
+                        : 'border-cyan-500 hover:border-cyan-400'
+                    }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-2xl">{spell?.icon || '❓'}</span>
@@ -50,7 +78,10 @@ export default function SpellbookModal() {
                         )}
                       </div>
                     </div>
-                  </div>
+                    {isSelected && (
+                      <div className="text-xs text-cyan-400 mt-1">Click a spell below to assign</div>
+                    )}
+                  </button>
                 )
               })}
             </div>
@@ -63,12 +94,7 @@ export default function SpellbookModal() {
               {SPELLS.map(spell => (
                 <button
                   key={spell.id}
-                  onClick={() => {
-                    // Find first empty slot or replace last slot
-                    const emptySlot = equippedSpells.findIndex(s => !s)
-                    const slot = emptySlot >= 0 ? emptySlot : equippedSpells.length - 1
-                    setEquippedSpell(slot, spell.id)
-                  }}
+                  onClick={() => handleSpellClick(spell.id)}
                   className="w-full text-left bg-gray-800 border border-cyan-500 rounded-lg p-3 hover:border-cyan-400 transition-all"
                 >
                   <div className="flex items-center gap-2 mb-2">

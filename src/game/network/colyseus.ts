@@ -123,7 +123,24 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       firebaseToken: idToken || undefined // Send Firebase token for verification
     })
 
-    console.log('Joined room:', room.sessionId)
+    // Validate room object is properly initialized
+    if (!room) {
+      throw new Error('Failed to create room: room object is null')
+    }
+
+    if (typeof room.onStateChange !== 'function' || typeof room.onMessage !== 'function') {
+      console.error('Room object missing required methods:', {
+        hasOnStateChange: typeof room.onStateChange === 'function',
+        hasOnMessage: typeof room.onMessage === 'function',
+        roomType: typeof room,
+        roomKeys: room ? Object.keys(room) : []
+      })
+      throw new Error('Room object is not properly initialized - missing required methods')
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('Joined room:', room.sessionId)
+    }
 
     // Register message handlers IMMEDIATELY to prevent "not registered" warnings
     // These must be registered before any messages can arrive
@@ -137,49 +154,220 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       }
     })
 
-    // Wait for state to be initialized before setting up listeners
-    await waitForStateInitialization(room)
+    // Register chat handler EARLY to ensure it's always available
+    room.onMessage('chat', (message: { playerId: string; playerName: string; message: string; timestamp: number }) => {
+      if (import.meta.env.DEV) {
+        console.log('Received chat message:', message)
+      }
+      useGameStore.getState().addChatMessage({
+        id: `msg_${message.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
+        playerId: message.playerId,
+        playerName: message.playerName,
+        message: message.message,
+        timestamp: message.timestamp,
+        type: 'global',
+        color: '#00ffff'
+      })
+    })
 
-    // Additional wait to ensure MapSchema methods (onAdd, onRemove, onChange) are available
-    // Sometimes the MapSchema structure exists but methods aren't ready yet
+    // Register whisper handler EARLY
+    room.onMessage('whisper', (data: { fromId: string; fromName: string; message: string; timestamp: number }) => {
+      if (import.meta.env.DEV) {
+        console.log('Received whisper:', data)
+      }
+      useGameStore.getState().addChatMessage({
+        id: `whisper_${data.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
+        playerId: data.fromId,
+        playerName: data.fromName,
+        message: data.message,
+        timestamp: data.timestamp,
+        type: 'whisper',
+        color: '#00ff00'
+      })
+    })
+
+    // Register positionCorrection handler EARLY to prevent "not registered" warnings
+    // This must be registered before any movement messages can arrive
+    room.onMessage('positionCorrection', (data: { x: number; y: number; z: number; rotation: number }) => {
+      // Server rejected movement - reconcile position
+      import('./syncSystem').then(({ reconcilePosition }) => {
+        reconcilePosition({ x: data.x, y: data.y, z: data.z }, data.rotation)
+      })
+    })
+
+    // Wait for state to be fully decoded and ready
+    // The most reliable way is to wait for the first state change event
+    // which indicates the state has been decoded and MapSchema methods are available
     await new Promise<void>((resolve) => {
       if (!room) {
         resolve()
         return
       }
-      
-      const checkMethods = () => {
-        if (!room) {
-          resolve()
-          return
-        }
+
+      // Verify room has the expected methods
+      if (typeof room.onStateChange !== 'function') {
+        console.error('Room does not have onStateChange method', room)
+        // Proceed anyway after a short delay
+        setTimeout(() => resolve(), 100)
+        return
+      }
+
+      let resolved = false
+      const doResolve = () => {
+        if (resolved) return
+        resolved = true
+        resolve()
+      }
+
+      // Check if state is already ready with methods
+      const checkStateReady = () => {
+        if (!room || resolved) return false
+
+        const playersReady = room.state?.players && typeof room.state.players.onAdd === 'function'
         
-        if (room.state && 
-            room.state.players && typeof room.state.players.onAdd === 'function' &&
-            room.state.enemies && typeof room.state.enemies.onAdd === 'function' &&
-            room.state.lootDrops && typeof room.state.lootDrops.onAdd === 'function') {
-          resolve()
-        } else {
-          // Check again after a short delay
-          setTimeout(checkMethods, 50)
+        if (playersReady) {
+          doResolve()
+          return true
+        }
+        return false
+      }
+
+      // Check immediately
+      if (checkStateReady()) {
+        return
+      }
+
+      // Wait for first state change event (most reliable indicator that state is decoded)
+      // Use onStateChange (Colyseus API) - manually remove after first call for one-time behavior
+      let stateChangeHandled = false
+      let cleanupListener: (() => void) | null = null
+      
+      const stateChangeHandler = (state: any) => {
+        if (!stateChangeHandled && room && !resolved) {
+          stateChangeHandled = true
+          // Clean up listener after first call
+          if (cleanupListener) {
+            cleanupListener()
+            cleanupListener = null
+          }
+          // Give a tiny delay to ensure methods are fully attached after state change
+          setTimeout(() => {
+            if (!checkStateReady()) {
+              // Even if methods aren't ready, proceed - they may become available later
+              doResolve()
+            }
+          }, 50)
         }
       }
-      
-      // Set a timeout to prevent infinite waiting
+
+      // Set up state change listener with cleanup
+      try {
+        room.onStateChange(stateChangeHandler)
+        // Store cleanup function (onStateChange returns cleanup in some versions)
+        // If it doesn't return cleanup, we'll handle it differently
+        cleanupListener = () => {
+          // Try to remove listener if possible
+          if (room && typeof room.removeAllListeners === 'function') {
+            // Note: This removes ALL listeners, so be careful
+            // In practice, we rely on the handler flag to prevent re-execution
+          }
+        }
+      } catch (error) {
+        console.error('Failed to set up state change listener:', error)
+        // Proceed anyway after a short delay
+        setTimeout(() => resolve(), 100)
+        return
+      }
+
+      // Fallback timeout (1.5 seconds max) - state should be ready by then
       setTimeout(() => {
-        console.warn('MapSchema methods not fully available, proceeding anyway')
-        resolve()
-      }, 1000)
-      
-      checkMethods()
+        if (!resolved) {
+          // Mark as handled to prevent handler from running
+          stateChangeHandled = true
+          if (cleanupListener) {
+            cleanupListener()
+            cleanupListener = null
+          }
+          // Proceed even if methods aren't ready - they'll become available eventually
+          doResolve()
+        }
+      }, 1500)
     })
 
     // Set up room event listeners
     await setupRoomListeners(room)
 
+    // Sync initial player state from room state (only on first connection)
+    if (room.state && room.state.players) {
+      const playerInState = room.state.players.get(room.sessionId)
+      if (playerInState) {
+        const { player, setPlayer } = useGameStore.getState()
+        if (player) {
+          // Only sync position if player hasn't moved yet (initial spawn)
+          // This prevents overwriting local movement during gameplay
+          const hasMoved = Math.abs(player.position.x) > 0.1 || Math.abs(player.position.z) > 0.1
+          
+          // Update player state from room state (server is authoritative for initial spawn)
+          setPlayer({
+            ...player,
+            // Only update position if player hasn't moved (initial sync)
+            ...(hasMoved ? {} : {
+              position: { x: playerInState.x, y: playerInState.y, z: playerInState.z },
+              rotation: playerInState.rotation
+            }),
+            health: playerInState.health,
+            maxHealth: playerInState.maxHealth,
+            mana: playerInState.mana,
+            maxMana: playerInState.maxMana,
+            level: playerInState.level,
+            guildId: playerInState.guildId || undefined,
+            guildTag: playerInState.guildTag || undefined
+          })
+          if (import.meta.env.DEV && !hasMoved) {
+            console.log('Initial player sync from room:', { 
+              position: { x: playerInState.x, y: playerInState.y, z: playerInState.z },
+              health: playerInState.health,
+              level: playerInState.level
+            })
+          }
+        }
+      }
+
+      // Sync existing other players (for whisper dropdown)
+      // onAdd only fires for NEW players, so we need to sync existing ones
+      room.state.players.forEach((player: PlayerSchema, sessionId: string) => {
+        if (sessionId !== room.sessionId) {
+          const { otherPlayers } = useGameStore.getState()
+          // Only add if not already present
+          if (!otherPlayers.has(sessionId)) {
+            useGameStore.getState().addOtherPlayer({
+              id: sessionId,
+              name: player.name,
+              race: player.race as any,
+              level: player.level,
+              xp: 0,
+              xpToNext: 100,
+              credits: 0,
+              position: { x: player.x, y: player.y, z: player.z },
+              rotation: player.rotation,
+              health: player.health,
+              maxHealth: player.maxHealth,
+              mana: player.mana,
+              maxMana: player.maxMana,
+              guildId: player.guildId || undefined,
+              guildTag: player.guildTag || undefined
+            })
+          }
+        }
+      })
+    }
+
     // Handle disconnection with reconnection logic
     room.onLeave(async (code) => {
-      console.log('Left room, code:', code)
+      // Only log non-normal disconnections
+      if (code !== 1000 && import.meta.env.DEV) {
+        console.log('Left room, code:', code)
+      }
       useGameStore.getState().setConnected(false)
       
       // Clear room reference immediately to prevent race conditions
@@ -189,47 +377,59 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       listenersSetup = false // Reset listeners flag on leave
       
       // Only attempt reconnection if not intentionally left (code 1000 = normal closure)
+      // Also skip reconnection for code 4002 (ROOM_NOT_FOUND) if it happens during initial connection
       if (code !== 1000) {
-        const { reconnectionManager } = await import('./reconnection')
-        const { joinRoom } = await import('./colyseus')
-        const playerName = useGameStore.getState().player?.name || 'Player'
-        const race = useGameStore.getState().player?.race || 'human'
+        // Code 4002 means room not found - might happen during initial connection
+        // In that case, don't spam reconnection attempts immediately
+        const shouldReconnect = code !== 4002 || oldRoom?.sessionId
         
-        reconnectionManager.startReconnection(
-          async () => {
-            try {
-              // Get Firebase token for reconnection
-              const { getIdToken } = await import('../../firebase/auth')
-              const firebaseToken = await getIdToken()
-              
-              // Pass isReconnectAttempt flag to bypass "already connected" check
-              // Reset listeners flag before reconnecting
-              listenersSetup = false
-              const newRoom = await joinRoom(playerName, race, true, firebaseToken || undefined)
-              return newRoom
-            } catch (error) {
-              console.error('Reconnection failed:', error)
-              return null
+        if (shouldReconnect) {
+          const { reconnectionManager } = await import('./reconnection')
+          const { joinRoom } = await import('./colyseus')
+          const playerName = useGameStore.getState().player?.name || 'Player'
+          const race = useGameStore.getState().player?.race || 'human'
+          
+          reconnectionManager.startReconnection(
+            async () => {
+              try {
+                // Get Firebase token for reconnection
+                const { getIdToken } = await import('../../firebase/auth')
+                const firebaseToken = await getIdToken()
+                
+                // Pass isReconnectAttempt flag to bypass "already connected" check
+                // Reset listeners flag before reconnecting
+                listenersSetup = false
+                const newRoom = await joinRoom(playerName, race, true, firebaseToken || undefined)
+                return newRoom
+              } catch (error) {
+                console.error('Reconnection failed:', error)
+                return null
+              }
+            },
+            (reconnectedRoom) => {
+              if (import.meta.env.DEV) {
+                console.log('Reconnected successfully!')
+              }
+              room = reconnectedRoom
+              useGameStore.getState().setConnected(true)
+            },
+            () => {
+              console.error('Max reconnection attempts reached')
+              useGameStore.getState().addChatMessage({
+                id: `reconnect_failed_${Date.now()}`,
+                playerId: 'system',
+                playerName: 'System',
+                message: 'Failed to reconnect. Please refresh the page.',
+                timestamp: Date.now(),
+                type: 'system',
+                color: '#ff0000'
+              })
             }
-          },
-          (reconnectedRoom) => {
-            console.log('Reconnected successfully!')
-            room = reconnectedRoom
-            useGameStore.getState().setConnected(true)
-          },
-          () => {
-            console.error('Max reconnection attempts reached')
-            useGameStore.getState().addChatMessage({
-              id: `reconnect_failed_${Date.now()}`,
-              playerId: 'system',
-              playerName: 'System',
-              message: 'Failed to reconnect. Please refresh the page.',
-              timestamp: Date.now(),
-              type: 'system',
-              color: '#ff0000'
-            })
-          }
-        )
+          )
+        } else if (code === 4002) {
+          // Room not found during initial connection - this is expected sometimes
+          console.warn('Room not found (code 4002) during connection - will retry on next connection attempt')
+        }
       }
       
       // Clean up old room listeners if needed
@@ -352,8 +552,7 @@ function waitForStateInitialization(room: Room): Promise<void> {
           (isMapSchema(room.state.players) || 
            isMapSchema(room.state.enemies) || 
            isMapSchema(room.state.lootDrops))) {
-        // At least some state is initialized, proceed
-        console.warn('State initialization timeout - Some MapSchema instances may not be ready, proceeding anyway')
+        // At least some state is initialized, proceed silently
         resolve()
       } else {
         // No state initialized, but resolve anyway to prevent hanging
@@ -382,15 +581,7 @@ async function setupRoomListeners(room: Room) {
 
   // Register message handlers FIRST to prevent "not registered" warnings
   // These must be registered before any messages can arrive
-  // Note: stateDelta handler is already registered in joinRoom() before this function is called
-  
-  // Handle position corrections from server (anti-cheat)
-  room.onMessage('positionCorrection', (data: { x: number; y: number; z: number; rotation: number }) => {
-    // Server rejected movement - reconcile position
-    import('./syncSystem').then(({ reconcilePosition }) => {
-      reconcilePosition({ x: data.x, y: data.y, z: data.z }, data.rotation)
-    })
-  })
+  // Note: stateDelta, chat, whisper, and positionCorrection handlers are already registered in joinRoom() before this function is called
 
   // Listen for loot pickup confirmation
   room.onMessage('lootPickedUp', (data) => {
@@ -402,18 +593,8 @@ async function setupRoomListeners(room: Room) {
     useGameStore.getState().removeLootDrop(data.lootId)
   })
 
-  // Listen for chat messages
-  room.onMessage('chat', (message) => {
-    useGameStore.getState().addChatMessage({
-      id: `msg_${message.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
-      playerId: message.playerId,
-      playerName: message.playerName,
-      message: message.message,
-      timestamp: message.timestamp,
-      type: 'global',
-      color: '#00ffff'
-    })
-  })
+  // Note: Chat and whisper handlers are registered early in joinRoom() to ensure they're always available
+  // No need to register them here again
 
   // Listen for quest updates
   room.onMessage('questUpdate', (data: { activeQuests: any[] }) => {
@@ -648,7 +829,9 @@ async function setupRoomListeners(room: Room) {
     })
   })
 
-  room.onMessage('whisper', (data) => {
+  // Whisper handler is registered early in joinRoom() to ensure it's always available
+  // Registering here as well for redundancy (safe to have multiple handlers)
+  room.onMessage('whisper', (data: { fromId: string; fromName: string; message: string; timestamp: number }) => {
     useGameStore.getState().addChatMessage({
       id: `whisper_${data.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
       playerId: data.fromId,
@@ -686,42 +869,80 @@ async function setupRoomListeners(room: Room) {
     return hasMapSchemaStructure || hasOnAddMethod
   }
 
+  // Check if methods are actually available (not just structure)
+  const hasMapSchemaMethods = (obj: any): boolean => {
+    return obj && typeof obj.onAdd === 'function' && typeof obj.onRemove === 'function' && typeof obj.onChange === 'function'
+  }
+
   // At this point, we've already waited for methods to be available
-  // But double-check to be safe
+  // But double-check to be safe - players is critical, others are optional
   if (!room.state.players || !isMapSchema(room.state.players)) {
-    console.error('room.state.players is not initialized or not a MapSchema after waiting', room.state.players)
-    // Wait a bit more and retry once as fallback
-    setTimeout(() => {
-      if (room && room.state && isMapSchema(room.state.players)) {
-        console.log('room.state.players became available, retrying listener setup')
+    // Set up a fallback to retry when state changes
+    let retryHandled = false
+    const retryOnStateChange = (state: any) => {
+      if (!retryHandled && room && room.state && isMapSchema(room.state.players) && hasMapSchemaMethods(room.state.players)) {
+        retryHandled = true
         setupRoomListeners(room)
       }
-    }, 200)
+    }
+    // Use onStateChange (Colyseus API) instead of room.once which doesn't exist
+    room.onStateChange(retryOnStateChange)
+    
+    // Also retry after a delay as fallback
+    setTimeout(() => {
+      if (!retryHandled && room && room.state && isMapSchema(room.state.players) && hasMapSchemaMethods(room.state.players)) {
+        retryHandled = true
+        setupRoomListeners(room)
+      }
+    }, 500)
+    return
+  }
+
+  // If players MapSchema exists but methods aren't ready, wait a bit more
+  if (!hasMapSchemaMethods(room.state.players)) {
+    // Set up a fallback to retry when state changes
+    let retryHandled = false
+    const retryOnStateChange = (state: any) => {
+      if (!retryHandled && room && room.state && hasMapSchemaMethods(room.state.players)) {
+        retryHandled = true
+        setupRoomListeners(room)
+      }
+    }
+    // Use onStateChange (Colyseus API) instead of room.once which doesn't exist
+    room.onStateChange(retryOnStateChange)
+    
+    // Also retry after a delay as fallback
+    setTimeout(() => {
+      if (!retryHandled && room && room.state && hasMapSchemaMethods(room.state.players)) {
+        retryHandled = true
+        setupRoomListeners(room)
+      }
+    }, 500)
     return
   }
 
   if (!room.state.enemies || !isMapSchema(room.state.enemies)) {
-    console.warn('room.state.enemies is not initialized or not a MapSchema, continuing anyway', room.state.enemies)
-    // Continue - enemies might not be critical for initial setup
+    // Silently continue - enemies might not be critical for initial setup
   }
 
   if (!room.state.lootDrops || !isMapSchema(room.state.lootDrops)) {
-    console.warn('room.state.lootDrops is not initialized or not a MapSchema, continuing anyway', room.state.lootDrops)
-    // Continue - lootDrops might not be critical for initial setup
+    // Silently continue - lootDrops might not be critical for initial setup
   }
 
   // Now set up state listeners AFTER message handlers are registered and validation passes
-  listenersSetup = true
-  
-  // Listen for state changes
-  room.onStateChange((state) => {
-    syncGameState(state)
-  })
+  // Use try-catch to prevent errors during listener setup from causing disconnects
+  try {
+    listenersSetup = true
+    
+    // Listen for state changes
+    room.onStateChange((state) => {
+      syncGameState(state)
+    })
 
-  // Listen for player updates
-  // Double-check onAdd exists before calling (defensive programming)
-  if (typeof room.state.players.onAdd === 'function') {
-    room.state.players.onAdd((player: PlayerSchema, sessionId: string) => {
+    // Listen for player updates
+    // Double-check onAdd exists before calling (defensive programming)
+    if (typeof room.state.players.onAdd === 'function') {
+      room.state.players.onAdd((player: PlayerSchema, sessionId: string) => {
       // Prevent duplicate additions - check if player already exists
       const { otherPlayers } = useGameStore.getState()
       
@@ -767,12 +988,90 @@ async function setupRoomListeners(room: Room) {
       if (!player) return
       
       if (sessionId === room?.sessionId) {
-        // Update own player's guild info
-        const { setPlayer } = useGameStore.getState()
-        const currentPlayer = useGameStore.getState().player
+        // For own player, use reconciliation instead of direct overwrite
+        // This allows client-side prediction to work properly
+        const { player: currentPlayer } = useGameStore.getState()
         if (currentPlayer) {
+          // Check if player is actively moving (keys pressed)
+          // We need to access the keysPressed from KeyboardControls, but we can't directly
+          // Instead, check if local position is different from server (indicating active movement)
+          const positionDiff = Math.sqrt(
+            Math.pow(player.x - currentPlayer.position.x, 2) +
+            Math.pow(player.z - currentPlayer.position.z, 2)
+          )
+          
+          // Check if player is actively moving - if so, completely ignore server position updates
+          const { isPlayerMoving } = useGameStore.getState()
+          
+          // If player is actively moving, NEVER update position from server (client-side prediction)
+          if (isPlayerMoving) {
+            if (import.meta.env.DEV && positionDiff > 0.1) {
+              console.log('⏭️ Ignoring server position (player actively moving):', {
+                local: { x: currentPlayer.position.x.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
+                server: { x: player.x.toFixed(2), z: player.z.toFixed(2) },
+                diff: positionDiff.toFixed(2)
+              })
+            }
+            // Only update non-position stats, preserve local position completely
+            const { setPlayer } = useGameStore.getState()
+            setPlayer({
+              ...currentPlayer,
+              health: player.health,
+              maxHealth: player.maxHealth,
+              mana: player.mana,
+              maxMana: player.maxMana,
+              level: player.level,
+              guildId: player.guildId || undefined,
+              guildTag: player.guildTag || undefined
+            })
+            return // Exit early - don't process position update at all
+          }
+          
+          // Check if local position is significantly different from server
+          // If difference is large, server is correcting (anti-cheat or lag correction)
+          // If difference is small, player is moving locally - ignore server update
+          const shouldReconcile = positionDiff > 2.0 // Increased threshold to 2.0 units to prevent overwriting
+          
+          // IMPORTANT: Only update position from server if reconciliation is needed
+          // Otherwise, client-side prediction handles movement smoothly
+          if (shouldReconcile) {
+            // Large difference - server correction needed (anti-cheat or significant lag)
+            if (import.meta.env.DEV) {
+              console.warn('⚠️ Server position correction (large diff):', {
+                local: { x: currentPlayer.position.x.toFixed(2), y: currentPlayer.position.y.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
+                server: { x: player.x.toFixed(2), y: player.y.toFixed(2), z: player.z.toFixed(2) },
+                diff: positionDiff.toFixed(2)
+              })
+            }
+            import('./syncSystem').then(({ reconcilePosition }) => {
+              reconcilePosition({ x: player.x, y: player.y, z: player.z }, player.rotation)
+            })
+          } else if (import.meta.env.DEV && positionDiff > 0.1) {
+            // Log when server tries to update but we ignore it (for debugging)
+            console.log('⏭️ Ignoring server position update (client prediction active):', {
+              local: { x: currentPlayer.position.x.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
+              server: { x: player.x.toFixed(2), z: player.z.toFixed(2) },
+              diff: positionDiff.toFixed(2)
+            })
+          }
+          // If difference is small (< 2.0 units), ignore server position update
+          // This allows client-side prediction to work smoothly
+          
+          // Always update non-position stats (health, mana, etc.) from server
+          // BUT preserve local position if player is actively moving
+          const { setPlayer } = useGameStore.getState()
           setPlayer({
             ...currentPlayer,
+            // Only update position/rotation if reconciling, otherwise preserve local state
+            ...(shouldReconcile ? {
+              position: { x: player.x, y: player.y, z: player.z },
+              rotation: player.rotation
+            } : {}),
+            health: player.health,
+            maxHealth: player.maxHealth,
+            mana: player.mana,
+            maxMana: player.maxMana,
+            level: player.level,
             guildId: player.guildId || undefined,
             guildTag: player.guildTag || undefined
           })
@@ -843,9 +1142,39 @@ async function setupRoomListeners(room: Room) {
       })
     }
   }
+  } catch (error) {
+    console.error('Error setting up room listeners:', error)
+    // Don't mark as setup if there was an error, so it can be retried
+    listenersSetup = false
+    // Re-throw to let caller handle it, but log it first
+    throw error
+  }
 }
 
-function syncGameState(_state: NexusRoomState) {
+function syncGameState(state: NexusRoomState) {
+  // Sync the player's own state from room state
+  if (room && room.sessionId) {
+    const playerInState = state.players.get(room.sessionId)
+    if (playerInState) {
+      const { player, setPlayer } = useGameStore.getState()
+      if (player) {
+        // Update player state from room state (server is authoritative)
+        setPlayer({
+          ...player,
+          position: { x: playerInState.x, y: playerInState.y, z: playerInState.z },
+          rotation: playerInState.rotation,
+          health: playerInState.health,
+          maxHealth: playerInState.maxHealth,
+          mana: playerInState.mana,
+          maxMana: playerInState.maxMana,
+          level: playerInState.level,
+          guildId: playerInState.guildId || undefined,
+          guildTag: playerInState.guildTag || undefined
+        })
+      }
+    }
+  }
+  
   // Sync enemies, resource nodes, loot drops, etc.
   // This is handled by the onAdd/onRemove/onChange listeners above
 }

@@ -1,0 +1,1038 @@
+/**
+ * Monster System - Various creatures with different behaviors and appearances
+ * Kid-friendly monsters for tablet MMO (non-scary, colorful)
+ */
+
+export interface Monster {
+  id: string
+  name: string
+  description: string
+  type: 'passive' | 'neutral' | 'aggressive' | 'boss' | 'elite'
+  level: number
+  health: number
+  maxHealth: number
+  damage: number
+  defense: number
+  speed: number
+  xpReward: number
+  creditReward: number
+  lootTable: { itemId: string; chance: number; minQuantity?: number; maxQuantity?: number }[]
+  biome: string[]
+  spawnRate: number // 0-1
+  size: 'tiny' | 'small' | 'medium' | 'large' | 'huge'
+  color: string
+  icon: string
+  model?: string
+  abilities?: string[]
+  behavior: 'wander' | 'patrol' | 'guard' | 'follow' | 'flee' | 'stationary'
+  aggroRange: number
+  fleeHealthPercent: number // When health drops below this, monster flees
+  respawnTime: number // milliseconds
+  specialDrops?: { itemId: string; chance: number }[]
+}
+
+export const MONSTERS: Monster[] = [
+  // Starting area monsters - very friendly
+  {
+    id: 'bumblebee',
+    name: 'Buzzy Bee',
+    description: 'A friendly bumblebee that loves flowers.',
+    type: 'passive',
+    level: 1,
+    health: 20,
+    maxHealth: 20,
+    damage: 2,
+    defense: 0,
+    speed: 3,
+    xpReward: 5,
+    creditReward: 2,
+    lootTable: [
+      { itemId: 'honey', chance: 0.3, minQuantity: 1, maxQuantity: 2 },
+      { itemId: 'bee_wings', chance: 0.1, minQuantity: 1, maxQuantity: 1 }
+    ],
+    biome: ['sunflower_meadows'],
+    spawnRate: 0.3,
+    size: 'tiny',
+    color: '#FFD700',
+    icon: '🐝',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 30000
+  },
+  {
+    id: 'butterfly_swarm',
+    name: 'Butterfly Swarm',
+    description: 'A colorful swarm of friendly butterflies.',
+    type: 'passive',
+    level: 1,
+    health: 15,
+    maxHealth: 15,
+    damage: 1,
+    defense: 0,
+    speed: 4,
+    xpReward: 3,
+    creditReward: 1,
+    lootTable: [
+      { itemId: 'colorful_flower', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['sunflower_meadows', 'rainbow_hills'],
+    spawnRate: 0.4,
+    size: 'tiny',
+    color: '#FF69B4',
+    icon: '🦋',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 20000
+  },
+  {
+    id: 'meadow_sprite',
+    name: 'Meadow Sprite',
+    description: 'A tiny magical creature that lives in meadows.',
+    type: 'neutral',
+    level: 2,
+    health: 30,
+    maxHealth: 30,
+    damage: 3,
+    defense: 1,
+    speed: 5,
+    xpReward: 10,
+    creditReward: 5,
+    lootTable: [
+      { itemId: 'magic_essence', chance: 0.5, minQuantity: 1, maxQuantity: 2 },
+      { itemId: 'wild_berry', chance: 0.3, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['sunflower_meadows'],
+    spawnRate: 0.2,
+    size: 'tiny',
+    color: '#90EE90',
+    icon: '✨',
+    behavior: 'flee',
+    aggroRange: 5,
+    fleeHealthPercent: 0.5,
+    respawnTime: 45000
+  },
+  {
+    id: 'crystal_sprite',
+    name: 'Crystal Sprite',
+    description: 'A magical sprite made of living crystal.',
+    type: 'neutral',
+    level: 3,
+    health: 40,
+    maxHealth: 40,
+    damage: 4,
+    defense: 2,
+    speed: 4,
+    xpReward: 15,
+    creditReward: 8,
+    lootTable: [
+      { itemId: 'crystal_shard', chance: 0.6, minQuantity: 1, maxQuantity: 3 },
+      { itemId: 'magic_essence', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['crystal_forest'],
+    spawnRate: 0.25,
+    size: 'small',
+    color: '#00CED1',
+    icon: '💎',
+    behavior: 'wander',
+    aggroRange: 6,
+    fleeHealthPercent: 0.4,
+    respawnTime: 50000
+  },
+  {
+    id: 'forest_guardian',
+    name: 'Forest Guardian',
+    description: 'A friendly tree spirit that protects the forest.',
+    type: 'neutral',
+    level: 5,
+    health: 80,
+    maxHealth: 80,
+    damage: 6,
+    defense: 3,
+    speed: 2,
+    xpReward: 25,
+    creditReward: 15,
+    lootTable: [
+      { itemId: 'ancient_wood', chance: 0.7, minQuantity: 2, maxQuantity: 5 },
+      { itemId: 'magic_essence', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['crystal_forest', 'enchanted_grove'],
+    spawnRate: 0.15,
+    size: 'large',
+    color: '#228B22',
+    icon: '🌳',
+    behavior: 'guard',
+    aggroRange: 8,
+    fleeHealthPercent: 0.3,
+    respawnTime: 120000
+  },
+  {
+    id: 'glow_worm',
+    name: 'Glow Worm',
+    description: 'A friendly worm that glows in the dark.',
+    type: 'passive',
+    level: 2,
+    health: 25,
+    maxHealth: 25,
+    damage: 2,
+    defense: 0,
+    speed: 2,
+    xpReward: 8,
+    creditReward: 4,
+    lootTable: [
+      { itemId: 'glowing_berry', chance: 0.5, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['crystal_forest'],
+    spawnRate: 0.3,
+    size: 'small',
+    color: '#FFFF00',
+    icon: '🪲',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 30000
+  },
+  {
+    id: 'cloud_bunny',
+    name: 'Cloud Bunny',
+    description: 'An adorable bunny made of fluffy clouds.',
+    type: 'passive',
+    level: 2,
+    health: 30,
+    maxHealth: 30,
+    damage: 2,
+    defense: 1,
+    speed: 6,
+    xpReward: 10,
+    creditReward: 5,
+    lootTable: [
+      { itemId: 'cloud_cotton', chance: 0.6, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['rainbow_hills', 'cloud_kingdom'],
+    spawnRate: 0.35,
+    size: 'small',
+    color: '#FFE4E1',
+    icon: '🐰',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 40000
+  },
+  {
+    id: 'rainbow_slime',
+    name: 'Rainbow Slime',
+    description: 'A colorful slime that bounces around happily.',
+    type: 'neutral',
+    level: 3,
+    health: 45,
+    maxHealth: 45,
+    damage: 4,
+    defense: 2,
+    speed: 3,
+    xpReward: 15,
+    creditReward: 8,
+    lootTable: [
+      { itemId: 'prism_shard', chance: 0.5, minQuantity: 1, maxQuantity: 2 },
+      { itemId: 'rainbow_gem', chance: 0.2, minQuantity: 1, maxQuantity: 1 }
+    ],
+    biome: ['rainbow_hills'],
+    spawnRate: 0.3,
+    size: 'medium',
+    color: '#FF69B4',
+    icon: '🟣',
+    behavior: 'wander',
+    aggroRange: 7,
+    fleeHealthPercent: 0.5,
+    respawnTime: 60000
+  },
+  {
+    id: 'sky_whale',
+    name: 'Sky Whale',
+    description: 'A gentle giant that swims through the clouds.',
+    type: 'passive',
+    level: 10,
+    health: 200,
+    maxHealth: 200,
+    damage: 5,
+    defense: 5,
+    speed: 4,
+    xpReward: 50,
+    creditReward: 30,
+    lootTable: [
+      { itemId: 'cloud_essence', chance: 0.8, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'sky_gem', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['rainbow_hills', 'cloud_kingdom'],
+    spawnRate: 0.05,
+    size: 'huge',
+    color: '#87CEEB',
+    icon: '🐋',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 300000
+  },
+  // Mid-level monsters
+  {
+    id: 'gingerbread_guard',
+    name: 'Gingerbread Guard',
+    description: 'A friendly cookie guardian that protects candy lands.',
+    type: 'neutral',
+    level: 8,
+    health: 100,
+    maxHealth: 100,
+    damage: 8,
+    defense: 4,
+    speed: 3,
+    xpReward: 30,
+    creditReward: 20,
+    lootTable: [
+      { itemId: 'sugar_crystal', chance: 0.6, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'candy_cane', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['candy_canyon'],
+    spawnRate: 0.25,
+    size: 'medium',
+    color: '#8B4513',
+    icon: '🍪',
+    behavior: 'guard',
+    aggroRange: 10,
+    fleeHealthPercent: 0.4,
+    respawnTime: 90000
+  },
+  {
+    id: 'lollipop_slime',
+    name: 'Lollipop Slime',
+    description: 'A sweet slime that tastes like candy.',
+    type: 'neutral',
+    level: 7,
+    health: 80,
+    maxHealth: 80,
+    damage: 6,
+    defense: 3,
+    speed: 4,
+    xpReward: 25,
+    creditReward: 15,
+    lootTable: [
+      { itemId: 'gumdrop', chance: 0.5, minQuantity: 1, maxQuantity: 3 },
+      { itemId: 'candy_cane', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['candy_canyon'],
+    spawnRate: 0.35,
+    size: 'medium',
+    color: '#FF1493',
+    icon: '🍭',
+    behavior: 'wander',
+    aggroRange: 8,
+    fleeHealthPercent: 0.5,
+    respawnTime: 70000
+  },
+  {
+    id: 'candy_golem',
+    name: 'Candy Golem',
+    description: 'A large golem made of various candies.',
+    type: 'aggressive',
+    level: 12,
+    health: 150,
+    maxHealth: 150,
+    damage: 12,
+    defense: 6,
+    speed: 2,
+    xpReward: 50,
+    creditReward: 40,
+    lootTable: [
+      { itemId: 'sugar_crystal', chance: 0.7, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'chocolate_bar', chance: 0.5, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['candy_canyon'],
+    spawnRate: 0.1,
+    size: 'large',
+    color: '#FF69B4',
+    icon: '🍬',
+    behavior: 'patrol',
+    aggroRange: 12,
+    fleeHealthPercent: 0.2,
+    respawnTime: 180000
+  },
+  {
+    id: 'jellyfish',
+    name: 'Friendly Jellyfish',
+    description: 'A gentle jellyfish that glows underwater.',
+    type: 'neutral',
+    level: 10,
+    health: 90,
+    maxHealth: 90,
+    damage: 7,
+    defense: 3,
+    speed: 5,
+    xpReward: 35,
+    creditReward: 25,
+    lootTable: [
+      { itemId: 'pearl', chance: 0.4, minQuantity: 1, maxQuantity: 2 },
+      { itemId: 'sea_shell', chance: 0.6, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['ocean_reef'],
+    spawnRate: 0.3,
+    size: 'medium',
+    color: '#9370DB',
+    icon: '🪼',
+    behavior: 'wander',
+    aggroRange: 8,
+    fleeHealthPercent: 0.4,
+    respawnTime: 80000
+  },
+  {
+    id: 'crab_guard',
+    name: 'Crab Guard',
+    description: 'A friendly crab that protects the reef.',
+    type: 'neutral',
+    level: 12,
+    health: 120,
+    maxHealth: 120,
+    damage: 10,
+    defense: 5,
+    speed: 3,
+    xpReward: 40,
+    creditReward: 30,
+    lootTable: [
+      { itemId: 'coral_fragment', chance: 0.6, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'pearl', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['ocean_reef'],
+    spawnRate: 0.2,
+    size: 'medium',
+    color: '#FF6347',
+    icon: '🦀',
+    behavior: 'guard',
+    aggroRange: 10,
+    fleeHealthPercent: 0.3,
+    respawnTime: 100000
+  },
+  {
+    id: 'sea_snake',
+    name: 'Sea Snake',
+    description: 'A colorful sea snake that swims gracefully.',
+    type: 'neutral',
+    level: 14,
+    health: 110,
+    maxHealth: 110,
+    damage: 9,
+    defense: 4,
+    speed: 6,
+    xpReward: 45,
+    creditReward: 35,
+    lootTable: [
+      { itemId: 'sea_shell', chance: 0.5, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'pearl', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['ocean_reef'],
+    spawnRate: 0.15,
+    size: 'medium',
+    color: '#00CED1',
+    icon: '🐍',
+    behavior: 'wander',
+    aggroRange: 9,
+    fleeHealthPercent: 0.4,
+    respawnTime: 120000
+  },
+  {
+    id: 'friendly_scorpion',
+    name: 'Desert Friend',
+    description: 'A friendly scorpion that lives in the desert.',
+    type: 'neutral',
+    level: 15,
+    health: 130,
+    maxHealth: 130,
+    damage: 11,
+    defense: 5,
+    speed: 4,
+    xpReward: 50,
+    creditReward: 40,
+    lootTable: [
+      { itemId: 'desert_crystal', chance: 0.6, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'moonstone', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['starlight_desert'],
+    spawnRate: 0.25,
+    size: 'medium',
+    color: '#F4A460',
+    icon: '🦂',
+    behavior: 'wander',
+    aggroRange: 10,
+    fleeHealthPercent: 0.3,
+    respawnTime: 110000
+  },
+  {
+    id: 'sand_ghost',
+    name: 'Sand Ghost',
+    description: 'A friendly ghost made of sand that plays in the desert.',
+    type: 'neutral',
+    level: 16,
+    health: 100,
+    maxHealth: 100,
+    damage: 9,
+    defense: 3,
+    speed: 7,
+    xpReward: 55,
+    creditReward: 45,
+    lootTable: [
+      { itemId: 'star_sand', chance: 0.7, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'moonstone', chance: 0.4, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['starlight_desert'],
+    spawnRate: 0.2,
+    size: 'medium',
+    color: '#FFD700',
+    icon: '👻',
+    behavior: 'wander',
+    aggroRange: 8,
+    fleeHealthPercent: 0.5,
+    respawnTime: 130000
+  },
+  {
+    id: 'desert_fox',
+    name: 'Desert Fox',
+    description: 'A clever fox that lives in the starlight desert.',
+    type: 'neutral',
+    level: 14,
+    health: 95,
+    maxHealth: 95,
+    damage: 8,
+    defense: 2,
+    speed: 8,
+    xpReward: 45,
+    creditReward: 35,
+    lootTable: [
+      { itemId: 'cactus_fruit', chance: 0.5, minQuantity: 1, maxQuantity: 3 },
+      { itemId: 'desert_crystal', chance: 0.3, minQuantity: 1, maxQuantity: 2 }
+    ],
+    biome: ['starlight_desert'],
+    spawnRate: 0.3,
+    size: 'small',
+    color: '#FF8C00',
+    icon: '🦊',
+    behavior: 'flee',
+    aggroRange: 6,
+    fleeHealthPercent: 0.6,
+    respawnTime: 90000
+  },
+  {
+    id: 'snow_sprite',
+    name: 'Snow Sprite',
+    description: 'A tiny magical creature made of snow.',
+    type: 'neutral',
+    level: 12,
+    health: 85,
+    maxHealth: 85,
+    damage: 7,
+    defense: 3,
+    speed: 5,
+    xpReward: 40,
+    creditReward: 30,
+    lootTable: [
+      { itemId: 'ice_crystal', chance: 0.6, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'snowflake', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['frosty_peaks'],
+    spawnRate: 0.3,
+    size: 'small',
+    color: '#B0E0E6',
+    icon: '❄️',
+    behavior: 'wander',
+    aggroRange: 8,
+    fleeHealthPercent: 0.5,
+    respawnTime: 80000
+  },
+  {
+    id: 'ice_golem',
+    name: 'Ice Golem',
+    description: 'A large golem made of ice and snow.',
+    type: 'aggressive',
+    level: 18,
+    health: 200,
+    maxHealth: 200,
+    damage: 15,
+    defense: 8,
+    speed: 2,
+    xpReward: 70,
+    creditReward: 60,
+    lootTable: [
+      { itemId: 'ice_crystal', chance: 0.8, minQuantity: 4, maxQuantity: 8 },
+      { itemId: 'frozen_berry', chance: 0.5, minQuantity: 2, maxQuantity: 5 }
+    ],
+    biome: ['frosty_peaks'],
+    spawnRate: 0.1,
+    size: 'large',
+    color: '#87CEEB',
+    icon: '⛄',
+    behavior: 'patrol',
+    aggroRange: 15,
+    fleeHealthPercent: 0.2,
+    respawnTime: 240000
+  },
+  {
+    id: 'polar_bear_cub',
+    name: 'Polar Bear Cub',
+    description: 'A friendly young polar bear that loves to play.',
+    type: 'passive',
+    level: 15,
+    health: 150,
+    maxHealth: 150,
+    damage: 5,
+    defense: 6,
+    speed: 4,
+    xpReward: 60,
+    creditReward: 50,
+    lootTable: [
+      { itemId: 'warm_wool', chance: 0.7, minQuantity: 3, maxQuantity: 6 }
+    ],
+    biome: ['frosty_peaks'],
+    spawnRate: 0.08,
+    size: 'large',
+    color: '#FFFFFF',
+    icon: '🐻',
+    behavior: 'wander',
+    aggroRange: 0,
+    fleeHealthPercent: 0,
+    respawnTime: 300000
+  },
+  // Advanced monsters
+  {
+    id: 'lava_slime',
+    name: 'Lava Slime',
+    description: 'A slime made of molten lava that glows brightly.',
+    type: 'aggressive',
+    level: 20,
+    health: 180,
+    maxHealth: 180,
+    damage: 18,
+    defense: 7,
+    speed: 3,
+    xpReward: 80,
+    creditReward: 70,
+    lootTable: [
+      { itemId: 'lava_crystal', chance: 0.7, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'volcanic_rock', chance: 0.5, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['volcano_islands'],
+    spawnRate: 0.25,
+    size: 'medium',
+    color: '#FF4500',
+    icon: '🌋',
+    behavior: 'patrol',
+    aggroRange: 12,
+    fleeHealthPercent: 0.3,
+    respawnTime: 150000
+  },
+  {
+    id: 'fire_sprite',
+    name: 'Fire Sprite',
+    description: 'A magical sprite made of living flame.',
+    type: 'aggressive',
+    level: 22,
+    health: 160,
+    maxHealth: 160,
+    damage: 16,
+    defense: 5,
+    speed: 6,
+    xpReward: 90,
+    creditReward: 80,
+    lootTable: [
+      { itemId: 'fire_flower', chance: 0.6, minQuantity: 2, maxQuantity: 4 },
+      { itemId: 'magma_essence', chance: 0.4, minQuantity: 1, maxQuantity: 3 }
+    ],
+    biome: ['volcano_islands'],
+    spawnRate: 0.2,
+    size: 'small',
+    color: '#FF6347',
+    icon: '🔥',
+    behavior: 'wander',
+    aggroRange: 10,
+    fleeHealthPercent: 0.4,
+    respawnTime: 140000
+  },
+  {
+    id: 'volcano_guardian',
+    name: 'Volcano Guardian',
+    description: 'A powerful guardian that protects the volcano.',
+    type: 'boss',
+    level: 30,
+    health: 500,
+    maxHealth: 500,
+    damage: 30,
+    defense: 15,
+    speed: 3,
+    xpReward: 200,
+    creditReward: 200,
+    lootTable: [
+      { itemId: 'lava_crystal', chance: 1.0, minQuantity: 10, maxQuantity: 20 },
+      { itemId: 'magma_essence', chance: 0.8, minQuantity: 5, maxQuantity: 10 },
+      { itemId: 'volcanic_rock', chance: 0.6, minQuantity: 5, maxQuantity: 10 }
+    ],
+    biome: ['volcano_islands'],
+    spawnRate: 0.02,
+    size: 'huge',
+    color: '#FF4500',
+    icon: '🗿',
+    behavior: 'guard',
+    aggroRange: 20,
+    fleeHealthPercent: 0,
+    respawnTime: 1800000, // 30 minutes
+    abilities: ['fire_breath', 'lava_wave']
+  },
+  {
+    id: 'cloud_dragon',
+    name: 'Cloud Dragon',
+    description: 'A friendly dragon made of clouds that flies through the sky.',
+    type: 'neutral',
+    level: 25,
+    health: 300,
+    maxHealth: 300,
+    damage: 20,
+    defense: 10,
+    speed: 8,
+    xpReward: 150,
+    creditReward: 150,
+    lootTable: [
+      { itemId: 'cloud_essence', chance: 0.8, minQuantity: 5, maxQuantity: 10 },
+      { itemId: 'sky_gem', chance: 0.5, minQuantity: 2, maxQuantity: 5 },
+      { itemId: 'wind_crystal', chance: 0.4, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['cloud_kingdom'],
+    spawnRate: 0.05,
+    size: 'huge',
+    color: '#FFE4E1',
+    icon: '🐉',
+    behavior: 'wander',
+    aggroRange: 15,
+    fleeHealthPercent: 0.3,
+    respawnTime: 600000
+  },
+  {
+    id: 'wind_spirit',
+    name: 'Wind Spirit',
+    description: 'A playful spirit that controls the wind.',
+    type: 'neutral',
+    level: 23,
+    health: 200,
+    maxHealth: 200,
+    damage: 18,
+    defense: 8,
+    speed: 10,
+    xpReward: 120,
+    creditReward: 100,
+    lootTable: [
+      { itemId: 'wind_crystal', chance: 0.7, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'feather', chance: 0.5, minQuantity: 2, maxQuantity: 5 }
+    ],
+    biome: ['cloud_kingdom'],
+    spawnRate: 0.15,
+    size: 'medium',
+    color: '#E0F6FF',
+    icon: '💨',
+    behavior: 'wander',
+    aggroRange: 12,
+    fleeHealthPercent: 0.4,
+    respawnTime: 180000
+  },
+  {
+    id: 'sky_knight',
+    name: 'Sky Knight',
+    description: 'A noble knight who guards the cloud kingdom.',
+    type: 'aggressive',
+    level: 27,
+    health: 250,
+    maxHealth: 250,
+    damage: 22,
+    defense: 12,
+    speed: 5,
+    xpReward: 140,
+    creditReward: 120,
+    lootTable: [
+      { itemId: 'sky_gem', chance: 0.6, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'wind_crystal', chance: 0.5, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['cloud_kingdom'],
+    spawnRate: 0.1,
+    size: 'large',
+    color: '#F0F8FF',
+    icon: '⚔️',
+    behavior: 'patrol',
+    aggroRange: 15,
+    fleeHealthPercent: 0.2,
+    respawnTime: 240000
+  },
+  {
+    id: 'forest_dragon',
+    name: 'Forest Dragon',
+    description: 'A wise dragon that protects the enchanted forest.',
+    type: 'boss',
+    level: 35,
+    health: 600,
+    maxHealth: 600,
+    damage: 35,
+    defense: 18,
+    speed: 6,
+    xpReward: 300,
+    creditReward: 300,
+    lootTable: [
+      { itemId: 'magic_essence', chance: 1.0, minQuantity: 15, maxQuantity: 30 },
+      { itemId: 'ancient_wood', chance: 0.8, minQuantity: 10, maxQuantity: 20 },
+      { itemId: 'fairy_dust', chance: 0.6, minQuantity: 5, maxQuantity: 10 }
+    ],
+    biome: ['enchanted_grove'],
+    spawnRate: 0.02,
+    size: 'huge',
+    color: '#32CD32',
+    icon: '🐲',
+    behavior: 'guard',
+    aggroRange: 25,
+    fleeHealthPercent: 0,
+    respawnTime: 1800000,
+    abilities: ['nature_strike', 'healing_aura']
+  },
+  {
+    id: 'tree_guardian',
+    name: 'Tree Guardian',
+    description: 'An ancient tree spirit that guards the grove.',
+    type: 'aggressive',
+    level: 32,
+    health: 400,
+    maxHealth: 400,
+    damage: 28,
+    defense: 15,
+    speed: 2,
+    xpReward: 200,
+    creditReward: 180,
+    lootTable: [
+      { itemId: 'ancient_wood', chance: 0.8, minQuantity: 8, maxQuantity: 15 },
+      { itemId: 'magic_essence', chance: 0.6, minQuantity: 5, maxQuantity: 10 }
+    ],
+    biome: ['enchanted_grove'],
+    spawnRate: 0.08,
+    size: 'huge',
+    color: '#228B22',
+    icon: '🌲',
+    behavior: 'guard',
+    aggroRange: 20,
+    fleeHealthPercent: 0.2,
+    respawnTime: 480000
+  },
+  {
+    id: 'magic_wisp',
+    name: 'Magic Wisp',
+    description: 'A tiny ball of pure magic that floats through the air.',
+    type: 'neutral',
+    level: 30,
+    health: 180,
+    maxHealth: 180,
+    damage: 15,
+    defense: 5,
+    speed: 8,
+    xpReward: 100,
+    creditReward: 90,
+    lootTable: [
+      { itemId: 'magic_essence', chance: 0.7, minQuantity: 3, maxQuantity: 6 },
+      { itemId: 'fairy_dust', chance: 0.5, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['enchanted_grove'],
+    spawnRate: 0.2,
+    size: 'tiny',
+    color: '#9370DB',
+    icon: '✨',
+    behavior: 'wander',
+    aggroRange: 10,
+    fleeHealthPercent: 0.5,
+    respawnTime: 150000
+  },
+  {
+    id: 'friendly_robot',
+    name: 'Friendly Robot',
+    description: 'A helpful robot that loves technology.',
+    type: 'neutral',
+    level: 28,
+    health: 220,
+    maxHealth: 220,
+    damage: 18,
+    defense: 10,
+    speed: 4,
+    xpReward: 110,
+    creditReward: 100,
+    lootTable: [
+      { itemId: 'tech_scrap', chance: 0.7, minQuantity: 5, maxQuantity: 10 },
+      { itemId: 'circuit_board', chance: 0.5, minQuantity: 2, maxQuantity: 5 },
+      { itemId: 'energy_cell', chance: 0.4, minQuantity: 2, maxQuantity: 4 }
+    ],
+    biome: ['neon_city'],
+    spawnRate: 0.3,
+    size: 'medium',
+    color: '#00FFFF',
+    icon: '🤖',
+    behavior: 'wander',
+    aggroRange: 12,
+    fleeHealthPercent: 0.4,
+    respawnTime: 160000
+  },
+  {
+    id: 'cyber_slime',
+    name: 'Cyber Slime',
+    description: 'A slime infused with neon energy.',
+    type: 'aggressive',
+    level: 30,
+    health: 250,
+    maxHealth: 250,
+    damage: 22,
+    defense: 8,
+    speed: 5,
+    xpReward: 130,
+    creditReward: 120,
+    lootTable: [
+      { itemId: 'neon_crystal', chance: 0.7, minQuantity: 4, maxQuantity: 8 },
+      { itemId: 'energy_cell', chance: 0.6, minQuantity: 3, maxQuantity: 6 }
+    ],
+    biome: ['neon_city'],
+    spawnRate: 0.25,
+    size: 'medium',
+    color: '#FF00FF',
+    icon: '💜',
+    behavior: 'patrol',
+    aggroRange: 14,
+    fleeHealthPercent: 0.3,
+    respawnTime: 180000
+  },
+  {
+    id: 'neon_guardian',
+    name: 'Neon Guardian',
+    description: 'A powerful guardian of the neon city.',
+    type: 'boss',
+    level: 40,
+    health: 700,
+    maxHealth: 700,
+    damage: 40,
+    defense: 20,
+    speed: 4,
+    xpReward: 400,
+    creditReward: 400,
+    lootTable: [
+      { itemId: 'neon_crystal', chance: 1.0, minQuantity: 15, maxQuantity: 30 },
+      { itemId: 'energy_cell', chance: 0.8, minQuantity: 10, maxQuantity: 20 },
+      { itemId: 'circuit_board', chance: 0.7, minQuantity: 8, maxQuantity: 15 }
+    ],
+    biome: ['neon_city'],
+    spawnRate: 0.02,
+    size: 'huge',
+    color: '#00FFFF',
+    icon: '🛡️',
+    behavior: 'guard',
+    aggroRange: 25,
+    fleeHealthPercent: 0,
+    respawnTime: 1800000,
+    abilities: ['neon_blast', 'energy_shield']
+  },
+  {
+    id: 'star_sprite',
+    name: 'Star Sprite',
+    description: 'A tiny sprite made of starlight.',
+    type: 'neutral',
+    level: 35,
+    health: 200,
+    maxHealth: 200,
+    damage: 20,
+    defense: 8,
+    speed: 9,
+    xpReward: 150,
+    creditReward: 140,
+    lootTable: [
+      { itemId: 'star_dust', chance: 0.7, minQuantity: 4, maxQuantity: 8 },
+      { itemId: 'cosmic_essence', chance: 0.5, minQuantity: 2, maxQuantity: 5 }
+    ],
+    biome: ['cosmic_garden'],
+    spawnRate: 0.2,
+    size: 'tiny',
+    color: '#FFD700',
+    icon: '⭐',
+    behavior: 'wander',
+    aggroRange: 12,
+    fleeHealthPercent: 0.5,
+    respawnTime: 200000
+  },
+  {
+    id: 'comet_creature',
+    name: 'Comet Creature',
+    description: 'A creature that travels like a comet through space.',
+    type: 'aggressive',
+    level: 38,
+    health: 280,
+    maxHealth: 280,
+    damage: 25,
+    defense: 12,
+    speed: 12,
+    xpReward: 180,
+    creditReward: 170,
+    lootTable: [
+      { itemId: 'comet_fragment', chance: 0.8, minQuantity: 5, maxQuantity: 10 },
+      { itemId: 'star_dust', chance: 0.6, minQuantity: 3, maxQuantity: 6 }
+    ],
+    biome: ['cosmic_garden'],
+    spawnRate: 0.15,
+    size: 'medium',
+    color: '#9370DB',
+    icon: '☄️',
+    behavior: 'wander',
+    aggroRange: 15,
+    fleeHealthPercent: 0.3,
+    respawnTime: 240000
+  },
+  {
+    id: 'cosmic_guardian',
+    name: 'Cosmic Guardian',
+    description: 'The ultimate guardian of the cosmic garden.',
+    type: 'boss',
+    level: 50,
+    health: 1000,
+    maxHealth: 1000,
+    damage: 50,
+    defense: 25,
+    speed: 5,
+    xpReward: 500,
+    creditReward: 500,
+    lootTable: [
+      { itemId: 'star_dust', chance: 1.0, minQuantity: 20, maxQuantity: 40 },
+      { itemId: 'cosmic_essence', chance: 0.9, minQuantity: 10, maxQuantity: 20 },
+      { itemId: 'planet_seed', chance: 0.7, minQuantity: 5, maxQuantity: 10 },
+      { itemId: 'comet_fragment', chance: 0.8, minQuantity: 8, maxQuantity: 15 }
+    ],
+    biome: ['cosmic_garden'],
+    spawnRate: 0.01,
+    size: 'huge',
+    color: '#9370DB',
+    icon: '🌌',
+    behavior: 'guard',
+    aggroRange: 30,
+    fleeHealthPercent: 0,
+    respawnTime: 3600000, // 1 hour
+    abilities: ['cosmic_blast', 'star_storm', 'planet_summon']
+  }
+]
+
+export const MONSTER_MAP = new Map(MONSTERS.map(monster => [monster.id, monster]))
+
+export function getMonster(id: string): Monster | undefined {
+  return MONSTER_MAP.get(id)
+}
+
+export function getMonstersByBiome(biomeId: string): Monster[] {
+  return MONSTERS.filter(monster => monster.biome.includes(biomeId))
+}
+
+export function getMonstersByLevel(level: number): Monster[] {
+  return MONSTERS.filter(monster => 
+    monster.level >= level - 5 && monster.level <= level + 5
+  )
+}
+
+export function getBossMonsters(): Monster[] {
+  return MONSTERS.filter(monster => monster.type === 'boss')
+}
+

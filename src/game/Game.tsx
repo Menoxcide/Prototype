@@ -237,13 +237,14 @@ export default function Game() {
       className="fixed inset-0 w-full h-full" 
       style={{ 
         zIndex: 1,
-        backgroundColor: '#000011', // Ensure there's a background color
+        backgroundColor: '#1a1a2e', // Lighter background color for better visibility
         overflow: 'hidden',
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100vw',
-        height: '100vh'
+        height: '100vh',
+        pointerEvents: 'auto'
       }}
     >
       <EnhancedScene spellProjectiles={spellProjectiles} />
