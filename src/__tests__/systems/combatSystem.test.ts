@@ -116,12 +116,12 @@ describe('Combat System', () => {
 
     test('should add crit chance bonus', () => {
       const chance = calculateCriticalChance(0.1, { critChance: 0.2 })
-      expect(chance).toBe(0.3)
+      expect(chance).toBeCloseTo(0.3)
     })
 
     test('should convert crit rating to chance', () => {
       const chance = calculateCriticalChance(0.1, { critRating: 500 }) // 500 rating = 5%
-      expect(chance).toBe(0.15)
+      expect(chance).toBeCloseTo(0.15)
     })
 
     test('should cap at 95%', () => {
@@ -135,4 +135,3 @@ describe('Combat System', () => {
     })
   })
 })
-
