@@ -9,6 +9,8 @@ import { getQualityManager, QualityPreset } from '../utils/qualitySettings'
 import { soundManager } from '../assets/soundManager'
 import { audioTrackManager } from '../assets/audioTracks'
 import EnhancedModal from './components/EnhancedModal'
+import LanguageSelector from './components/LanguageSelector'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface Settings {
   // Audio
@@ -73,6 +75,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default function SettingsModal() {
   const { isSettingsOpen, toggleSettings } = useGameStore()
+  const { t } = useTranslation()
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [activeTab, setActiveTab] = useState<'audio' | 'graphics' | 'controls' | 'ui' | 'accessibility'>('audio')
 
@@ -153,7 +156,7 @@ export default function SettingsModal() {
     <EnhancedModal
       isOpen={isSettingsOpen}
       onClose={toggleSettings}
-      title="Settings"
+      title={t('settings.title')}
       size="lg"
     >
       <div className="flex flex-col h-full">
@@ -169,7 +172,7 @@ export default function SettingsModal() {
                   : 'text-gray-400 hover:text-gray-300'
               }`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {t(`settings.${tab}`)}
             </button>
           ))}
         </div>
@@ -179,7 +182,7 @@ export default function SettingsModal() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Master Volume: {Math.round(settings.masterVolume * 100)}%
+                {t('settings.masterVolume')}: {Math.round(settings.masterVolume * 100)}%
               </label>
               <input
                 type="range"
@@ -194,7 +197,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Music Volume: {Math.round(settings.musicVolume * 100)}%
+                {t('settings.musicVolume')}: {Math.round(settings.musicVolume * 100)}%
               </label>
               <input
                 type="range"
@@ -209,7 +212,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                SFX Volume: {Math.round(settings.sfxVolume * 100)}%
+                {t('settings.sfxVolume')}: {Math.round(settings.sfxVolume * 100)}%
               </label>
               <input
                 type="range"
@@ -224,7 +227,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Voice Chat Volume: {Math.round(settings.voiceChatVolume * 100)}%
+                {t('settings.voiceChatVolume')}: {Math.round(settings.voiceChatVolume * 100)}%
               </label>
               <input
                 type="range"
@@ -238,7 +241,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Mute All</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.muteAll')}</label>
               <input
                 type="checkbox"
                 checked={settings.muteAll}
@@ -254,7 +257,7 @@ export default function SettingsModal() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Quality Preset
+                {t('settings.qualityPreset')}
               </label>
               <div className="grid grid-cols-4 gap-2">
                 {(['low', 'medium', 'high', 'ultra'] as QualityPreset[]).map((preset) => (
@@ -267,7 +270,7 @@ export default function SettingsModal() {
                         : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     }`}
                   >
-                    {preset.charAt(0).toUpperCase() + preset.slice(1)}
+                    {t(`settings.${preset}`)}
                   </button>
                 ))}
               </div>
@@ -275,7 +278,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Render Distance: {settings.renderDistance}m
+                {t('settings.renderDistance')}: {settings.renderDistance}m
               </label>
               <input
                 type="range"
@@ -289,7 +292,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Shadows</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.shadows')}</label>
               <input
                 type="checkbox"
                 checked={settings.shadows}
@@ -299,7 +302,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Antialiasing</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.antialiasing')}</label>
               <input
                 type="checkbox"
                 checked={settings.antialiasing}
@@ -309,7 +312,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Post Processing</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.postProcessing')}</label>
               <input
                 type="checkbox"
                 checked={settings.postProcessing}
@@ -325,7 +328,7 @@ export default function SettingsModal() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Mouse Sensitivity: {settings.mouseSensitivity.toFixed(1)}x
+                {t('settings.mouseSensitivity')}: {settings.mouseSensitivity.toFixed(1)}x
               </label>
               <input
                 type="range"
@@ -339,7 +342,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Invert Y-Axis</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.invertY')}</label>
               <input
                 type="checkbox"
                 checked={settings.invertY}
@@ -350,7 +353,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Touch Sensitivity: {settings.touchSensitivity.toFixed(1)}x
+                {t('settings.touchSensitivity')}: {settings.touchSensitivity.toFixed(1)}x
               </label>
               <input
                 type="range"
@@ -365,7 +368,7 @@ export default function SettingsModal() {
 
             <div className="mt-4 p-3 bg-gray-800 rounded">
               <p className="text-sm text-gray-400">
-                Keybinding customization coming soon
+                {t('settings.keybindingCustomization')}
               </p>
             </div>
           </div>
@@ -374,9 +377,10 @@ export default function SettingsModal() {
         {/* UI Settings */}
         {activeTab === 'ui' && (
           <div className="space-y-4">
+            <LanguageSelector />
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                UI Scale: {settings.uiScale.toFixed(1)}x
+                {t('settings.uiScale')}: {settings.uiScale.toFixed(1)}x
               </label>
               <input
                 type="range"
@@ -391,7 +395,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Chat Opacity: {Math.round(settings.chatOpacity * 100)}%
+                {t('settings.chatOpacity')}: {Math.round(settings.chatOpacity * 100)}%
               </label>
               <input
                 type="range"
@@ -405,7 +409,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Show HUD</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.showHUD')}</label>
               <input
                 type="checkbox"
                 checked={settings.showHUD}
@@ -415,10 +419,10 @@ export default function SettingsModal() {
             </div>
 
             <div className="border-t border-gray-700 pt-4 mt-4">
-              <h3 className="text-cyan-400 font-bold mb-3">Auto-Loot Settings</h3>
+              <h3 className="text-cyan-400 font-bold mb-3">{t('settings.autoLootEnabled')}</h3>
               
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-gray-300">Enable Auto-Loot</label>
+                <label className="text-sm font-medium text-gray-300">{t('settings.autoLootEnabled')}</label>
                 <input
                   type="checkbox"
                   checked={settings.autoLootEnabled}
@@ -431,7 +435,7 @@ export default function SettingsModal() {
                 <>
                   <div className="mb-3">
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Auto-Loot Range: {settings.autoLootRange}m
+                      {t('settings.autoLootRange')}: {settings.autoLootRange}m
                     </label>
                     <input
                       type="range"
@@ -446,7 +450,7 @@ export default function SettingsModal() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Auto-Loot Filter (Item Types)
+                      {t('settings.autoLootFilter')}
                     </label>
                     <div className="space-y-2">
                       {['weapon', 'armor', 'consumable', 'resource'].map(type => (
@@ -467,7 +471,7 @@ export default function SettingsModal() {
                       ))}
                     </div>
                     {settings.autoLootFilter.length === 0 && (
-                      <p className="text-xs text-gray-500 mt-2">No filter = auto-loot all items</p>
+                      <p className="text-xs text-gray-500 mt-2">{t('settings.noFilter')}</p>
                     )}
                   </div>
                 </>
@@ -480,7 +484,7 @@ export default function SettingsModal() {
         {activeTab === 'accessibility' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">Colorblind Mode</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.colorblindMode')}</label>
               <input
                 type="checkbox"
                 checked={settings.colorblindMode}
@@ -491,7 +495,7 @@ export default function SettingsModal() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Text Size
+                {t('settings.textSize')}
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {(['small', 'medium', 'large'] as const).map((size) => (
@@ -504,14 +508,14 @@ export default function SettingsModal() {
                         : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     }`}
                   >
-                    {size.charAt(0).toUpperCase() + size.slice(1)}
+                    {t(`settings.${size}`)}
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-300">High Contrast</label>
+              <label className="text-sm font-medium text-gray-300">{t('settings.highContrast')}</label>
               <input
                 type="checkbox"
                 checked={settings.highContrast}
@@ -531,13 +535,13 @@ export default function SettingsModal() {
             }}
             className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded"
           >
-            Reset to Defaults
+            {t('settings.resetToDefaults')}
           </button>
           <button
             onClick={toggleSettings}
             className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded"
           >
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>

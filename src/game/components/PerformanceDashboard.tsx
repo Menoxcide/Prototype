@@ -1,9 +1,9 @@
 /**
  * Performance Monitoring Dashboard
- * Real-time performance metrics display for debugging and monitoring
+ * Real-time performance metrics display with graphs and additional metrics
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { performanceProfiler } from '../utils/performanceProfiler'
 
@@ -19,6 +19,21 @@ interface PerformanceMetrics {
   packetLoss?: number
 }
 
+interface MetricHistory {
+  timestamp: number
+  value: number
+}
+
+interface GraphData {
+  fps: MetricHistory[]
+  frameTime: MetricHistory[]
+  memory: MetricHistory[]
+  latency: MetricHistory[]
+}
+
+const MAX_HISTORY = 60 // 60 seconds of data at 1 sample/second
+const GRAPH_HEIGHT = 60
+
 export default function PerformanceDashboard() {
   const [isVisible, setIsVisible] = useState(false)
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
@@ -30,16 +45,33 @@ export default function PerformanceDashboard() {
     textures: 0,
     memory: 0
   })
+  const [history, setHistory] = useState<GraphData>({
+    fps: [],
+    frameTime: [],
+    memory: [],
+    latency: []
+  })
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'graphs' | 'network' | 'rendering'>('overview')
   const isConnected = useGameStore(state => state.isConnected)
+  const { player, enemies, otherPlayers, lootDrops, resourceNodes } = useGameStore()
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    if (!isVisible) return
+    if (!isVisible) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      return
+    }
 
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       const profilerStats = performanceProfiler.getMetrics()
       const memoryInfo = (performance as any).memory
+      const networkLatency = useGameStore.getState().networkLatency
+      const packetLoss = useGameStore.getState().packetLoss
       
-      setMetrics({
+      const newMetrics: PerformanceMetrics = {
         fps: profilerStats.fps,
         frameTime: profilerStats.frameTime,
         drawCalls: profilerStats.drawCalls,
@@ -47,12 +79,43 @@ export default function PerformanceDashboard() {
         geometries: profilerStats.geometries,
         textures: profilerStats.textures,
         memory: memoryInfo ? Math.round(memoryInfo.usedJSHeapSize / 1048576) : 0,
-        networkLatency: useGameStore.getState().networkLatency,
-        packetLoss: useGameStore.getState().packetLoss
+        networkLatency,
+        packetLoss
+      }
+
+      setMetrics(newMetrics)
+
+      // Update history
+      const now = Date.now()
+      setHistory(prev => {
+        const newHistory = { ...prev }
+        
+        // Add new data points
+        newHistory.fps.push({ timestamp: now, value: newMetrics.fps })
+        newHistory.frameTime.push({ timestamp: now, value: newMetrics.frameTime })
+        newHistory.memory.push({ timestamp: now, value: newMetrics.memory })
+        if (networkLatency !== undefined) {
+          newHistory.latency.push({ timestamp: now, value: networkLatency })
+        }
+
+        // Trim to max history
+        Object.keys(newHistory).forEach(key => {
+          const arr = newHistory[key as keyof GraphData]
+          if (arr.length > MAX_HISTORY) {
+            arr.shift()
+          }
+        })
+
+        return newHistory
       })
     }, 1000) // Update every second
 
-    return () => clearInterval(interval)
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
   }, [isVisible])
 
   // Toggle with F3 key
@@ -82,74 +145,217 @@ export default function PerformanceDashboard() {
     return 'text-red-400'
   }
 
+  const getLatencyColor = (latency: number) => {
+    if (latency < 50) return 'text-green-400'
+    if (latency < 100) return 'text-yellow-400'
+    return 'text-red-400'
+  }
+
+  // Render a simple line graph
+  const renderGraph = (data: MetricHistory[], maxValue: number, color: string, label: string) => {
+    if (data.length === 0) return <div className="text-gray-500 text-xs">No data</div>
+
+    const points = data.map((point, index) => {
+      const x = (index / (data.length - 1 || 1)) * 100
+      const y = 100 - (point.value / maxValue) * 100
+      return `${x},${y}`
+    }).join(' ')
+
+    return (
+      <div className="relative">
+        <svg width="100%" height={GRAPH_HEIGHT} className="border border-gray-700 rounded">
+          <polyline
+            points={points}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            className="drop-shadow-lg"
+          />
+          <text x="5" y="12" className="text-xs fill-gray-400" fontSize="10">{label}</text>
+          <text x="5" y={GRAPH_HEIGHT - 5} className="text-xs fill-gray-500" fontSize="8">0</text>
+          <text x="95%" y={GRAPH_HEIGHT - 5} className="text-xs fill-gray-500" fontSize="8" textAnchor="end">{maxValue}</text>
+        </svg>
+      </div>
+    )
+  }
+
+  const fpsMax = Math.max(60, ...history.fps.map(h => h.value), 1)
+  const frameTimeMax = Math.max(33, ...history.frameTime.map(h => h.value), 1)
+  const memoryMax = Math.max(500, ...history.memory.map(h => h.value), 1)
+  const latencyMax = Math.max(200, ...history.latency.map(h => h.value), 1)
+
   return (
-    <div className="fixed top-4 right-4 bg-black/90 border border-cyan-500 rounded-lg p-4 font-mono text-xs z-50 min-w-[250px]">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-cyan-400 font-bold">Performance Dashboard</h3>
+    <div className="fixed top-4 right-4 bg-black/95 border border-cyan-500 rounded-lg p-4 font-mono text-xs z-50 min-w-[400px] max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-cyan-400 font-bold text-sm">Performance Dashboard</h3>
         <button
           onClick={() => setIsVisible(false)}
-          className="text-gray-400 hover:text-white"
+          className="text-gray-400 hover:text-white text-lg"
         >
           ×
         </button>
       </div>
-      
-      <div className="space-y-1">
-        <div className="flex justify-between">
-          <span className="text-gray-400">FPS:</span>
-          <span className={getFPSColor(metrics.fps)}>{metrics.fps.toFixed(1)}</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Frame Time:</span>
-          <span className="text-white">{metrics.frameTime.toFixed(2)}ms</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Draw Calls:</span>
-          <span className="text-white">{metrics.drawCalls}</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Triangles:</span>
-          <span className="text-white">{metrics.triangles.toLocaleString()}</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Geometries:</span>
-          <span className="text-white">{metrics.geometries}</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Textures:</span>
-          <span className="text-white">{metrics.textures}</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-400">Memory:</span>
-          <span className={getMemoryColor(metrics.memory)}>{metrics.memory}MB</span>
-        </div>
-        
-        {isConnected && (
-          <>
-            {metrics.networkLatency !== undefined && (
-              <div className="flex justify-between">
-                <span className="text-gray-400">Latency:</span>
-                <span className="text-white">{metrics.networkLatency}ms</span>
-              </div>
-            )}
-            
-            {metrics.packetLoss !== undefined && (
-              <div className="flex justify-between">
-                <span className="text-gray-400">Packet Loss:</span>
-                <span className={metrics.packetLoss > 5 ? 'text-red-400' : 'text-white'}>
-                  {metrics.packetLoss.toFixed(1)}%
-                </span>
-              </div>
-            )}
-          </>
-        )}
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-3 border-b border-gray-700">
+        {(['overview', 'graphs', 'network', 'rendering'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setSelectedTab(tab)}
+            className={`px-3 py-1 text-xs capitalize ${
+              selectedTab === tab
+                ? 'text-cyan-400 border-b-2 border-cyan-400'
+                : 'text-gray-400 hover:text-gray-300'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
+
+      {/* Overview Tab */}
+      {selectedTab === 'overview' && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-gray-900/50 rounded p-2">
+              <div className="text-gray-400 text-xs mb-1">FPS</div>
+              <div className={`text-lg font-bold ${getFPSColor(metrics.fps)}`}>
+                {metrics.fps.toFixed(1)}
+              </div>
+            </div>
+            <div className="bg-gray-900/50 rounded p-2">
+              <div className="text-gray-400 text-xs mb-1">Frame Time</div>
+              <div className="text-lg font-bold text-white">
+                {metrics.frameTime.toFixed(2)}ms
+              </div>
+            </div>
+            <div className="bg-gray-900/50 rounded p-2">
+              <div className="text-gray-400 text-xs mb-1">Memory</div>
+              <div className={`text-lg font-bold ${getMemoryColor(metrics.memory)}`}>
+                {metrics.memory}MB
+              </div>
+            </div>
+            {isConnected && metrics.networkLatency !== undefined && (
+              <div className="bg-gray-900/50 rounded p-2">
+                <div className="text-gray-400 text-xs mb-1">Latency</div>
+                <div className={`text-lg font-bold ${getLatencyColor(metrics.networkLatency)}`}>
+                  {metrics.networkLatency}ms
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-gray-700 pt-2">
+            <div className="text-gray-400 text-xs mb-2">Game Entities</div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Enemies:</span>
+                <span className="text-white">{enemies.size}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Players:</span>
+                <span className="text-white">{otherPlayers.size + (player ? 1 : 0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Loot Drops:</span>
+                <span className="text-white">{lootDrops.size}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Resource Nodes:</span>
+                <span className="text-white">{resourceNodes.size}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Graphs Tab */}
+      {selectedTab === 'graphs' && (
+        <div className="space-y-4">
+          <div>
+            <div className="text-gray-400 text-xs mb-1">FPS History (60s)</div>
+            {renderGraph(history.fps, fpsMax, '#22d3ee', 'FPS')}
+          </div>
+          <div>
+            <div className="text-gray-400 text-xs mb-1">Frame Time History (60s)</div>
+            {renderGraph(history.frameTime, frameTimeMax, '#34d399', 'ms')}
+          </div>
+          <div>
+            <div className="text-gray-400 text-xs mb-1">Memory Usage History (60s)</div>
+            {renderGraph(history.memory, memoryMax, '#fbbf24', 'MB')}
+          </div>
+          {isConnected && history.latency.length > 0 && (
+            <div>
+              <div className="text-gray-400 text-xs mb-1">Network Latency History (60s)</div>
+              {renderGraph(history.latency, latencyMax, '#a78bfa', 'ms')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Network Tab */}
+      {selectedTab === 'network' && (
+        <div className="space-y-2">
+          {isConnected ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Connection Status:</span>
+                <span className="text-green-400">Connected</span>
+              </div>
+              {metrics.networkLatency !== undefined && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Latency:</span>
+                    <span className={getLatencyColor(metrics.networkLatency)}>
+                      {metrics.networkLatency}ms
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Packet Loss:</span>
+                    <span className={metrics.packetLoss > 5 ? 'text-red-400' : 'text-white'}>
+                      {metrics.packetLoss.toFixed(1)}%
+                    </span>
+                  </div>
+                </>
+              )}
+              {history.latency.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-gray-400 text-xs mb-1">Latency Graph</div>
+                  {renderGraph(history.latency, latencyMax, '#a78bfa', 'ms')}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-yellow-400">Not Connected</div>
+          )}
+        </div>
+      )}
+
+      {/* Rendering Tab */}
+      {selectedTab === 'rendering' && (
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span className="text-gray-400">Draw Calls:</span>
+            <span className="text-white">{metrics.drawCalls}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Triangles:</span>
+            <span className="text-white">{metrics.triangles.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Geometries:</span>
+            <span className="text-white">{metrics.geometries}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Textures:</span>
+            <span className="text-white">{metrics.textures}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Memory:</span>
+            <span className={getMemoryColor(metrics.memory)}>{metrics.memory}MB</span>
+          </div>
+        </div>
+      )}
       
       <div className="mt-3 pt-2 border-t border-gray-700">
         <p className="text-gray-500 text-xs">Press F3 to toggle</p>
@@ -157,4 +363,3 @@ export default function PerformanceDashboard() {
     </div>
   )
 }
-

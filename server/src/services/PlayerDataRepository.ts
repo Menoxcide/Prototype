@@ -248,5 +248,68 @@ export class PlayerDataRepository {
   async countCharactersByUser(userId: string): Promise<number> {
     return await this.db.countCharactersByUser(userId)
   }
+
+  /**
+   * Save dungeon progress
+   */
+  async saveDungeonProgress(playerId: string, progress: import('../../../shared/src/types/dungeons').DungeonProgress): Promise<void> {
+    const progressId = `progress_${playerId}_${progress.dungeonId}`
+    
+    await this.db.query(
+      `INSERT INTO dungeon_progress (id, player_id, dungeon_id, current_floor, rooms_cleared, entities_defeated, started_at, completed_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         current_floor = EXCLUDED.current_floor,
+         rooms_cleared = EXCLUDED.rooms_cleared,
+         entities_defeated = EXCLUDED.entities_defeated,
+         completed_at = EXCLUDED.completed_at,
+         updated_at = NOW()`,
+      [
+        progressId,
+        playerId,
+        progress.dungeonId,
+        progress.currentFloor,
+        JSON.stringify(progress.roomsCleared),
+        JSON.stringify(progress.entitiesDefeated),
+        progress.startedAt,
+        progress.completedAt || null
+      ]
+    )
+  }
+
+  /**
+   * Load dungeon progress
+   */
+  async loadDungeonProgress(playerId: string, dungeonId: string): Promise<import('../../../shared/src/types/dungeons').DungeonProgress | null> {
+    const progressId = `progress_${playerId}_${dungeonId}`
+    
+    const results = await this.db.query<{
+      id: string
+      player_id: string
+      dungeon_id: string
+      current_floor: number
+      rooms_cleared: string
+      entities_defeated: string
+      started_at: number
+      completed_at: number | null
+    }>(
+      'SELECT * FROM dungeon_progress WHERE id = $1',
+      [progressId]
+    )
+    
+    if (results.length === 0) {
+      return null
+    }
+    
+    const row = results[0]
+    return {
+      dungeonId: row.dungeon_id,
+      currentFloor: row.current_floor,
+      roomsCleared: JSON.parse(row.rooms_cleared),
+      entitiesDefeated: JSON.parse(row.entities_defeated),
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined
+    }
+  }
 }
 

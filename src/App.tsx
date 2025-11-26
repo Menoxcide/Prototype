@@ -35,6 +35,7 @@ import PerformanceDashboard from './game/components/PerformanceDashboard'
 import { mobilePersistence } from './game/utils/mobilePersistence'
 // import { errorReporting } from './game/utils/errorReporting' // Available for future use
 import Game from './game/Game'
+import { localizationManager } from './game/utils/localization'
 
 function App() {
   const { player } = useGameStore()
@@ -45,6 +46,22 @@ function App() {
   const [showCharacterSelection, setShowCharacterSelection] = useState(false)
   const [showCharacterCreation, setShowCharacterCreation] = useState(false)
   const loadingStartedRef = useRef(false)
+
+  // Initialize localization
+  useEffect(() => {
+    // Load saved locale or default to English
+    const savedLocale = localStorage.getItem('gameLocale') as typeof localizationManager.getLocale() | null
+    if (savedLocale) {
+      localizationManager.setLocale(savedLocale)
+    } else {
+      // Try to detect browser language
+      const browserLang = navigator.language.split('-')[0] as typeof savedLocale
+      const availableLocales = localizationManager.getAvailableLocales()
+      if (availableLocales.includes(browserLang)) {
+        localizationManager.setLocale(browserLang)
+      }
+    }
+  }, [])
 
   // Initialize mobile persistence
   useEffect(() => {

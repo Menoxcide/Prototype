@@ -315,6 +315,14 @@ interface GameState {
   addActiveEvent: (event: any) => void
   removeActiveEvent: (eventId: string) => void
   
+  // Dungeon System
+  isDungeonMapOpen: boolean
+  toggleDungeonMap: () => void
+  currentDungeon: import('../../shared/src/types/dungeons').Dungeon | null
+  setCurrentDungeon: (dungeon: import('../../shared/src/types/dungeons').Dungeon | null) => void
+  dungeonProgress: Map<string, import('../../shared/src/types/dungeons').DungeonProgress>
+  setDungeonProgress: (dungeonId: string, progress: import('../../shared/src/types/dungeons').DungeonProgress) => void
+  
   // Floating numbers (enhanced system for all types)
   floatingNumbers: Map<string, {
     id: string
@@ -855,6 +863,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { activeEvents } = get()
     set({ activeEvents: activeEvents.filter(e => e.id !== eventId) })
   },
+  
+  // Dungeon System
+  isDungeonMapOpen: false,
+  toggleDungeonMap: () => set((state) => ({ isDungeonMapOpen: !state.isDungeonMapOpen })),
+  currentDungeon: null,
+  setCurrentDungeon: (dungeon) => set({ currentDungeon: dungeon }),
+  dungeonProgress: new Map(),
+  setDungeonProgress: (dungeonId, progress) => set((state) => ({
+    dungeonProgress: new Map(state.dungeonProgress).set(dungeonId, progress)
+  })),
   
   // Skills system
   playerSkills: new Map(),

@@ -35,11 +35,27 @@ export interface AlertCondition {
   tags?: Record<string, string>
 }
 
+export type AlertChannel = 'console' | 'webhook' | 'email' | 'slack' | 'discord'
+
+export interface AlertChannelConfig {
+  type: AlertChannel
+  webhookUrl?: string
+  email?: string
+  enabled: boolean
+}
+
 export interface Alert {
   id: string
   condition: AlertCondition
   triggered: boolean
   triggeredAt?: number
+  acknowledged: boolean
+  acknowledgedAt?: number
+  acknowledgedBy?: string
+  escalationLevel: number
+  lastTriggered?: number
+  triggerCount: number
+  channels: AlertChannelConfig[]
   callback: () => void
 }
 
@@ -57,8 +73,9 @@ export interface MonitoringService {
   recordMetric(name: string, value: number, tags?: Record<string, string>): void
   logEvent(level: LogLevel, message: string, context?: Record<string, any>): void
   getMetrics(timeRange: TimeRange, metricName?: string, tags?: Record<string, string>): Metric[]
-  setAlert(condition: AlertCondition, callback: () => void): string
+  setAlert(condition: AlertCondition, callback: () => void, channels?: AlertChannelConfig[]): string
   removeAlert(alertId: string): void
+  acknowledgeAlert(alertId: string, acknowledgedBy?: string): void
   getLogs(timeRange?: TimeRange, level?: LogLevel, playerId?: string): LogEntry[]
   getAggregatedErrors(timeRange?: TimeRange): AggregatedError[]
   getErrorRate(timeRange?: TimeRange): number
@@ -150,19 +167,36 @@ export class MonitoringServiceImpl implements MonitoringService {
   }
 
   /**
-   * Set an alert
+   * Set an alert with multiple channels
    */
-  setAlert(condition: AlertCondition, callback: () => void): string {
+  setAlert(condition: AlertCondition, callback: () => void, channels: AlertChannelConfig[] = [{ type: 'console', enabled: true }]): string {
     const alertId = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     const alert: Alert = {
       id: alertId,
       condition,
       triggered: false,
+      acknowledged: false,
+      escalationLevel: 0,
+      triggerCount: 0,
+      channels,
       callback
     }
 
     this.alerts.set(alertId, alert)
     return alertId
+  }
+
+  /**
+   * Acknowledge an alert
+   */
+  acknowledgeAlert(alertId: string, acknowledgedBy?: string): void {
+    const alert = this.alerts.get(alertId)
+    if (alert) {
+      alert.acknowledged = true
+      alert.acknowledgedAt = Date.now()
+      alert.acknowledgedBy = acknowledgedBy
+      alert.escalationLevel = 0 // Reset escalation when acknowledged
+    }
   }
 
   /**
@@ -173,7 +207,7 @@ export class MonitoringServiceImpl implements MonitoringService {
   }
 
   /**
-   * Check all alerts
+   * Check all alerts with escalation
    */
   private checkAlerts(): void {
     const now = Date.now()
@@ -183,7 +217,8 @@ export class MonitoringServiceImpl implements MonitoringService {
     }
 
     this.alerts.forEach((alert, alertId) => {
-      if (alert.triggered) return
+      // Skip acknowledged alerts unless they've been re-triggered
+      if (alert.acknowledged && !alert.triggered) return
 
       const metrics = this.getMetrics(timeRange, alert.condition.metric, alert.condition.tags)
       if (metrics.length === 0) return
@@ -205,16 +240,149 @@ export class MonitoringServiceImpl implements MonitoringService {
       }
 
       if (shouldTrigger) {
+        const wasTriggered = alert.triggered
         alert.triggered = true
         alert.triggeredAt = now
+        alert.lastTriggered = now
+        alert.triggerCount++
+
+        // Escalate if alert persists
+        if (wasTriggered && alert.lastTriggered && now - alert.lastTriggered > 300000) { // 5 minutes
+          alert.escalationLevel++
+        }
+
+        // Send to all enabled channels
+        this.sendAlertToChannels(alert, avgValue)
+
+        // Call callback
         alert.callback()
-        this.logEvent('warn', `Alert triggered: ${alert.condition.metric}`, {
+
+        // Log alert
+        this.logEvent('warn', `Alert triggered: ${alert.condition.metric} (Level ${alert.escalationLevel})`, {
           alertId,
           condition: alert.condition,
-          value: avgValue
+          value: avgValue,
+          escalationLevel: alert.escalationLevel,
+          triggerCount: alert.triggerCount
         })
+      } else if (alert.triggered) {
+        // Reset if condition no longer met
+        alert.triggered = false
+        alert.escalationLevel = 0
       }
     })
+  }
+
+  /**
+   * Send alert to configured channels
+   */
+  private sendAlertToChannels(alert: Alert, value: number): void {
+    alert.channels.forEach(channel => {
+      if (!channel.enabled) return
+
+      const message = `Alert: ${alert.condition.metric} ${alert.condition.operator} ${alert.condition.threshold} (Current: ${value.toFixed(2)}, Escalation: ${alert.escalationLevel})`
+
+      switch (channel.type) {
+        case 'console':
+          console.warn(`[ALERT] ${message}`)
+          break
+        case 'webhook':
+          if (channel.webhookUrl) {
+            this.sendWebhook(channel.webhookUrl, {
+              alertId: alert.id,
+              condition: alert.condition,
+              value,
+              escalationLevel: alert.escalationLevel,
+              triggerCount: alert.triggerCount,
+              timestamp: Date.now()
+            }).catch(err => {
+              console.error(`Failed to send webhook alert:`, err)
+            })
+          }
+          break
+        case 'email':
+          // Email sending would be implemented here
+          console.warn(`[EMAIL ALERT] ${message} to ${channel.email}`)
+          break
+        case 'slack':
+        case 'discord':
+          if (channel.webhookUrl) {
+            this.sendWebhook(channel.webhookUrl, {
+              content: message,
+              embeds: [{
+                title: 'Alert Triggered',
+                description: message,
+                color: alert.escalationLevel > 2 ? 0xff0000 : alert.escalationLevel > 0 ? 0xffaa00 : 0xffff00,
+                fields: [
+                  { name: 'Metric', value: alert.condition.metric, inline: true },
+                  { name: 'Value', value: value.toFixed(2), inline: true },
+                  { name: 'Escalation', value: alert.escalationLevel.toString(), inline: true }
+                ],
+                timestamp: new Date().toISOString()
+              }]
+            }).catch(err => {
+              console.error(`Failed to send ${channel.type} alert:`, err)
+            })
+          }
+          break
+      }
+    })
+  }
+
+  /**
+   * Send webhook request
+   */
+  private async sendWebhook(url: string, data: any): Promise<void> {
+    try {
+      // Use Node.js built-in fetch (available in Node 18+) or fallback to http module
+      if (typeof fetch !== 'undefined') {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        })
+        if (!response.ok) {
+          throw new Error(`Webhook failed: ${response.statusText}`)
+        }
+      } else {
+        // Fallback for older Node.js versions
+        const http = await import('http')
+        const https = await import('https')
+        const urlObj = new URL(url)
+        const isHttps = urlObj.protocol === 'https:'
+        const client = isHttps ? https : http
+        
+        return new Promise((resolve, reject) => {
+          const postData = JSON.stringify(data)
+          const options = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || (isHttps ? 443 : 80),
+            path: urlObj.pathname + urlObj.search,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          }
+          
+          const req = client.request(options, (res) => {
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              resolve()
+            } else {
+              reject(new Error(`Webhook failed: ${res.statusCode} ${res.statusMessage}`))
+            }
+          })
+          
+          req.on('error', reject)
+          req.write(postData)
+          req.end()
+        })
+      }
+    } catch (error) {
+      throw error
+    }
   }
 
   /**

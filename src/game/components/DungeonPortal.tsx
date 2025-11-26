@@ -4,12 +4,15 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { DungeonPortal as DungeonPortalType } from '../systems/dungeonSystem'
 import { useGameStore } from '../store/useGameStore'
+import { useTranslation } from '../hooks/useTranslation'
+import { enterDungeon } from '../network/colyseus'
 
 interface DungeonPortalProps {
   portal: DungeonPortalType
 }
 
 export default function DungeonPortal({ portal }: DungeonPortalProps) {
+  const { t } = useTranslation()
   const meshRef = useRef<THREE.Mesh>(null)
   const rotationRef = useRef(0)
   const { player } = useGameStore()
@@ -76,7 +79,7 @@ export default function DungeonPortal({ portal }: DungeonPortalProps) {
       {isClose && canEnter && (
         <Html position={[portal.position.x, portal.position.y + 2, portal.position.z]} center>
           <div className="bg-black/80 text-cyan-400 px-3 py-1 rounded text-sm font-bold border border-cyan-500">
-            Press E to Enter
+            {t('dungeon.enter')} ({t('dungeon.requiredLevel', { level: portal.requiredLevel })})
           </div>
         </Html>
       )}

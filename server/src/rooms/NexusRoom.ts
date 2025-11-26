@@ -1041,6 +1041,12 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
     }
 
+    // Track loot pickup
+    this.monitoringService.recordMetric('game.loot_picked_up', 1, {
+      playerId,
+      itemId: loot.itemId
+    })
+
     // Remove loot immediately
     this.state.lootDrops.delete(lootId)
 
@@ -1380,9 +1386,49 @@ export class NexusRoom extends Room<NexusRoomState> {
                 quantity: 1
               })
               if (result?.unlocked) {
+                // Track achievement unlock
+                this.monitoringService.recordMetric('game.achievement_unlocked', 1, {
+                  playerId: projectile.casterId,
+                  achievementId: result.achievement?.id || 'unknown'
+                })
+                
                 const client = this.getClientBySessionId(projectile.casterId)
                 if (client && result.achievement) {
                   client.send('achievementUnlocked', { achievement: result.achievement })
+                }
+              }
+            }
+            
+            // Track enemy kill
+            this.monitoringService.recordMetric('game.enemy_killed', 1, {
+              playerId: projectile.casterId,
+              enemyType: enemy.type,
+              enemyLevel: enemy.level.toString()
+            })
+            
+            // Check if this is a dungeon entity
+            const playerDungeon = this.dungeonSystem?.getPlayerDungeon(projectile.casterId)
+            if (playerDungeon) {
+              // Mark entity as defeated in dungeon system
+              this.dungeonSystem.defeatEntity(playerDungeon.id, enemyId)
+              
+              // Check if dungeon is complete
+              const allCleared = playerDungeon.rooms.every(room => room.cleared || room.type === 'start')
+              if (allCleared && !playerDungeon.completed) {
+                await this.dungeonSystem.completeDungeon(playerDungeon.id, projectile.casterId)
+                
+                // Track dungeon completion
+                this.monitoringService.recordMetric('game.dungeon_completed', 1, {
+                  playerId: projectile.casterId,
+                  dungeonId: playerDungeon.id,
+                  difficulty: playerDungeon.difficulty.toString(),
+                  level: playerDungeon.level.toString(),
+                  roomsCleared: playerDungeon.rooms.length.toString()
+                })
+                
+                const client = this.getClientBySessionId(projectile.casterId)
+                if (client) {
+                  client.send('dungeonCompleted', { dungeonId: playerDungeon.id })
                 }
               }
             }
@@ -1647,6 +1693,12 @@ export class NexusRoom extends Room<NexusRoomState> {
     // Check if player is already in a guild
     if (player.guildId) return
 
+    // Track guild join
+    this.monitoringService.recordMetric('game.guild_joined', 1, {
+      playerId,
+      guildId
+    })
+    
     // Add player to guild
     guild.memberIds.push(playerId)
     player.guildId = guild.id
@@ -1693,6 +1745,12 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     const guild = this.state.guilds.get(player.guildId)
     if (!guild) return
+
+    // Track guild leave
+    this.monitoringService.recordMetric('game.guild_left', 1, {
+      playerId,
+      guildId: player.guildId
+    })
 
     // Remove player from guild
     const index = guild.memberIds.indexOf(playerId)
@@ -2370,6 +2428,12 @@ export class NexusRoom extends Room<NexusRoomState> {
     const dungeon = this.dungeonSystem.createDungeon(seed, difficulty, level)
     const client = this.getClientBySessionId(playerId)
     if (client && dungeon) {
+      // Track dungeon creation
+      this.monitoringService.recordMetric('game.dungeon_created', 1, {
+        playerId,
+        difficulty: difficulty.toString(),
+        level: level.toString()
+      })
       client.send('dungeonCreated', { dungeon })
     }
   }
@@ -2381,10 +2445,70 @@ export class NexusRoom extends Room<NexusRoomState> {
     const client = this.getClientBySessionId(playerId)
     if (client) {
       if (success) {
-        client.send('dungeonEntered', { dungeonId })
+        const dungeon = this.dungeonSystem.getDungeon(dungeonId)
+        if (dungeon) {
+          // Track dungeon entry
+          this.monitoringService.recordMetric('game.dungeon_entered', 1, {
+            playerId,
+            dungeonId,
+            difficulty: dungeon.difficulty.toString(),
+            level: dungeon.level.toString()
+          })
+          
+          // Spawn dungeon entities as enemies
+          this.spawnDungeonEntities(dungeon)
+          
+          // Send dungeon data to client
+          client.send('dungeonEntered', { 
+            dungeonId,
+            dungeon: {
+              id: dungeon.id,
+              seed: dungeon.seed,
+              difficulty: dungeon.difficulty,
+              level: dungeon.level,
+              rooms: dungeon.rooms,
+              layout: dungeon.layout
+            }
+          })
+        } else {
+          client.send('dungeonError', { message: 'Dungeon not found' })
+        }
       } else {
         client.send('dungeonError', { message: 'Failed to enter dungeon' })
       }
+    }
+  }
+
+  /**
+   * Spawn dungeon entities as enemies in the room
+   */
+  private spawnDungeonEntities(dungeon: import('../../systems/DungeonSystem').Dungeon): void {
+    if (!this.dungeonSystem) return
+
+    for (const entity of dungeon.entities) {
+      if (entity.spawned || entity.defeated) continue
+      if (entity.type !== 'enemy' && entity.type !== 'boss') continue
+
+      const enemy = new EnemySchema()
+      enemy.id = entity.id
+      enemy.type = entity.data?.enemyType || 'cyber_drone'
+      enemy.x = entity.position.x
+      enemy.y = entity.position.y
+      enemy.z = entity.position.z
+      enemy.rotation = 0
+      enemy.health = entity.data?.health || 100
+      enemy.maxHealth = entity.data?.health || 100
+      enemy.level = entity.data?.level || 1
+      enemy.ownerId = '' // Dungeon enemies don't have owners
+
+      this.state.enemies.set(entity.id, enemy)
+      entity.spawned = true
+
+      // Add to spatial grid
+      this.enemySpatialGrid.insert(
+        { id: entity.id, position: { x: enemy.x, y: enemy.y, z: enemy.z } },
+        { x: enemy.x, y: enemy.y, z: enemy.z }
+      )
     }
   }
 

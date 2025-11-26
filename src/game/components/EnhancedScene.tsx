@@ -30,6 +30,8 @@ import BiomeEnvironment from './BiomeEnvironment'
 import FPSTracker from './FPSTracker'
 import QuestObjectiveMarker from './QuestObjectiveMarker'
 import { useLoadingPhase } from '../hooks/useLoadingPhase'
+import DungeonMap from '../ui/DungeonMap'
+import { useGameStore } from '../store/useGameStore'
 
 import { SpellProjectile } from '../systems/spellSystem'
 
@@ -41,6 +43,9 @@ interface EnhancedSceneProps {
 function SceneContent({ spellProjectiles = [] }: EnhancedSceneProps) {
   // Use selective subscriptions to reduce re-renders
   const enemies = useGameStore((state) => state.enemies)
+  const currentDungeon = useGameStore((state) => state.currentDungeon)
+  const isDungeonMapOpen = useGameStore((state) => state.isDungeonMapOpen)
+  const dungeonProgress = useGameStore((state) => state.dungeonProgress)
   const resourceNodes = useGameStore((state) => state.resourceNodes)
   const lootDrops = useGameStore((state) => state.lootDrops)
   const activeQuests = useGameStore((state) => state.activeQuests)
@@ -122,6 +127,11 @@ function SceneContent({ spellProjectiles = [] }: EnhancedSceneProps) {
               target={objective.target}
             />
           ))
+      )}
+
+      {/* Dungeon Map and UI (if active dungeon) */}
+      {currentDungeon && isDungeonMapOpen && (
+        <DungeonMap dungeon={currentDungeon} progress={dungeonProgress.get(currentDungeon.id)} />
       )}
     </>
   )

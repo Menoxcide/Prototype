@@ -5,8 +5,10 @@ import EnhancedCard from './components/EnhancedCard'
 import EnhancedBadge from './components/EnhancedBadge'
 import { getItemIcon } from '../assets'
 import type { InventoryItem } from '../types'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function EnhancedInventoryModal() {
+  const { t } = useTranslation()
   const { isInventoryOpen, toggleInventory, inventory } = useGameStore()
   const [sortBy, setSortBy] = useState<'name' | 'rarity' | 'type' | 'none'>('none')
   const [filterBy, setFilterBy] = useState<string>('all')
@@ -17,14 +19,14 @@ export default function EnhancedInventoryModal() {
     <EnhancedModal
       isOpen={isInventoryOpen}
       onClose={toggleInventory}
-      title="Inventory"
+      title={t('inventory.title')}
       size="md"
     >
       {inventory.length === 0 ? (
         <div className="text-center text-gray-400 py-12">
           <div className="text-6xl mb-4">📦</div>
-          <div className="text-xl">Your inventory is empty</div>
-          <div className="text-sm text-gray-500 mt-2">Collect items from enemies and quests</div>
+          <div className="text-xl">{t('inventory.emptyMessage')}</div>
+          <div className="text-sm text-gray-500 mt-2">{t('inventory.emptySubtext')}</div>
         </div>
       ) : (
         <>
@@ -35,21 +37,21 @@ export default function EnhancedInventoryModal() {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
             >
-              <option value="none">No Sort</option>
-              <option value="name">Sort by Name</option>
-              <option value="rarity">Sort by Rarity</option>
-              <option value="type">Sort by Type</option>
+              <option value="none">{t('inventory.noSort')}</option>
+              <option value="name">{t('inventory.sortByName')}</option>
+              <option value="rarity">{t('inventory.sortByRarity')}</option>
+              <option value="type">{t('inventory.sortByType')}</option>
             </select>
             <select
               value={filterBy}
               onChange={(e) => setFilterBy(e.target.value)}
               className="bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
             >
-              <option value="all">All Items</option>
-              <option value="weapon">Weapons</option>
-              <option value="armor">Armor</option>
-              <option value="consumable">Consumables</option>
-              <option value="resource">Resources</option>
+              <option value="all">{t('inventory.allItems')}</option>
+              <option value="weapon">{t('inventory.weapons')}</option>
+              <option value="armor">{t('inventory.armor')}</option>
+              <option value="consumable">{t('inventory.consumables')}</option>
+              <option value="resource">{t('inventory.resources')}</option>
             </select>
             <button
               onClick={() => {
@@ -63,7 +65,7 @@ export default function EnhancedInventoryModal() {
               }}
               className="bg-gray-800 hover:bg-gray-700 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
             >
-              Quick Stack
+              {t('inventory.quickStack')}
             </button>
           </div>
 

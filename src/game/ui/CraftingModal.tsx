@@ -2,8 +2,10 @@ import { useState, useMemo } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { RECIPES, getRecipesByLevel } from '../data/recipes'
 import { getItem } from '../data/items'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function CraftingModal() {
+  const { t } = useTranslation()
   const { isCraftingOpen, toggleCrafting, player, inventory, addItem, removeItem } = useGameStore()
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
   const [crafting, setCrafting] = useState(false)
@@ -120,7 +122,7 @@ export default function CraftingModal() {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
       <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto neon-border">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-cyan-400 neon-glow">Crafting</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 neon-glow">{t('crafting.title')}</h2>
           <div className="flex gap-2">
             <button
               onClick={() => setShowCalculator(!showCalculator)}
@@ -130,7 +132,7 @@ export default function CraftingModal() {
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
             >
-              Calculator
+              {t('crafting.calculator')}
             </button>
             <button
               onClick={() => setShowMaterialTracker(!showMaterialTracker)}
@@ -140,7 +142,7 @@ export default function CraftingModal() {
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
             >
-              Materials
+              {t('crafting.materialTracker')}
             </button>
             <button
               onClick={toggleCrafting}
@@ -154,7 +156,7 @@ export default function CraftingModal() {
         <div className="grid grid-cols-2 gap-4">
           {/* Recipe List */}
           <div>
-            <h3 className="text-lg font-bold text-cyan-300 mb-3">Recipes</h3>
+            <h3 className="text-lg font-bold text-cyan-300 mb-3">{t('crafting.recipes')}</h3>
             <div className="space-y-2">
               {availableRecipes.map(recipe => {
                 const canCraftRecipe = canCraft(recipe.id)
@@ -188,13 +190,13 @@ export default function CraftingModal() {
           <div>
             {recipe ? (
               <>
-                <h3 className="text-lg font-bold text-cyan-300 mb-3">Details</h3>
+                <h3 className="text-lg font-bold text-cyan-300 mb-3">{t('common.details')}</h3>
                 <div className="bg-gray-800 rounded-lg p-4 mb-4">
                   <div className="text-xl font-bold text-cyan-300 mb-2">{recipe.name}</div>
                   <div className="text-sm text-gray-400 mb-4">{recipe.description}</div>
 
                   <div className="mb-4">
-                    <div className="text-sm font-bold text-cyan-400 mb-2">Ingredients:</div>
+                    <div className="text-sm font-bold text-cyan-400 mb-2">{t('crafting.ingredients')}:</div>
                     <div className="space-y-1">
                       {recipe.ingredients.map((ing, idx) => {
                         const item = getItem(ing.itemId)
@@ -214,7 +216,7 @@ export default function CraftingModal() {
                             </span>
                             {invItem && (
                               <span className="text-xs text-gray-500">
-                                (You have: {invItem.quantity})
+                                ({t('crafting.youHave', { count: invItem.quantity })})
                               </span>
                             )}
                           </div>
@@ -224,7 +226,7 @@ export default function CraftingModal() {
                   </div>
 
                   <div className="mb-4">
-                    <div className="text-sm font-bold text-cyan-400 mb-2">Result:</div>
+                    <div className="text-sm font-bold text-cyan-400 mb-2">{t('crafting.result')}:</div>
                     <div className="flex items-center gap-2">
                       {getItem(recipe.result.itemId)?.icon}
                       <span className="text-cyan-300">
@@ -234,19 +236,19 @@ export default function CraftingModal() {
                   </div>
 
                   <div className="text-sm text-gray-400 mb-4">
-                    Crafting Time: {(recipe.craftingTime / 1000).toFixed(1)}s
+                    {t('crafting.crafting')}: {(recipe.craftingTime / 1000).toFixed(1)}s
                   </div>
 
                   {/* Crafting Calculator */}
                   {showCalculator && (
                     <div className="bg-gray-700 rounded-lg p-3 mb-4">
-                      <div className="text-sm font-bold text-yellow-400 mb-2">Crafting Calculator</div>
+                      <div className="text-sm font-bold text-yellow-400 mb-2">{t('crafting.calculator')}</div>
                       <div className="text-sm text-gray-300">
-                        You can craft this recipe <span className="text-cyan-400 font-bold">{calculateCraftableCount(recipe.id)}</span> time(s)
+                        {t('crafting.craftable', { count: calculateCraftableCount(recipe.id) })}
                       </div>
                       {calculateCraftableCount(recipe.id) > 0 && (
                         <div className="text-xs text-gray-400 mt-1">
-                          Total time: {((recipe.craftingTime * calculateCraftableCount(recipe.id)) / 1000).toFixed(1)}s
+                          {t('common.total')}: {((recipe.craftingTime * calculateCraftableCount(recipe.id)) / 1000).toFixed(1)}s
                         </div>
                       )}
                     </div>
@@ -262,7 +264,7 @@ export default function CraftingModal() {
                           : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                       }`}
                     >
-                      {crafting ? 'Crafting...' : 'Craft'}
+                      {crafting ? t('crafting.crafting') : t('crafting.craft')}
                     </button>
                     {calculateCraftableCount(recipe.id) > 1 && (
                       <button
@@ -273,9 +275,9 @@ export default function CraftingModal() {
                             ? 'bg-green-600 hover:bg-green-500 text-white'
                             : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                         }`}
-                        title={`Craft all (${calculateCraftableCount(recipe.id)})`}
+                        title={t('crafting.craftable', { count: calculateCraftableCount(recipe.id) })}
                       >
-                        Craft All ({calculateCraftableCount(recipe.id)})
+                        {t('crafting.craft')} {t('common.all')} ({calculateCraftableCount(recipe.id)})
                       </button>
                     )}
                   </div>
@@ -283,7 +285,7 @@ export default function CraftingModal() {
               </>
             ) : (
               <div className="text-center text-gray-400 py-8">
-                Select a recipe to view details
+                {t('crafting.selectRecipe')}
               </div>
             )}
           </div>
@@ -292,7 +294,7 @@ export default function CraftingModal() {
         {/* Crafting Queue */}
         {craftingQueue.length > 0 && (
           <div className="mt-4 border-t border-gray-700 pt-4">
-            <h3 className="text-lg font-bold text-cyan-300 mb-3">Crafting Queue</h3>
+            <h3 className="text-lg font-bold text-cyan-300 mb-3">{t('crafting.craftingQueue')}</h3>
             <div className="space-y-2">
               {craftingQueue.map((item, idx) => {
                 const queueRecipe = RECIPES.find(r => r.id === item.recipeId)
@@ -325,7 +327,7 @@ export default function CraftingModal() {
         {/* Material Tracker */}
         {showMaterialTracker && (
           <div className="mt-4 border-t border-gray-700 pt-4">
-            <h3 className="text-lg font-bold text-cyan-300 mb-3">Material Tracker</h3>
+            <h3 className="text-lg font-bold text-cyan-300 mb-3">{t('crafting.materialTracker')}</h3>
             <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
               {getAllRequiredMaterials.map(({ itemId, item, needed, have, recipes }) => (
                 <div
@@ -339,10 +341,10 @@ export default function CraftingModal() {
                     <span className="text-sm font-bold text-cyan-300">{item?.name || itemId}</span>
                   </div>
                   <div className="text-xs text-gray-400">
-                    Have: <span className={have >= needed ? 'text-green-400' : 'text-red-400'}>{have}</span> / Need: {needed}
+                    {t('common.have')}: <span className={have >= needed ? 'text-green-400' : 'text-red-400'}>{have}</span> / {t('common.need')}: {needed}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    Used in {recipes.length} recipe(s)
+                    {t('crafting.usedIn', { count: recipes.length })}
                   </div>
                 </div>
               ))}

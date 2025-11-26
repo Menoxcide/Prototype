@@ -4,8 +4,10 @@ import { RACES } from '../data/races'
 import QualitySettingsModal from '../components/QualitySettingsModal'
 import SkillsModal from './SkillsModal'
 import DraggableResizable from '../components/DraggableResizable'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function HUD() {
+  const { t } = useTranslation()
   const {
     player,
     isInventoryOpen,
@@ -153,7 +155,7 @@ export default function HUD() {
           {/* Health Bar */}
           <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>HP</span>
+              <span>{t('common.health')}</span>
               <span>{player.health}/{player.maxHealth}</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-2">
@@ -170,7 +172,7 @@ export default function HUD() {
           {/* Mana Bar */}
           <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>MP</span>
+              <span>{t('common.mana')}</span>
               <span>{player.mana}/{player.maxMana}</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-2">
@@ -187,7 +189,7 @@ export default function HUD() {
           {/* XP Bar */}
           <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>XP</span>
+              <span>{t('common.xp')}</span>
               <span>{player.xp}/{player.xpToNext}</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-1.5">
@@ -207,15 +209,15 @@ export default function HUD() {
               </div>
               {chunkProgress.loadingChunks > 0 && (
                 <div className="text-xs text-gray-400 mb-1">
-                  Chunks: {chunkProgress.loadedChunks} loaded, {chunkProgress.loadingChunks} loading
+                  {t('hud.chunks', { loaded: chunkProgress.loadedChunks, loading: chunkProgress.loadingChunks })}
                   {chunkProgress.currentChunk && (
-                    <span className="text-cyan-300"> (Chunk {chunkProgress.currentChunk.x},{chunkProgress.currentChunk.z})</span>
+                    <span className="text-cyan-300"> ({t('hud.currentChunk', { x: chunkProgress.currentChunk.x, z: chunkProgress.currentChunk.z })})</span>
                   )}
                 </div>
               )}
               {assetProgress.percentage > 0 && assetProgress.percentage < 100 && (
                 <div className="text-xs text-gray-400 mb-1">
-                  Assets: {Math.round(assetProgress.percentage)}%
+                  {t('hud.assets', { percentage: Math.round(assetProgress.percentage) })}
                   {assetProgress.currentAsset && (
                     <span className="text-cyan-300"> - {assetProgress.currentAsset}</span>
                   )}
@@ -251,7 +253,7 @@ export default function HUD() {
             <button
               onClick={toggleQuest}
               onMouseDown={(e) => e.stopPropagation()}
-              title="Quests"
+              title={t('common.quests')}
               className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isQuestOpen
                   ? 'border-cyan-500 bg-cyan-500/20 text-cyan-400'
@@ -279,7 +281,7 @@ export default function HUD() {
             <button
               onClick={toggleBattlePass}
               onMouseDown={(e) => e.stopPropagation()}
-              title="Battle Pass"
+              title={t('common.battlePass')}
               className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isBattlePassOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
@@ -307,7 +309,7 @@ export default function HUD() {
             <button
               onClick={toggleAchievement}
               onMouseDown={(e) => e.stopPropagation()}
-              title="Achievements"
+              title={t('common.achievements')}
               className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isAchievementOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
@@ -335,7 +337,7 @@ export default function HUD() {
             <button
               onClick={toggleShop}
               onMouseDown={(e) => e.stopPropagation()}
-              title="Shop"
+              title={t('common.shop')}
               className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isShopOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
@@ -363,7 +365,7 @@ export default function HUD() {
             <button
               onClick={toggleSkills}
               onMouseDown={(e) => e.stopPropagation()}
-              title="Skills"
+              title={t('common.skills')}
               className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSkillsOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
@@ -411,10 +413,10 @@ export default function HUD() {
       >
         <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-3 neon-border flex items-center justify-center overflow-hidden" style={{ zIndex: 5, pointerEvents: 'none' }}>
           <div className="flex justify-center gap-2.5 flex-nowrap items-center w-full overflow-x-auto" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
-            <button
-              onClick={toggleInventory}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Inventory"
+                  <button
+                    onClick={toggleInventory}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.inventory')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 ${
                 isInventoryOpen
                   ? 'bg-cyan-600 text-white'
@@ -439,10 +441,10 @@ export default function HUD() {
             >
               📦
             </button>
-            <button
-              onClick={toggleCrafting}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Crafting"
+                  <button
+                    onClick={toggleCrafting}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.crafting')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 ${
                 isCraftingOpen
                   ? 'bg-cyan-600 text-white'
@@ -467,10 +469,10 @@ export default function HUD() {
             >
               🔨
             </button>
-            <button
-              onClick={toggleMarket}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Market"
+                  <button
+                    onClick={toggleMarket}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.market')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isMarketOpen
                   ? 'bg-cyan-600 text-white'
@@ -495,10 +497,10 @@ export default function HUD() {
             >
               💰
             </button>
-            <button
-              onClick={toggleSpellbook}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Spellbook"
+                  <button
+                    onClick={toggleSpellbook}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.spellbook')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSpellbookOpen
                   ? 'bg-cyan-600 text-white'
@@ -523,10 +525,10 @@ export default function HUD() {
             >
               📖
             </button>
-            <button
-              onClick={toggleGuild}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Guild"
+                  <button
+                    onClick={toggleGuild}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.guild')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isGuildOpen
                   ? 'bg-cyan-600 text-white'
@@ -551,10 +553,10 @@ export default function HUD() {
             >
               👥
             </button>
-            <button
-              onClick={toggleMinimap}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Minimap"
+                  <button
+                    onClick={toggleMinimap}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.minimap')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isMinimapOpen
                   ? 'bg-cyan-600 text-white'
@@ -579,10 +581,10 @@ export default function HUD() {
             >
               🗺️
             </button>
-            <button
-              onClick={toggleHousing}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Housing"
+                  <button
+                    onClick={toggleHousing}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.housing')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isHousingOpen
                   ? 'bg-cyan-600 text-white'
@@ -607,10 +609,10 @@ export default function HUD() {
             >
               🏠
             </button>
-            <button
-              onClick={toggleSocial}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Social"
+                  <button
+                    onClick={toggleSocial}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.social')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSocialOpen
                   ? 'bg-cyan-600 text-white'
@@ -635,10 +637,10 @@ export default function HUD() {
             >
               👥
             </button>
-            <button
-              onClick={toggleSettings}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Settings"
+                  <button
+                    onClick={toggleSettings}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={t('common.settings')}
               className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSettingsOpen
                   ? 'bg-cyan-600 text-white'
@@ -674,7 +676,7 @@ export default function HUD() {
             <span className="text-yellow-400 text-sm font-bold">⚡</span>
             <div className="w-32">
               <div className="flex justify-between text-xs text-gray-400 mb-1">
-                <span>Stamina</span>
+                <span>{t('common.stamina')}</span>
                 <span>{Math.round(stamina)}/{maxStamina}</span>
               </div>
               <div className="w-full bg-gray-800 rounded-full h-2">
@@ -699,7 +701,7 @@ export default function HUD() {
             <div className="bg-gray-900/90 backdrop-blur-sm border border-orange-500 rounded px-2 py-1 neon-border">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs">🏢</span>
-                <span className="text-orange-400 text-xs font-semibold">Climbing</span>
+                <span className="text-orange-400 text-xs font-semibold">{t('hud.climbing')}</span>
               </div>
             </div>
           )}
@@ -723,7 +725,7 @@ export default function HUD() {
                 <span className={`text-xs font-semibold ${
                   grappledBuilding ? 'text-orange-400' : 'text-cyan-400'
                 }`}>
-                  {grappledBuilding ? 'Grappling' : 'Grapple'}
+                  {grappledBuilding ? t('hud.grappling') : t('hud.grapple')}
                 </span>
                 {grappledBuilding && player && (
                   <div className="ml-1 w-8 h-1 bg-gray-800 rounded-full overflow-hidden">

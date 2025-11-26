@@ -13,6 +13,7 @@ import { getMobileOptimizationFlags, frameRateCap } from './utils/mobileOptimiza
 import { isMobileDevice } from './utils/mobileOptimizations'
 import { playZoneTrack, playCombatTrack } from './assets/audioTracks'
 import AmbientSoundSystem from './components/AmbientSoundSystem'
+import PerformanceDashboard from './components/PerformanceDashboard'
 import { loadingPhaseManager } from './utils/loadingPhases'
 import { progressiveLoader } from './utils/progressiveLoader'
 
@@ -469,6 +470,7 @@ export default function Game() {
       <EnhancedScene spellProjectiles={spellProjectiles} />
       {isMobileDevice() && <TouchControls />}
       <AmbientSoundSystem />
+      <PerformanceDashboard />
     </div>
   )
 }

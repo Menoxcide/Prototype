@@ -848,6 +848,52 @@ async function setupRoomListeners(room: Room) {
     })
   })
 
+  // Listen for dungeon messages
+  room.onMessage('dungeonEntered', (data: { dungeonId: string; dungeon?: any }) => {
+    if (data.dungeon) {
+      useGameStore.getState().setCurrentDungeon(data.dungeon)
+    }
+    useGameStore.getState().addChatMessage({
+      id: `dungeon_entered_${Date.now()}`,
+      playerId: '',
+      playerName: 'System',
+      message: `Entered dungeon: ${data.dungeonId}`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#9d00ff'
+    })
+  })
+
+  room.onMessage('dungeonProgress', (data: { dungeonId: string; progress: any }) => {
+    useGameStore.getState().setDungeonProgress(data.dungeonId, data.progress)
+  })
+
+  room.onMessage('dungeonCompleted', (data: { dungeonId: string }) => {
+    useGameStore.getState().addChatMessage({
+      id: `dungeon_completed_${Date.now()}`,
+      playerId: '',
+      playerName: 'System',
+      message: `Dungeon completed!`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#00ff00'
+    })
+    useGameStore.getState().setCurrentDungeon(null)
+  })
+
+  room.onMessage('dungeonError', (data: { message: string }) => {
+    console.error('Dungeon error:', data.message)
+    useGameStore.getState().addChatMessage({
+      id: `dungeon_error_${Date.now()}`,
+      playerId: '',
+      playerName: 'System',
+      message: `Dungeon error: ${data.message}`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#ff0000'
+    })
+  })
+
   // Listen for achievement updates
   room.onMessage('achievementProgress', (data: { achievements: any[]; progress: any[] }) => {
     useGameStore.getState().setAchievements(data.achievements)
@@ -1686,6 +1732,55 @@ export function sendGuildChat(message: string) {
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to send guild chat:', error)
+      }
+    }
+  }
+}
+
+// Dungeon functions
+export function createDungeon(difficulty: number, level: number) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('createDungeon', { difficulty, level })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to create dungeon:', error)
+      }
+    }
+  }
+}
+
+export function enterDungeon(dungeonId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('enterDungeon', { dungeonId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to enter dungeon:', error)
+      }
+    }
+  }
+}
+
+export function exitDungeon(dungeonId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('exitDungeon', { dungeonId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to exit dungeon:', error)
+      }
+    }
+  }
+}
+
+export function requestDungeonProgress(dungeonId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('requestDungeonProgress', { dungeonId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to request dungeon progress:', error)
       }
     }
   }

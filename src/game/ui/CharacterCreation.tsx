@@ -3,6 +3,7 @@ import { useGameStore } from '../store/useGameStore'
 import { Race } from '../types'
 import { RACES, RACE_LIST } from '../data/races'
 import { getAllTraditions, MagicTradition } from '../data/magicTraditions'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface CharacterCreationProps {
   firebaseUid: string
@@ -10,6 +11,7 @@ interface CharacterCreationProps {
 }
 
 export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplete }: CharacterCreationProps) {
+  const { t } = useTranslation()
   const { setPlayer } = useGameStore()
   const [selectedRace, setSelectedRace] = useState<Race>('human')
   const [selectedTradition, setSelectedTradition] = useState<MagicTradition>('none')
@@ -19,12 +21,12 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
 
   const handleCreate = async () => {
     if (!playerName.trim()) {
-      setError('Please enter a name')
+      setError(t('character.pleaseEnterName'))
       return
     }
 
     if (playerName.length > 20) {
-      setError('Name must be 20 characters or less')
+      setError(t('character.nameTooLong'))
       return
     }
 
@@ -68,7 +70,7 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
       setPlayer(player)
       onComplete()
     } catch (err: any) {
-      setError(err.message || 'Failed to create character. Please try again.')
+      setError(err.message || t('character.failedToCreate'))
       console.error('Character creation error:', err)
     } finally {
       setIsCreating(false)
@@ -83,11 +85,11 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
         <h1 className="text-3xl font-bold text-orange-500 neon-glow mb-6 text-center" style={{ color: '#ff6b35' }}>
           MARS://NEXUS
         </h1>
-        <h2 className="text-xl mb-4 text-center" style={{ color: '#ff8c42' }}>Create Your Character</h2>
+        <h2 className="text-xl mb-4 text-center" style={{ color: '#ff8c42' }}>{t('character.createTitle')}</h2>
 
         {/* Name Input */}
         <div className="mb-6">
-          <label htmlFor="character-name" className="block mb-2" style={{ color: '#ff6b35' }}>Character Name</label>
+          <label htmlFor="character-name" className="block mb-2" style={{ color: '#ff6b35' }}>{t('character.characterName')}</label>
           <input
             id="character-name"
             name="character-name"
@@ -100,14 +102,14 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
             maxLength={20}
             className="w-full bg-gray-800 border rounded px-4 py-2 focus:outline-none focus:ring-2"
             style={{ borderColor: '#ff6b35', color: '#ff8c42' }}
-            placeholder="Enter your name"
+            placeholder={t('character.enterName')}
           />
           {error && <p className="text-red-400 text-sm mt-1">{error}</p>}
         </div>
 
         {/* Race Selection */}
         <div className="mb-6">
-          <label className="block mb-3" style={{ color: '#ff6b35' }}>Select Race</label>
+          <label className="block mb-3" style={{ color: '#ff6b35' }}>{t('character.selectRace')}</label>
           <div className="grid grid-cols-2 gap-3">
             {RACE_LIST.map((race) => (
               <button
@@ -139,7 +141,7 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
 
         {/* Magic Tradition Selection */}
         <div className="mb-6">
-          <label className="block mb-3" style={{ color: '#ff6b35' }}>Select Magic Tradition (Optional)</label>
+          <label className="block mb-3" style={{ color: '#ff6b35' }}>{t('character.selectTradition')}</label>
           <div className="grid grid-cols-2 gap-2">
             {getAllTraditions().map((tradition) => (
               <button
@@ -183,7 +185,7 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
           className="w-full text-white font-bold py-3 px-6 rounded-lg transition-all neon-glow text-lg disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: '#ff6b35' }}
         >
-          {isCreating ? 'Creating Character...' : 'Enter the Void'}
+          {isCreating ? t('character.creatingCharacter') : t('character.enterTheVoid')}
         </button>
       </div>
     </div>

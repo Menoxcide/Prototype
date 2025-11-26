@@ -8,12 +8,14 @@ import { signInWithGoogle, onAuthStateChange, AuthUser, isFirebaseInitialized } 
 import { getRedirectResult } from 'firebase/auth'
 import { getAuth } from 'firebase/auth'
 import { shouldUseEmulators } from '../../firebase/config'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface LoginScreenProps {
   onAuthSuccess: (user: AuthUser) => void
 }
 
 export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [initializing, setInitializing] = useState(true)
@@ -21,7 +23,7 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
   useEffect(() => {
     // Check if Firebase is initialized
     if (!isFirebaseInitialized()) {
-      setError('Firebase authentication is not configured. Please set up Firebase credentials.')
+      setError(t('auth.firebaseNotConfigured'))
       setInitializing(false)
       return
     }
@@ -96,7 +98,7 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
         setLoading(true) // Keep loading state during redirect
         return
       }
-      setError(err.message || 'Failed to sign in. Please try again.')
+      setError(err.message || t('errors.networkError'))
       console.error('Login error:', err)
       setLoading(false)
     }
@@ -109,7 +111,7 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
           <h1 className="text-4xl font-bold neon-glow mb-4" style={{ color: '#ff6b35' }}>
             MARS://NEXUS
           </h1>
-          <p style={{ color: '#ff8c42' }}>Initializing...</p>
+          <p style={{ color: '#ff8c42' }}>{t('auth.initializing')}</p>
         </div>
       </div>
     )
@@ -119,12 +121,12 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
         <div className="bg-gray-900 border-2 border-red-500 rounded-lg p-6 max-w-md w-full neon-border">
-          <h1 className="text-2xl font-bold text-red-400 mb-4">Configuration Error</h1>
+          <h1 className="text-2xl font-bold text-red-400 mb-4">{t('auth.configError')}</h1>
           <p className="text-gray-300 mb-4">
-            Firebase authentication is not configured. Please set up your Firebase credentials in the environment variables.
+            {t('auth.firebaseNotConfigured')}
           </p>
           <p className="text-sm text-gray-500">
-            See src/firebase/config.ts for configuration details.
+            {t('auth.seeConfig')}
           </p>
         </div>
       </div>
@@ -153,7 +155,7 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
           {loading ? (
             <>
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
-              <span>Signing in...</span>
+              <span>{t('auth.signingIn')}</span>
             </>
           ) : (
             <>
@@ -175,13 +177,13 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              <span>Sign in with Google</span>
+              <span>{t('auth.signInWithGoogle')}</span>
             </>
           )}
         </button>
 
         <p className="text-xs text-gray-500 text-center mt-6">
-          By signing in, you agree to our Terms of Service and Privacy Policy
+          {t('auth.termsAndPrivacy')}
         </p>
       </div>
     </div>

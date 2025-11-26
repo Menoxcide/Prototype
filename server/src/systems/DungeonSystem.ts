@@ -205,10 +205,31 @@ export class DungeonSystemImpl implements DungeonSystem {
     // Save progress to database
     if (this.playerDataRepo && progress) {
       try {
-        // Would save dungeon completion to player data
-        // await this.playerDataRepo.saveDungeonProgress(playerId, progress)
+        await this.playerDataRepo.saveDungeonProgress(playerId, progress)
       } catch (error) {
         console.error(`Failed to save dungeon progress for ${playerId}:`, error)
+      }
+    }
+
+    // Save completion record
+    if (this.db && progress) {
+      try {
+        await this.db.query(
+          `INSERT INTO dungeon_completions (id, player_id, dungeon_id, seed, difficulty, level, completed_at, rewards)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            `completion_${playerId}_${dungeonId}_${Date.now()}`,
+            playerId,
+            dungeonId,
+            dungeon.seed,
+            dungeon.difficulty,
+            dungeon.level,
+            Date.now(),
+            JSON.stringify(rewards)
+          ]
+        )
+      } catch (error) {
+        console.error(`Failed to save dungeon completion for ${playerId}:`, error)
       }
     }
   }
