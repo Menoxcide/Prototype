@@ -87,15 +87,14 @@ export function initializeClient(serverUrl?: string) {
 export async function joinRoom(playerName: string, race: string, isReconnectAttempt = false, firebaseToken?: string) {
   // If already connected and not a reconnect attempt, don't reconnect
   if (room && room.connection.isOpen && !isReconnectAttempt) {
-    console.log('Already connected to room:', room.sessionId)
+    if (import.meta.env.DEV) {
+      console.log('Already connected to room:', room.sessionId)
+    }
     return room
   }
 
-  // Prevent multiple simultaneous connection attempts
+    // Prevent multiple simultaneous connection attempts
   if (isConnecting && !isReconnectAttempt) {
-    if (import.meta.env.DEV) {
-      console.log('Connection already in progress, waiting...')
-    }
     // Wait for existing connection to complete
     while (isConnecting) {
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -208,9 +207,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Register chat handler EARLY to ensure it's always available
     room.onMessage('chat', (message: { playerId: string; playerName: string; message: string; timestamp: number }) => {
-      if (import.meta.env.DEV) {
-        console.log('Received chat message:', message)
-      }
+      // Chat messages are frequent, don't log them
       useGameStore.getState().addChatMessage({
         id: `msg_${message.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
         playerId: message.playerId,
@@ -224,9 +221,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Register whisper handler EARLY
     room.onMessage('whisper', (data: { fromId: string; fromName: string; message: string; timestamp: number }) => {
-      if (import.meta.env.DEV) {
-        console.log('Received whisper:', data)
-      }
+      // Whisper messages are frequent, don't log them
       useGameStore.getState().addChatMessage({
         id: `whisper_${data.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
         playerId: data.fromId,
@@ -376,13 +371,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
             guildTag: playerInState.guildTag || undefined,
             guildName: playerInState.guildName || undefined
           })
-          if (import.meta.env.DEV && !hasMoved) {
-            console.log('Initial player sync from room:', { 
-              position: { x: playerInState.x, y: playerInState.y, z: playerInState.z },
-              health: playerInState.health,
-              level: playerInState.level
-            })
-          }
+          // Initial sync is expected, don't log it
         }
       }
 
@@ -418,8 +407,9 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Handle disconnection with reconnection logic
     room.onLeave(async (code) => {
-      // Only log non-normal disconnections
-      if (code !== 1000 && import.meta.env.DEV) {
+      // Only log non-normal disconnections in dev mode
+      // Suppress common error codes that are expected
+      if (code !== 1000 && code !== 4002 && import.meta.env.DEV) {
         console.log('Left room, code:', code)
       }
       useGameStore.getState().setConnected(false)
@@ -461,9 +451,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
               }
             },
             (reconnectedRoom) => {
-              if (import.meta.env.DEV) {
-                console.log('Reconnected successfully!')
-              }
+              // Reconnection success is expected, don't log it
               room = reconnectedRoom
               useGameStore.getState().setConnected(true)
             },
@@ -498,40 +486,16 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Handle errors
     room.onError((code, message) => {
-      console.error('Room error:', code, message)
+      // Only log non-trivial errors (suppress common expected errors)
+      if (code !== 0 && code !== 4002 && import.meta.env.DEV) {
+        console.error('Room error:', code, message)
+      }
       useGameStore.getState().setConnected(false)
     })
 
     useGameStore.getState().setConnected(true)
     isConnecting = false
     
-    // Start latency monitoring and connection quality tracking
-    import('./connectionMonitor').then(({ connectionMonitor }) => {
-      // Track latency for connection monitoring
-      let lastPingTime = 0
-      // pingInterval is set but not stored (intentional - runs until cleanup)
-      setInterval(() => {
-        if (room && room.connection.isOpen) {
-          lastPingTime = Date.now()
-          // Send ping (if room supports it) or measure round-trip on next message
-        }
-      }, 5000) // Ping every 5 seconds
-      
-      // Measure latency on state updates
-      if (room && typeof room.onStateChange === 'function') {
-        const originalOnStateChange = room.onStateChange.bind(room)
-        room.onStateChange = ((state: any) => {
-          if (lastPingTime > 0) {
-            const latency = Date.now() - lastPingTime
-            connectionMonitor.recordPacket(latency)
-            lastPingTime = 0
-          }
-          if (originalOnStateChange) {
-            originalOnStateChange(state)
-          }
-        }) as any
-      }
-    })
     const { reconnectionManager } = await import('./reconnection')
     reconnectionManager.startLatencyMonitoring(room)
 
@@ -559,10 +523,14 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       }
     }
     
-    console.error('❌ Failed to join room:', errorMessage)
-    if (import.meta.env.DEV) {
-      console.error('   Server URL:', serverUrl)
-      console.error('   Original error:', error)
+    // Only log connection errors in dev mode or if it's not a timeout
+    // Timeouts are expected when server is not running
+    if (import.meta.env.DEV || !errorMessage.includes('timeout')) {
+      console.error('❌ Failed to join room:', errorMessage)
+      if (import.meta.env.DEV) {
+        console.error('   Server URL:', serverUrl)
+        console.error('   Original error:', error)
+      }
     }
     
     // Create a more user-friendly error
@@ -821,11 +789,8 @@ async function setupRoomListeners(room: Room) {
     })
   })
 
-  room.onMessage('friendRequestSent', (data: FriendRequestSentMessage) => {
-    // Confirm friend request was sent
-    if (import.meta.env.DEV) {
-      console.log('Friend request sent:', data)
-    }
+  room.onMessage('friendRequestSent', (_data: FriendRequestSentMessage) => {
+    // Confirm friend request was sent (no need to log)
   })
 
   room.onMessage('reportSubmitted', (_data: any) => {
@@ -1213,8 +1178,32 @@ async function setupRoomListeners(room: Room) {
   try {
     listenersSetup = true
     
+    // Track state change timing for latency monitoring
+    let lastStateChangeTime = Date.now()
+    
     // Listen for state changes
     room.onStateChange((state) => {
+      // Measure latency based on state change frequency
+      // This provides a proxy for connection quality
+      const now = Date.now()
+      const timeSinceLastChange = now - lastStateChangeTime
+      lastStateChangeTime = now
+      
+      // Record connection quality metrics (time between state updates is a proxy for latency)
+      // Only record if we have a reasonable interval (not the first update)
+      if (timeSinceLastChange > 0 && timeSinceLastChange < 1000) {
+        // Import connectionMonitor dynamically to avoid circular dependencies
+        import('./connectionMonitor').then(({ connectionMonitor }) => {
+          // Use time between state changes as a latency indicator
+          // Lower intervals = better connection, higher intervals = worse connection
+          // Convert interval to a latency-like metric (inverse relationship)
+          const latencyProxy = Math.min(timeSinceLastChange, 500) // Cap at 500ms
+          connectionMonitor.recordPacket(latencyProxy)
+        }).catch(() => {
+          // Silently fail if connectionMonitor is not available
+        })
+      }
+      
       syncGameState(state)
     })
 
@@ -1322,7 +1311,8 @@ async function setupRoomListeners(room: Room) {
           // Completely ignore server updates when difference < 5.0 units to allow client-side prediction
           if (shouldReconcile) {
             // Large difference - server correction needed (anti-cheat or significant lag)
-            if (import.meta.env.DEV) {
+            // Only log in dev mode and very rarely to avoid spam
+            if (import.meta.env.DEV && Math.random() < 0.01) {
               console.warn('⚠️ Server position correction (large diff):', {
                 local: { x: currentPlayer.position.x.toFixed(2), y: currentPlayer.position.y.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
                 server: { x: player.x.toFixed(2), y: player.y.toFixed(2), z: player.z.toFixed(2) },
@@ -1332,14 +1322,8 @@ async function setupRoomListeners(room: Room) {
             import('./syncSystem').then(({ reconcilePosition }) => {
               reconcilePosition({ x: player.x, y: player.y, z: player.z }, player.rotation)
             })
-          } else if (import.meta.env.DEV && positionDiff > 0.1) {
-            // Log when server tries to update but we ignore it (for debugging)
-            console.log('⏭️ Ignoring server position update (client prediction active):', {
-              local: { x: currentPlayer.position.x.toFixed(2), z: currentPlayer.position.z.toFixed(2) },
-              server: { x: player.x.toFixed(2), z: player.z.toFixed(2) },
-              diff: positionDiff.toFixed(2)
-            })
           }
+          // Removed verbose logging of ignored updates - they're expected during movement
           // If difference is small (< 5.0 units), ignore server position update
           // This allows client-side prediction to work smoothly
           

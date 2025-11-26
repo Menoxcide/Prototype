@@ -10,6 +10,7 @@ import { predictMovement } from '../network/prediction'
 import { isMobile } from '../data/config'
 import { cameraOrbit } from '../utils/cameraOrbit'
 import { getVector3, releaseVector3, getEuler, releaseEuler } from '../utils/movementObjectPools'
+import { isUIFocused } from '../utils/uiFocus'
 
 // Mars gravity: ~38% of Earth's gravity
 const GRAVITY = -11.4  // Mars gravity (Earth is -30)
@@ -145,6 +146,28 @@ export default function MinecraftControls() {
   // === KEYBOARD INPUT ===
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if UI input is focused - block all game controls if so
+      if (isUIFocused()) {
+        // Allow Escape to blur focused input
+        if (e.key === 'Escape') {
+          const activeElement = document.activeElement as HTMLElement
+          if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+            activeElement.blur()
+          }
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
+        
+        // Block all other keys from reaching game controls
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.stopImmediatePropagation) {
+          e.stopImmediatePropagation()
+        }
+        return
+      }
+      
       const key = e.key.toLowerCase()
       
       // ALWAYS prevent default for game controls to avoid browser shortcuts
@@ -203,6 +226,16 @@ export default function MinecraftControls() {
     }
     
     const handleKeyUp = (e: KeyboardEvent) => {
+      // Block key up events if UI is focused
+      if (isUIFocused()) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.stopImmediatePropagation) {
+          e.stopImmediatePropagation()
+        }
+        return
+      }
+      
       const key = e.key.toLowerCase()
       
       // Prevent default for game keys
@@ -495,7 +528,8 @@ export default function MinecraftControls() {
         } else {
           // All hits were above player (buildings/sky), ignore them
           // When player is high up (grappling/climbing), this is expected - don't log
-          if (import.meta.env.DEV && pos.y < 15 && Math.random() < 0.001) {
+          // Only log in dev mode and very rarely (0.01% chance) to avoid spam
+          if (import.meta.env.DEV && pos.y < 5 && Math.random() < 0.0001) {
             console.warn('⚠️ All ground hits rejected (too high):', {
               playerY: pos.y.toFixed(2),
               playerFeetY: (pos.y - playerHeightOffset).toFixed(2),
@@ -513,7 +547,8 @@ export default function MinecraftControls() {
       const defaultHeight = playerHeightOffset
       
       // Only log if player is near ground level and no hit found (actual issue)
-      if (import.meta.env.DEV && pos.y < 5 && Math.random() < 0.001) {
+      // Reduce logging frequency to 0.01% to avoid spam
+      if (import.meta.env.DEV && pos.y < 3 && Math.random() < 0.0001) {
         console.warn('⚠️ No ground hit, using default height:', {
           defaultHeight: defaultHeight.toFixed(2),
           playerY: pos.y.toFixed(2),
@@ -570,6 +605,89 @@ export default function MinecraftControls() {
       }
     }
 
+    // === BUILDING COLLISION CHECK (Sphere-based) ===
+    // Check if player's collision sphere intersects with any buildings
+    const checkBuildingCollision = (pos: THREE.Vector3, radius: number = PLAYER_RADIUS): {
+      colliding: boolean;
+      pushVector: THREE.Vector3 | null;
+      hitBuilding: THREE.Object3D | null;
+    } => {
+      const playerSphere = new THREE.Sphere(pos, radius)
+      let closestPush = getVector3()
+      let minDistance = Infinity
+      let hitBuilding: THREE.Object3D | null = null
+
+      // Check all buildings in the scene
+      const nearbyBuildings = collidableObjects.filter(obj => {
+        if (obj.userData?.isBuilding !== true) return false
+        const objPos = getVector3()
+        obj.getWorldPosition(objPos)
+        const distance = objPos.distanceTo(pos)
+        releaseVector3(objPos)
+        return distance < radius + 15 // Only check buildings within reasonable distance
+      })
+
+      for (const building of nearbyBuildings) {
+        if (!(building instanceof THREE.Mesh)) continue
+
+        // Get building bounding box in world space
+        const boundingBox = new THREE.Box3().setFromObject(building)
+        const buildingCenter = getVector3()
+        boundingBox.getCenter(buildingCenter)
+        const buildingSize = getVector3()
+        boundingBox.getSize(buildingSize)
+
+        // Expand bounding box by player radius for collision check
+        const expandedBox = boundingBox.clone()
+        expandedBox.expandByScalar(radius + 0.1)
+
+        // Check if player sphere intersects with expanded bounding box
+        if (expandedBox.containsPoint(pos) || expandedBox.intersectsSphere(playerSphere)) {
+          // Calculate push vector from building center to player
+          const pushDir = getVector3().subVectors(pos, buildingCenter)
+          pushDir.y = 0 // Only push horizontally
+          
+          if (pushDir.length() < 0.01) {
+            // Player is at center, push in a random direction
+            pushDir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize()
+          } else {
+            pushDir.normalize()
+          }
+
+          // Calculate distance from building edge
+          const halfSize = Math.max(buildingSize.x, buildingSize.z) / 2
+          const distanceFromCenter = pos.distanceTo(buildingCenter)
+          const overlap = (halfSize + radius) - distanceFromCenter
+          
+          if (overlap > 0 && overlap < minDistance) {
+            minDistance = overlap
+            closestPush.copy(pushDir).multiplyScalar(overlap + 0.1)
+            hitBuilding = building
+          }
+        }
+
+        releaseVector3(buildingCenter)
+        releaseVector3(buildingSize)
+      }
+
+      releaseVector3(playerSphere.center)
+
+      if (hitBuilding && minDistance < Infinity) {
+        return {
+          colliding: true,
+          pushVector: closestPush,
+          hitBuilding
+        }
+      }
+
+      releaseVector3(closestPush)
+      return {
+        colliding: false,
+        pushVector: null,
+        hitBuilding: null
+      }
+    }
+
     // === WALL DETECTION (Horizontal raycasts) ===
     // Cache wall check results to avoid redundant raycasts
     const checkWalls = (pos: THREE.Vector3, moveDir: THREE.Vector3): { 
@@ -594,11 +712,16 @@ export default function MinecraftControls() {
         }
       }
 
-      // Cast rays in movement direction and to the sides
+      // Cast rays in movement direction and to the sides, plus additional rays for better coverage
       const forward = getVector3().copy(moveDir).normalize()
       const sidewaysX = getVector3(moveDir.x, 0, 0).normalize()
       const sidewaysZ = getVector3(0, 0, moveDir.z).normalize()
-      const rayDirections = [forward, sidewaysX, sidewaysZ]
+      
+      // Add diagonal rays for better collision detection
+      const forwardRight = getVector3(forward.x + sidewaysX.x, 0, forward.z + sidewaysX.z).normalize()
+      const forwardLeft = getVector3(forward.x - sidewaysX.x, 0, forward.z - sidewaysX.z).normalize()
+      
+      const rayDirections = [forward, sidewaysX, sidewaysZ, forwardRight, forwardLeft]
 
       let closestHit: { normal: THREE.Vector3; distance: number; hitObject: THREE.Object3D | null } | null = null
 
@@ -607,7 +730,7 @@ export default function MinecraftControls() {
 
         const rayStart = getVector3(pos.x, pos.y + playerHeightOffset, pos.z)
         raycaster.set(rayStart, rayDir)
-        raycaster.far = PLAYER_RADIUS + WALL_RUN_DISTANCE
+        raycaster.far = PLAYER_RADIUS + WALL_RUN_DISTANCE + 0.2 // Slightly increase for buildings
         releaseVector3(rayStart)
         
         // Only check nearby objects for better performance
@@ -616,21 +739,28 @@ export default function MinecraftControls() {
           obj.getWorldPosition(objPos)
           const distance = objPos.distanceTo(pos)
           releaseVector3(objPos)
-          return distance < 10 // Only check objects within 10 units
+          return distance < 12 // Increased from 10 to catch more objects
         })
         const hits = raycaster.intersectObjects(nearbyObjects, true)
 
         if (hits.length > 0) {
           const hit = hits[0]
-          if (hit.distance < PLAYER_RADIUS + WALL_RUN_DISTANCE) {
+          const hitDistance = hit.distance
+          const maxDistance = hit.object.userData?.isBuilding 
+            ? PLAYER_RADIUS + 0.1 // Buildings block at closer distance
+            : PLAYER_RADIUS + WALL_RUN_DISTANCE
+          
+          if (hitDistance < maxDistance) {
             const normal = hit.face?.normal.clone() || new THREE.Vector3()
             // Transform normal to world space
             if (hit.object instanceof THREE.Mesh) {
               normal.transformDirection(hit.object.matrixWorld)
+              normal.y = 0 // Keep horizontal for building walls
+              normal.normalize()
             }
             
-            if (!closestHit || hit.distance < closestHit.distance) {
-              closestHit = { normal, distance: hit.distance, hitObject: hit.object }
+            if (!closestHit || hitDistance < closestHit.distance) {
+              closestHit = { normal, distance: hitDistance, hitObject: hit.object }
             }
           }
         }
@@ -802,6 +932,30 @@ export default function MinecraftControls() {
     const wallCheck = moveDirection.length() > 0.1 && shouldDoExpensiveChecks
       ? checkWalls(newPosForWallCheck, moveDirection)
       : { hit: false, normal: null, distance: Infinity, isBuilding: false, hitObject: null }
+    
+    // === BUILDING COLLISION CHECK ===
+    // Check for building collisions at new position (sphere-based, more accurate)
+    const buildingCollision = shouldDoExpensiveChecks
+      ? checkBuildingCollision(newPosForWallCheck, PLAYER_RADIUS)
+      : { colliding: false, pushVector: null, hitBuilding: null }
+    
+    // If colliding with building, push player away
+    if (buildingCollision.colliding && buildingCollision.pushVector) {
+      newX += buildingCollision.pushVector.x
+      newZ += buildingCollision.pushVector.z
+      
+      // Cancel velocity into building
+      const pushNormal = buildingCollision.pushVector.clone().normalize()
+      const velocityIntoBuilding = new THREE.Vector3(velocity.current.x, 0, velocity.current.z).dot(pushNormal)
+      if (velocityIntoBuilding < 0) {
+        // Remove velocity component going into building
+        velocity.current.x -= pushNormal.x * velocityIntoBuilding
+        velocity.current.z -= pushNormal.z * velocityIntoBuilding
+      }
+      
+      releaseVector3(buildingCollision.pushVector)
+    }
+    
     releaseVector3(newPosForWallCheck)
 
     // === WALL-RUNNING ===
@@ -924,18 +1078,28 @@ export default function MinecraftControls() {
     }
 
     // Prevent moving into walls (only if not climbing)
+    // Buildings get stronger collision response
     if (wallCheck.hit && wallCheck.normal && !isWallRunning.current && !isClimbingBuilding.current) {
-      // Push player back from wall
-      const pushBack = wallCheck.normal.clone().multiplyScalar(0.1)
+      // Stronger push for buildings to prevent going through
+      const pushAmount = wallCheck.isBuilding ? 0.3 : 0.1
+      const pushBack = wallCheck.normal.clone().multiplyScalar(pushAmount)
       newX -= pushBack.x
       newZ -= pushBack.z
       
-      // Cancel velocity into wall
+      // Cancel velocity into wall (more aggressive for buildings)
       const wallDot = new THREE.Vector3(velocity.current.x, 0, velocity.current.z).dot(wallCheck.normal)
       if (wallDot < 0) {
-        velocity.current.x -= wallCheck.normal.x * wallDot
-        velocity.current.z -= wallCheck.normal.z * wallDot
+        // For buildings, completely cancel velocity into wall
+        if (wallCheck.isBuilding) {
+          velocity.current.x -= wallCheck.normal.x * wallDot * 1.5
+          velocity.current.z -= wallCheck.normal.z * wallDot * 1.5
+        } else {
+          velocity.current.x -= wallCheck.normal.x * wallDot
+          velocity.current.z -= wallCheck.normal.z * wallDot
+        }
       }
+      
+      releaseVector3(pushBack)
     }
 
     // === GROUND COLLISION ===

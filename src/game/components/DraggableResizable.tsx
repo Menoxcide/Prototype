@@ -50,6 +50,8 @@ export default function DraggableResizable({
   const dragStartRef = useRef({ x: 0, y: 0 })
   const resizeStartRef = useRef({ width: 0, height: 0, x: 0, y: 0, edge: '' })
   const [headerHeight, setHeaderHeight] = useState(0)
+  const dragThresholdRef = useRef({ x: 0, y: 0, started: false })
+  const DRAG_THRESHOLD = 5 // pixels of movement before drag starts
 
   // Load saved layout or use defaults
   const loadLayout = (): UILayout => {
@@ -125,12 +127,26 @@ export default function DraggableResizable({
     }
   }
 
-  // Handle drag start
+  // Handle drag start - check if click is on interactive element
   const handleDragStart = (e: React.MouseEvent) => {
     if (!draggable || isResizingRef.current) return
     
-    e.preventDefault()
-    isDraggingRef.current = true
+    // Check if click is on an interactive element (button, input, etc.)
+    const target = e.target as HTMLElement
+    const interactiveElement = target.closest('button, input, textarea, select, a, [role="button"], [role="textbox"]')
+    
+    // If clicking on interactive element, don't start drag
+    if (interactiveElement) {
+      return
+    }
+    
+    // Initialize drag threshold tracking
+    dragThresholdRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      started: false
+    }
+    
     const rect = componentRef.current?.getBoundingClientRect()
     if (rect) {
       dragStartRef.current = {
@@ -138,8 +154,37 @@ export default function DraggableResizable({
         y: e.clientY - rect.top
       }
     }
-    document.addEventListener('mousemove', handleDragMove)
+    
+    // Add listeners to track movement and determine if drag should start
+    document.addEventListener('mousemove', handleDragMoveWithThreshold)
     document.addEventListener('mouseup', handleDragEnd)
+  }
+  
+  // Handle drag move with threshold - only start dragging after movement threshold
+  const handleDragMoveWithThreshold = (e: MouseEvent) => {
+    if (!dragThresholdRef.current.started) {
+      // Check if movement exceeds threshold
+      const deltaX = Math.abs(e.clientX - dragThresholdRef.current.x)
+      const deltaY = Math.abs(e.clientY - dragThresholdRef.current.y)
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+      
+      if (distance > DRAG_THRESHOLD) {
+        // Movement threshold exceeded, start dragging
+        dragThresholdRef.current.started = true
+        isDraggingRef.current = true
+        // Switch to normal drag handler
+        document.removeEventListener('mousemove', handleDragMoveWithThreshold)
+        document.addEventListener('mousemove', handleDragMove)
+      } else {
+        // Not enough movement yet, don't start drag
+        return
+      }
+    }
+    
+    // If drag has started, use normal drag handler
+    if (isDraggingRef.current) {
+      handleDragMove(e)
+    }
   }
 
   // Handle drag move
@@ -172,7 +217,9 @@ export default function DraggableResizable({
   // Handle drag end
   const handleDragEnd = () => {
     isDraggingRef.current = false
+    dragThresholdRef.current.started = false
     document.removeEventListener('mousemove', handleDragMove)
+    document.removeEventListener('mousemove', handleDragMoveWithThreshold)
     document.removeEventListener('mouseup', handleDragEnd)
   }
 
@@ -292,8 +339,6 @@ export default function DraggableResizable({
       const resizeObserver = new ResizeObserver(updateHeaderHeight)
       resizeObserver.observe(dragHandleRef.current)
       return () => resizeObserver.disconnect()
-    } else if (!header && draggable) {
-      setHeaderHeight(24) // Default header height
     } else {
       setHeaderHeight(0)
     }
@@ -303,6 +348,7 @@ export default function DraggableResizable({
   useEffect(() => {
     return () => {
       document.removeEventListener('mousemove', handleDragMove)
+      document.removeEventListener('mousemove', handleDragMoveWithThreshold)
       document.removeEventListener('mouseup', handleDragEnd)
       document.removeEventListener('mousemove', handleResizeMove)
       document.removeEventListener('mouseup', handleResizeEnd)
@@ -323,34 +369,36 @@ export default function DraggableResizable({
       ref={componentRef}
       id={id}
       className={`draggable-resizable ${className} ${isHovered ? 'hovered' : ''}`}
-      style={style}
+      style={{
+        ...style,
+        overflow: 'hidden',
+        boxSizing: 'border-box',
+        pointerEvents: 'auto',
+        userSelect: 'none'
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onMouseDown={draggable ? handleDragStart : undefined}
+      onMouseDownCapture={(e) => {
+        // Prevent click-through to game world
+        e.stopPropagation()
+      }}
     >
-      {/* Drag handle */}
-      {draggable && (
+      {/* Invisible drag area - entire component is draggable */}
+      {draggable && header && (
         <div
           ref={dragHandleRef}
-          className="drag-handle"
-          onMouseDown={handleDragStart}
           style={{
-            cursor: isDraggingRef.current ? 'grabbing' : 'grab',
             position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
-            height: header ? 'auto' : '24px',
-            zIndex: 20,
-            userSelect: 'none',
-            pointerEvents: 'auto',
-            ...(header ? { borderRadius: 'inherit' } : {})
+            height: 'auto',
+            zIndex: 1,
+            pointerEvents: 'none'
           }}
         >
-          {header || (
-            <div className="h-full bg-gray-800/50 rounded-t flex items-center px-2">
-              <div className="flex-1 text-xs text-gray-400 font-bold">⋮⋮</div>
-            </div>
-          )}
+          {header}
         </div>
       )}
 
@@ -358,15 +406,25 @@ export default function DraggableResizable({
       <div
         className="h-full flex flex-col"
         style={{
-          paddingTop: draggable ? `${headerHeight}px` : '0',
-          height: layout.isMinimized ? 0 : layout.height ? `${layout.height - (draggable ? headerHeight : 0)}px` : 'auto',
-          overflow: layout.isMinimized ? 'hidden' : 'visible'
+          paddingTop: draggable && header ? `${headerHeight}px` : '0',
+          height: layout.isMinimized ? 0 : layout.height ? `${layout.height - (draggable && header ? headerHeight : 0)}px` : 'auto',
+          overflow: layout.isMinimized ? 'hidden' : 'hidden',
+          position: 'relative',
+          pointerEvents: 'auto'
+        }}
+        onMouseDown={(e) => {
+          // Allow buttons and inputs to work normally
+          const target = e.target as HTMLElement
+          const interactiveElement = target.closest('button, input, textarea, select, a, [role="button"], [role="textbox"]')
+          if (interactiveElement) {
+            e.stopPropagation()
+          }
         }}
       >
         {children}
       </div>
 
-      {/* Resize handles */}
+      {/* Resize handles - only render when resizable is true */}
       {resizable && !layout.isMinimized && (
         <>
           {/* Corner handles */}
@@ -380,7 +438,8 @@ export default function DraggableResizable({
               width: '8px',
               height: '8px',
               cursor: 'nwse-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -393,7 +452,8 @@ export default function DraggableResizable({
               width: '8px',
               height: '8px',
               cursor: 'nesw-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -406,7 +466,8 @@ export default function DraggableResizable({
               width: '8px',
               height: '8px',
               cursor: 'nesw-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -420,7 +481,8 @@ export default function DraggableResizable({
               height: '8px',
               cursor: 'nwse-resize',
               zIndex: 20,
-              backgroundColor: isHovered ? 'rgba(0, 255, 255, 0.5)' : 'transparent'
+              backgroundColor: isHovered ? 'rgba(0, 255, 255, 0.5)' : 'transparent',
+              pointerEvents: 'auto'
             }}
           />
           
@@ -435,7 +497,8 @@ export default function DraggableResizable({
               right: '8px',
               height: '4px',
               cursor: 'ns-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -448,7 +511,8 @@ export default function DraggableResizable({
               right: '8px',
               height: '4px',
               cursor: 'ns-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -461,7 +525,8 @@ export default function DraggableResizable({
               bottom: '8px',
               width: '4px',
               cursor: 'ew-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
           <div
@@ -474,7 +539,8 @@ export default function DraggableResizable({
               bottom: '8px',
               width: '4px',
               cursor: 'ew-resize',
-              zIndex: 20
+              zIndex: 20,
+              pointerEvents: 'auto'
             }}
           />
         </>

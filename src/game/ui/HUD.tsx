@@ -48,6 +48,9 @@ export default function HUD() {
   const [showGrappleIndicator, setShowGrappleIndicator] = useState(false)
   const indicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const grappleIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [chunkProgress] = useState({ loadedChunks: 0, loadingChunks: 0, percentage: 0, currentChunk: null as { x: number; z: number } | null })
+  const [assetProgress] = useState({ percentage: 0, currentAsset: '' })
+  const [isLoading] = useState(false)
   
   // Show indicator when climbing starts, and keep it visible for 3 seconds after climbing stops
   useEffect(() => {
@@ -125,9 +128,9 @@ export default function HUD() {
         id="player-stats"
         storageKey="playerStats"
         defaultPosition={{ x: 16, y: 16 }}
-        defaultSize={{ width: 300, height: 140 }}
+        defaultSize={{ width: 300, height: 160 }}
         minWidth={200}
-        minHeight={100}
+        minHeight={160}
         maxWidth={400}
         className="pointer-events-auto"
         header={
@@ -146,9 +149,9 @@ export default function HUD() {
           </div>
         }
       >
-        <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-3 neon-border">
+        <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-4 neon-border h-full flex flex-col justify-between">
           {/* Health Bar */}
-          <div className="mb-2">
+          <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>HP</span>
               <span>{player.health}/{player.maxHealth}</span>
@@ -165,7 +168,7 @@ export default function HUD() {
           </div>
 
           {/* Mana Bar */}
-          <div className="mb-2">
+          <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>MP</span>
               <span>{player.mana}/{player.maxMana}</span>
@@ -182,7 +185,7 @@ export default function HUD() {
           </div>
 
           {/* XP Bar */}
-          <div>
+          <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>XP</span>
               <span>{player.xp}/{player.xpToNext}</span>
@@ -194,6 +197,41 @@ export default function HUD() {
               />
             </div>
           </div>
+
+          {/* Loading Status Indicator */}
+          {isLoading && (
+            <div className="mt-2 pt-2 border-t border-gray-700">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-cyan-500"></div>
+                <span className="text-xs text-cyan-400">Loading...</span>
+              </div>
+              {chunkProgress.loadingChunks > 0 && (
+                <div className="text-xs text-gray-400 mb-1">
+                  Chunks: {chunkProgress.loadedChunks} loaded, {chunkProgress.loadingChunks} loading
+                  {chunkProgress.currentChunk && (
+                    <span className="text-cyan-300"> (Chunk {chunkProgress.currentChunk.x},{chunkProgress.currentChunk.z})</span>
+                  )}
+                </div>
+              )}
+              {assetProgress.percentage > 0 && assetProgress.percentage < 100 && (
+                <div className="text-xs text-gray-400 mb-1">
+                  Assets: {Math.round(assetProgress.percentage)}%
+                  {assetProgress.currentAsset && (
+                    <span className="text-cyan-300"> - {assetProgress.currentAsset}</span>
+                  )}
+                </div>
+              )}
+              <div className="w-full bg-gray-800 rounded-full h-1 mt-1">
+                <div
+                  className="bg-cyan-500 h-1 rounded-full transition-all"
+                  style={{ 
+                    width: `${Math.max(chunkProgress.percentage, assetProgress.percentage)}%`,
+                    boxShadow: '0 0 8px rgba(0, 255, 255, 0.5)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </DraggableResizable>
 
@@ -201,83 +239,157 @@ export default function HUD() {
       <DraggableResizable
         id="top-right-buttons"
         storageKey="topRightButtons"
-        defaultPosition={{ x: typeof window !== 'undefined' ? window.innerWidth - 600 : 200, y: 16 }}
-        defaultSize={{ width: 580, height: 50 }}
-        minWidth={400}
-        minHeight={40}
+        defaultPosition={{ x: typeof window !== 'undefined' ? window.innerWidth - 700 : 200, y: 16 }}
+        defaultSize={{ width: 680, height: 60 }}
+        minWidth={500}
+        minHeight={60}
         resizable={false}
         className="pointer-events-auto"
-        header={
-          <div 
-            className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center px-2" 
-            style={{ 
-              backgroundColor: 'rgba(0,0,0,0.1)', 
-              pointerEvents: 'auto'
-            }} 
-          >
-            <div className="text-gray-400 text-xs font-bold select-none opacity-50">⋮⋮</div>
-          </div>
-        }
       >
-        <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-2 neon-border flex gap-2 items-center" style={{ zIndex: 5, pointerEvents: 'none' }}>
-          <div className="flex gap-2 items-center w-full" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
+        <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-3 neon-border flex items-center overflow-hidden" style={{ zIndex: 5, pointerEvents: 'none' }}>
+          <div className="flex gap-2.5 items-center w-full flex-nowrap overflow-x-auto" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
             <button
               onClick={toggleQuest}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+              title="Quests"
+              className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isQuestOpen
                   ? 'border-cyan-500 bg-cyan-500/20 text-cyan-400'
                   : 'border-cyan-500 text-cyan-400 hover:bg-gray-800'
               } neon-border`}
+              style={{
+                boxShadow: isQuestOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isQuestOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isQuestOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              📜 Quests
+              📜
             </button>
             <button
               onClick={toggleBattlePass}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+              title="Battle Pass"
+              className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isBattlePassOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
                   : 'border-purple-500 text-purple-400 hover:bg-gray-800'
               } neon-border`}
+              style={{
+                boxShadow: isBattlePassOpen 
+                  ? '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isBattlePassOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(168, 85, 247, 0.6), 0 0 30px rgba(168, 85, 247, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isBattlePassOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              🎁 Battle Pass
+              🎁
             </button>
             <button
               onClick={toggleAchievement}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+              title="Achievements"
+              className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isAchievementOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
                   : 'border-yellow-500 text-yellow-400 hover:bg-gray-800'
               } neon-border`}
+              style={{
+                boxShadow: isAchievementOpen 
+                  ? '0 0 20px rgba(234, 179, 8, 0.8), 0 0 40px rgba(234, 179, 8, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isAchievementOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(234, 179, 8, 0.6), 0 0 30px rgba(234, 179, 8, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isAchievementOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              🏆 Achievements
+              🏆
             </button>
             <button
               onClick={toggleShop}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+              title="Shop"
+              className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isShopOpen
                   ? 'border-yellow-500 bg-yellow-500/20 text-yellow-400'
                   : 'border-yellow-500 text-yellow-400 hover:bg-gray-800'
               } neon-border`}
+              style={{
+                boxShadow: isShopOpen 
+                  ? '0 0 20px rgba(234, 179, 8, 0.8), 0 0 40px rgba(234, 179, 8, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isShopOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(234, 179, 8, 0.6), 0 0 30px rgba(234, 179, 8, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isShopOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              🛍️ Shop
+              🛍️
             </button>
             <button
               onClick={toggleSkills}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`bg-gray-900/90 border-2 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+              title="Skills"
+              className={`bg-gray-900/90 border-2 rounded-lg p-2.5 text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSkillsOpen
                   ? 'border-purple-500 bg-purple-500/20 text-purple-400'
                   : 'border-purple-500 text-purple-400 hover:bg-gray-800'
               } neon-border`}
+              style={{
+                boxShadow: isSkillsOpen 
+                  ? '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isSkillsOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(168, 85, 247, 0.6), 0 0 30px rgba(168, 85, 247, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSkillsOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              ⭐ Skills
+              ⭐
             </button>
-            <div className="ml-auto bg-gray-900/90 backdrop-blur-sm border-2 border-yellow-500 rounded-lg px-4 py-2 neon-border">
-              <div className="text-yellow-400 font-bold">💰 {player.credits}</div>
+            <div className="ml-auto bg-gray-900/90 backdrop-blur-sm border-2 border-yellow-500 rounded-lg px-4 py-2 neon-border flex-shrink-0">
+              <div className="text-yellow-400 font-bold whitespace-nowrap">💰 {player.credits}</div>
             </div>
           </div>
         </div>
@@ -288,128 +400,266 @@ export default function HUD() {
         id="action-buttons"
         storageKey="actionButtons"
         defaultPosition={{ 
-          x: typeof window !== 'undefined' ? (window.innerWidth - 500) / 2 : 200, 
+          x: typeof window !== 'undefined' ? (window.innerWidth - 700) / 2 : 200, 
           y: typeof window !== 'undefined' ? window.innerHeight - 80 : 400 
         }}
-        defaultSize={{ width: 500, height: 60 }}
-        minWidth={400}
-        minHeight={50}
+        defaultSize={{ width: 700, height: 70 }}
+        minWidth={600}
+        minHeight={70}
         resizable={false}
         className="pointer-events-auto"
-        header={
-          <div 
-            className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center px-2" 
-            style={{ 
-              backgroundColor: 'rgba(0,0,0,0.1)', 
-              pointerEvents: 'auto'
-            }} 
-          >
-            <div className="text-gray-400 text-xs font-bold select-none opacity-50">⋮⋮</div>
-          </div>
-        }
       >
-        <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-2 neon-border flex items-center justify-center" style={{ zIndex: 5, pointerEvents: 'none' }}>
-          <div className="flex justify-center gap-2" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
+        <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-3 neon-border flex items-center justify-center overflow-hidden" style={{ zIndex: 5, pointerEvents: 'none' }}>
+          <div className="flex justify-center gap-2.5 flex-nowrap items-center w-full overflow-x-auto" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 15 }}>
             <button
               onClick={toggleInventory}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Inventory"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 ${
                 isInventoryOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
+              style={{
+                boxShadow: isInventoryOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isInventoryOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isInventoryOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              📦 Inv
+              📦
             </button>
             <button
               onClick={toggleCrafting}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Crafting"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 ${
                 isCraftingOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
+              style={{
+                boxShadow: isCraftingOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isCraftingOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isCraftingOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              🔨 Craft
+              🔨
             </button>
             <button
               onClick={toggleMarket}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Market"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isMarketOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
+              style={{
+                boxShadow: isMarketOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isMarketOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isMarketOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              💰 Market
+              💰
             </button>
             <button
               onClick={toggleSpellbook}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Spellbook"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSpellbookOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
+              style={{
+                boxShadow: isSpellbookOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isSpellbookOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSpellbookOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              📖 Spells
+              📖
             </button>
             <button
               onClick={toggleGuild}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Guild"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isGuildOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
+              style={{
+                boxShadow: isGuildOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isGuildOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isGuildOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
-              👥 Guild
+              👥
             </button>
             <button
               onClick={toggleMinimap}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Minimap"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isMinimapOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
-              title="Minimap"
+              style={{
+                boxShadow: isMinimapOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isMinimapOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isMinimapOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
               🗺️
             </button>
             <button
               onClick={toggleHousing}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Housing"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isHousingOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
-              title="Housing"
+              style={{
+                boxShadow: isHousingOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isHousingOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isHousingOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
               🏠
             </button>
             <button
               onClick={toggleSocial}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Social"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSocialOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
-              title="Social"
+              style={{
+                boxShadow: isSocialOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isSocialOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSocialOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
               👥
             </button>
             <button
               onClick={toggleSettings}
               onMouseDown={(e) => e.stopPropagation()}
-              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+              title="Settings"
+              className={`p-2.5 rounded-lg text-lg transition-all flex-shrink-0 w-12 h-12 flex items-center justify-center ${
                 isSettingsOpen
                   ? 'bg-cyan-600 text-white'
                   : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
               }`}
-              title="Settings"
+              style={{
+                boxShadow: isSettingsOpen 
+                  ? '0 0 20px rgba(6, 182, 212, 0.8), 0 0 40px rgba(6, 182, 212, 0.4)' 
+                  : 'none',
+                transition: 'box-shadow 0.3s ease, background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isSettingsOpen) {
+                  e.currentTarget.style.boxShadow = '0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSettingsOpen) {
+                  e.currentTarget.style.boxShadow = 'none'
+                }
+              }}
             >
               ⚙️
             </button>

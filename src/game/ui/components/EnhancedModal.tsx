@@ -79,12 +79,19 @@ export default function EnhancedModal({
     <div 
       className="enhanced-modal" 
       onClick={(e) => {
+        // Prevent click-through to game world
+        e.stopPropagation()
         if (e.target === e.currentTarget) onClose()
+      }}
+      onMouseDown={(e) => {
+        // Prevent click-through to game world
+        e.stopPropagation()
       }}
       onKeyDown={handleKeyDown}
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
+      style={{ pointerEvents: 'auto', zIndex: 50 }}
     >
       <div 
         ref={containerRef as React.RefObject<HTMLDivElement>}

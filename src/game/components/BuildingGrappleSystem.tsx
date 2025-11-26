@@ -368,7 +368,6 @@ export default function BuildingGrappleSystem() {
         // Create a vector perpendicular to both vertical and plane normal
         const vertical = new THREE.Vector3(0, -1, 0)
         const right = new THREE.Vector3().crossVectors(vertical, swingPlaneNormalRef.current).normalize()
-        const forward = new THREE.Vector3().crossVectors(swingPlaneNormalRef.current, right).normalize()
         
         // Calculate direction based on swing angle
         swingDirection.copy(vertical).multiplyScalar(-Math.cos(swingAngleRef.current))

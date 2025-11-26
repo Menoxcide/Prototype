@@ -54,7 +54,7 @@ function App() {
     }
   }, [])
 
-  // Progressive loading with critical assets first
+  // Progressive loading with real asset tracking
   // Only run once after player is initialized
   useEffect(() => {
     // Don't start loading until player is initialized
@@ -70,9 +70,21 @@ function App() {
     setIsLoading(true)
     setLoadingProgress(0)
 
-    const loadCriticalAssets = async () => {
+    // Minimum display time for loading screen (1 second)
+    const minDisplayTime = 1000
+    const startTime = Date.now()
+
+    const initializeLoading = async () => {
       try {
+        // Small delay to ensure React has time to render the loading screen
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        
         const { progressiveLoader } = await import('./game/utils/progressiveLoader')
+        const { loadingPhaseManager } = await import('./game/utils/loadingPhases')
+        
+        // Reset loading phases for new session
+        loadingPhaseManager.reset()
+        progressiveLoader.reset()
         
         // Define critical assets (player, UI, core textures)
         progressiveLoader.defineCriticalAssets([
@@ -82,60 +94,66 @@ function App() {
           'core-skybox-texture'
         ])
         
-        // Check if there are any assets to load
-        const initialProgress = progressiveLoader.getProgress()
-        if (initialProgress.total === 0) {
-          // No assets to load, complete immediately
-          console.log('No assets to load, completing immediately')
-          setLoadingProgress(100)
-          setTimeout(() => setIsLoading(false), 300)
-          return
-        }
-        
-        let loadingCompleted = false
-        
-        // Load critical assets first
-        await progressiveLoader.loadAll((progress) => {
-          setLoadingProgress(Math.min(progress.percentage, 100))
-          // Complete loading if critical assets are loaded
-          if (progress.criticalLoaded && progress.percentage >= 100) {
-            if (!loadingCompleted) {
-              loadingCompleted = true
-              console.log('Loading completed via progress callback')
+        // Subscribe to loading phase progress updates
+        const unsubscribePhase = loadingPhaseManager.subscribe((status) => {
+          // Update progress based on overall phase progress
+          // Phase 1 (0-50%), Phase 2 (50-85%), Phase 3 (85-100%)
+          setLoadingProgress(status.overallProgress)
+          
+          // Allow entering world when Phase 1 is complete (50% progress)
+          if (status.phase === 'phase2' || status.phase === 'phase3' || status.phase === 'complete') {
+            // Phase 1 complete - can enter world
+            const elapsed = Date.now() - startTime
+            const remainingTime = Math.max(0, minDisplayTime - elapsed)
+            
+            setTimeout(() => {
               setIsLoading(false)
-            }
+            }, remainingTime)
           }
         })
         
-        // Fallback: check progress after loading completes
-        if (!loadingCompleted) {
-          const progress = progressiveLoader.getProgress()
-          console.log('Loading finished, final progress:', progress)
-          // Complete loading regardless
+        // Also subscribe to progressive loader for additional progress details
+        const unsubscribeLoader = progressiveLoader.subscribe(() => {
+          // Use phase progress as primary, but this provides additional detail
+          // The phase manager already handles overall progress calculation
+          // This can be used for more granular progress if needed
+        })
+        
+        // Start Phase 1 loading (Game component will trigger asset loading)
+        console.log('App: Waiting for Game component to load Phase 1 assets')
+        
+        // Timeout fallback: ensure loading completes within 30 seconds
+        const timeoutId = setTimeout(() => {
+          console.warn('Loading timeout - completing anyway after 30 seconds')
           setLoadingProgress(100)
-          setTimeout(() => setIsLoading(false), 300)
+          setIsLoading(false)
+          if (unsubscribePhase) unsubscribePhase()
+          if (unsubscribeLoader) unsubscribeLoader()
+        }, 30000)
+        
+        // Cleanup on unmount
+        return () => {
+          clearTimeout(timeoutId)
+          if (unsubscribePhase) unsubscribePhase()
+          if (unsubscribeLoader) unsubscribeLoader()
         }
       } catch (error) {
-        console.error('Failed to load critical assets:', error)
-        // Fallback to simple progress - complete loading anyway
-        setLoadingProgress(100)
-        setTimeout(() => setIsLoading(false), 300)
+        console.error('Failed to initialize loading:', error)
+        // Fallback: complete loading after minimum time
+        const elapsed = Date.now() - startTime
+        const remainingTime = Math.max(0, minDisplayTime - elapsed)
+        setTimeout(() => {
+          setLoadingProgress(100)
+          setIsLoading(false)
+        }, remainingTime)
       }
     }
     
-    // Timeout fallback: ensure loading completes within 3 seconds
-    const timeoutId = setTimeout(() => {
-      console.warn('Loading timeout - completing anyway')
-      setLoadingProgress(100)
-      setIsLoading(false)
-    }, 3000)
+    initializeLoading()
     
-    loadCriticalAssets().finally(() => {
-      clearTimeout(timeoutId)
-    })
-    
+    // Cleanup function
     return () => {
-      clearTimeout(timeoutId)
+      // Cleanup handled in initializeLoading
     }
   }, [isInitialized, player?.id]) // Only depend on player.id, not the whole player object
 
@@ -233,7 +251,7 @@ function App() {
     )
   }
 
-  // Show loading screen
+  // Show loading screen (but mount Game component in background to start loading assets)
   if (isLoading) {
     return (
       <ErrorBoundary>
@@ -241,6 +259,12 @@ function App() {
           progress={loadingProgress}
           message="Loading NEX://VOID..."
         />
+        {/* Mount Game component early but hidden - allows assets to load in background */}
+        {player && isInitialized && (
+          <div style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', width: 0, height: 0, overflow: 'hidden' }}>
+            <Game />
+          </div>
+        )}
       </ErrorBoundary>
     )
   }

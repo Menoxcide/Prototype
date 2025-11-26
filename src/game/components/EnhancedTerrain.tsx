@@ -1,6 +1,7 @@
 /**
  * Enhanced Cyberpunk Terrain for NEX://VOID
  * Uses pixel art tilesets from Pixellab for zone-specific terrain
+ * Loads progressively: Phase 1 (critical) loads basic terrain, Phase 2 loads enhanced textures
  */
 
 import { useEffect, useState } from 'react'
@@ -8,42 +9,102 @@ import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { tilesetLoader } from '../assets/tilesetLoader'
 import { assetManager } from '../assets/assetManager'
+import { progressiveLoader } from '../utils/progressiveLoader'
+import { useLoadingPhase } from '../hooks/useLoadingPhase'
 
 export default function EnhancedTerrain() {
   const player = useGameStore((state) => state.player)
   const currentZoneFromStore = useGameStore((state) => state.currentZone)
   const [_terrainTexture, setTerrainTexture] = useState<THREE.Texture | null>(null)
+  const { phase } = useLoadingPhase()
   
   // Determine current zone - prefer store, fallback to player.zone, then default
   const currentZone = currentZoneFromStore || player?.zone || 'nexus_city'
 
-  // Load tileset texture for current zone
+  // Phase 1: Load basic terrain texture (critical for entering world)
   useEffect(() => {
-    const loadTexture = async () => {
+    if (phase !== 'phase1' && phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for phase system to initialize
+    }
+
+    const loadBasicTexture = async () => {
+      const textureId = `terrain-basic-${currentZone}`
+      
+      // Register with progressive loader
+      progressiveLoader.addAsset({
+        id: textureId,
+        type: 'texture',
+        priority: 10, // High priority for Phase 1
+        critical: true,
+        phase: 'phase1'
+      })
+
       try {
+        // Try to load tileset texture
         const texture = await tilesetLoader.loadZoneTileset(currentZone)
         setTerrainTexture(texture)
+        
+        // Mark as loaded
+        progressiveLoader.markAssetLoaded(textureId, 'phase1')
       } catch (error) {
         console.error('Failed to load terrain texture:', error)
-        // Try enhanced ground texture as fallback
-        try {
-          const { enhancedAssetLoader } = await import('../assets/enhancedAssetLoader')
-          const enhancedTexture = await enhancedAssetLoader.loadTexture('ground-texture')
-          setTerrainTexture(enhancedTexture)
-        } catch (enhancedError) {
-          // Final fallback to procedural texture
-          const fallback = assetManager.getTexture(`ground-${currentZone}`) ||
-            assetManager.generateTexture(`ground-${currentZone}`, 512, 512, (ctx) => {
-              ctx.fillStyle = '#0a0a0a'
-              ctx.fillRect(0, 0, 512, 512)
-            })
-          setTerrainTexture(fallback)
-        }
+        // Fallback to procedural texture (faster, no network)
+        const fallback = assetManager.getTexture(`ground-${currentZone}`) ||
+          assetManager.generateTexture(`ground-${currentZone}`, 512, 512, (ctx) => {
+            ctx.fillStyle = '#0a0a0a'
+            ctx.fillRect(0, 0, 512, 512)
+          })
+        setTerrainTexture(fallback)
+        
+        // Mark as loaded even with fallback
+        progressiveLoader.markAssetLoaded(textureId, 'phase1')
       }
     }
     
-    loadTexture()
-  }, [currentZone])
+    loadBasicTexture()
+  }, [currentZone, phase])
+
+  // Phase 2: Load enhanced textures (non-critical, can load after entering world)
+  useEffect(() => {
+    if (phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for Phase 2
+    }
+
+    const loadEnhancedTexture = async () => {
+      const textureId = `terrain-enhanced-${currentZone}`
+      
+      // Register with progressive loader for Phase 2
+      progressiveLoader.addAsset({
+        id: textureId,
+        type: 'texture',
+        priority: 5, // Medium priority for Phase 2
+        critical: false,
+        phase: 'phase2'
+      })
+
+      try {
+        // Try enhanced ground texture
+        const { enhancedAssetLoader } = await import('../assets/enhancedAssetLoader')
+        const enhancedTexture = await enhancedAssetLoader.loadTexture('ground-texture')
+        
+        // Update to enhanced texture if available
+        if (enhancedTexture) {
+          setTerrainTexture(enhancedTexture)
+        }
+        
+        // Mark as loaded
+        progressiveLoader.markAssetLoaded(textureId, 'phase2')
+      } catch (enhancedError) {
+        // Enhanced texture failed, but we already have basic texture
+        console.warn('Enhanced terrain texture not available, using basic texture')
+        
+        // Mark as loaded anyway (we have fallback)
+        progressiveLoader.markAssetLoaded(textureId, 'phase2')
+      }
+    }
+    
+    loadEnhancedTexture()
+  }, [currentZone, phase])
 
   // Note: Ground material, grid helper, and ground geometry are commented out
   // because CyberpunkCity component handles the ground rendering to prevent z-fighting

@@ -487,6 +487,38 @@ export const ENVIRONMENTAL_OBJECTS: EnvironmentalObject[] = [
     interactable: true,
     interactionType: 'harvest',
     spawnRate: 0.3
+  },
+  // Cyberpunk biome objects
+  {
+    id: 'cyberpunk_fountain',
+    name: 'Neon Fountain',
+    description: 'A cyberpunk fountain with glowing neon water and holographic effects.',
+    type: 'fountain',
+    biome: ['neon_city'],
+    size: { width: 3, height: 2.5, depth: 3 },
+    color: '#00ffff',
+    icon: '⛲',
+    harvestable: false,
+    interactable: true,
+    interactionType: 'activate',
+    spawnRate: 0.06
+  },
+  {
+    id: 'cyberpunk_garden',
+    name: 'Synthetic Garden',
+    description: 'A garden filled with neon-lit synthetic plants and cybernetic flowers.',
+    type: 'decoration',
+    biome: ['neon_city'],
+    size: { width: 5, height: 1.5, depth: 5 },
+    color: '#00ff88',
+    icon: '🌿',
+    harvestable: true,
+    harvestItem: 'neon_flower',
+    harvestTime: 3000,
+    respawnTime: 90000,
+    interactable: true,
+    interactionType: 'harvest',
+    spawnRate: 0.08
   }
 ]
 

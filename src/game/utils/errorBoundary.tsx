@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react'
 import { errorReporting } from './errorReporting'
+import { handleError, ErrorType, ErrorSeverity } from './errorHandler'
 
 interface Props {
   children: ReactNode
@@ -21,7 +22,6 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Use centralized error handler
-    const { handleError, ErrorType, ErrorSeverity } = require('./errorHandler')
     handleError(
       error,
       ErrorType.UNKNOWN,

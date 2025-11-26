@@ -35,6 +35,9 @@ class EnhancedAssetLoader {
     'tree': 'f34da9e9-a278-4979-9c16-f09256c48ba6',
     'stone-walkway': 'ca6034c6-31b6-454c-8072-b4168762f10e', // Processing
     'fountain': 'c226d1a6-0aaa-439e-846f-17bdc1fd4909',
+    // Cyberpunk objects (isometric tiles)
+    'cyberpunk-fountain': 'b652a0a7-369b-41f0-88d4-696d1c96150c', // Isometric tile - generating
+    'cyberpunk-garden': 'b14a31c3-437b-45bc-afba-c598b0771e2e', // Isometric tile - generating
     'npc-character': 'ee604b8a-300c-4979-88c1-36d56f488b13', // Character - processing
     'animal-cat': '7972f4e0-f3e7-4491-869c-6d66ef10491b', // Character - processing
     'animal-dog': '02e61a00-8c4a-4bbb-a80f-33b05e9f1150', // Character - processing
@@ -49,6 +52,7 @@ class EnhancedAssetLoader {
   private getPixellabTileUrl(tileId: string): string {
     return `https://api.pixellab.ai/mcp/isometric-tile/${tileId}/download`
   }
+  
   
   
   /**

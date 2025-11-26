@@ -83,10 +83,6 @@ export default function GrappleHook({ position, visible, ropeDirection }: Grappl
     if (hookRef.current && ropeDirection) {
       const direction = ropeDirection.clone().normalize()
       // Create a look-at matrix for the hook
-      const up = new THREE.Vector3(0, 1, 0)
-      const right = new THREE.Vector3().crossVectors(up, direction).normalize()
-      const correctedUp = new THREE.Vector3().crossVectors(direction, right).normalize()
-      
       hookRef.current.lookAt(
         hookRef.current.position.clone().add(direction)
       )

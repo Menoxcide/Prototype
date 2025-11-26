@@ -8,7 +8,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { Enemy } from '../types'
-import { trackGeometry } from '../utils/geometryDisposalTracker'
+import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
 import { getPooledGeometry, releasePooledGeometry } from '../utils/geometryPool'
 
 interface InstancedEnemiesProps {
@@ -17,14 +17,18 @@ interface InstancedEnemiesProps {
 
 export default function InstancedEnemies({ enemies }: InstancedEnemiesProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
+  const geometryTrackedRef = useRef<boolean>(false)
   // Use selective subscription to reduce re-renders
   const player = useGameStore((state) => state.player)
 
   // Create geometry and material once (using geometry pool)
   const geometry = useMemo(() => {
     const geom = getPooledGeometry('enemy-box', () => new THREE.BoxGeometry(1, 1, 1))
-    // Track geometry for disposal monitoring
-    trackGeometry(geom, `instanced-enemies-geometry`, 'InstancedEnemies')
+    // Track geometry for disposal monitoring (only once)
+    if (!geometryTrackedRef.current) {
+      trackGeometry(geom, `instanced-enemies-geometry`, 'InstancedEnemies')
+      geometryTrackedRef.current = true
+    }
     return geom
   }, [])
   // Batch entities by material type for better GPU efficiency
@@ -41,9 +45,13 @@ export default function InstancedEnemies({ enemies }: InstancedEnemiesProps) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Mark geometry as disposed in tracker before releasing
+      const tracker = getGeometryDisposalTracker()
+      tracker.markDisposed('instanced-enemies-geometry')
       // Release geometry back to pool instead of disposing
       releasePooledGeometry('enemy-box')
       material.dispose()
+      geometryTrackedRef.current = false
     }
   }, [geometry, material])
 

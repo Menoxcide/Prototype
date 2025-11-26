@@ -13,6 +13,8 @@ import { getMobileOptimizationFlags, frameRateCap } from './utils/mobileOptimiza
 import { isMobileDevice } from './utils/mobileOptimizations'
 import { playZoneTrack, playCombatTrack } from './assets/audioTracks'
 import AmbientSoundSystem from './components/AmbientSoundSystem'
+import { loadingPhaseManager } from './utils/loadingPhases'
+import { progressiveLoader } from './utils/progressiveLoader'
 
 export default function Game() {
   const {
@@ -34,6 +36,103 @@ export default function Game() {
   const [spellProjectiles, setSpellProjectiles] = useState<SpellProjectile[]>([])
   const gameLoopRef = useRef<number | undefined>(undefined)
   const { spellCastQueue, clearSpellCastQueue } = useGameStore()
+  const phase2StartedRef = useRef(false)
+
+  // Initialize loading phases and start Phase 1 loading
+  useEffect(() => {
+    if (!player) return
+
+    // Reset loading phases for new game session
+    loadingPhaseManager.reset()
+    progressiveLoader.reset()
+
+    console.log('Game: Initializing loading phases')
+    
+    // Give components a moment to register their assets, then start loading Phase 1
+    const startPhase1 = async () => {
+      // Wait multiple frames to let components mount and register assets
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      
+      // Additional delay to ensure all components have registered
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      console.log('Game: Starting Phase 1 asset loading')
+      
+      // Check if components are loading assets themselves
+      // If so, we'll wait for them to finish via markAssetLoaded
+      // Otherwise, loadPhase will handle loading
+      try {
+        // Start loading Phase 1 - this will load any unloaded assets
+        // Components that load assets themselves will call markAssetLoaded
+        await progressiveLoader.loadPhase('phase1', (progress) => {
+          // Progress is automatically updated via loadingPhaseManager
+          console.log('Phase 1 progress:', progress.phaseProgress, `(${progress.loaded}/${progress.total} assets)`)
+        })
+        
+        // Give a moment for any async component loading to complete
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Final check - if phase isn't complete, mark it as complete
+        // (components may have loaded everything themselves)
+        if (!loadingPhaseManager.isPhaseComplete('phase1')) {
+          console.log('Game: Phase 1 assets loaded by components, marking complete')
+          loadingPhaseManager.updatePhaseProgress('phase1', 100)
+        }
+        
+        console.log('Game: Phase 1 loading complete')
+      } catch (error) {
+        console.error('Game: Phase 1 loading failed:', error)
+        // Mark Phase 1 as complete anyway to prevent blocking
+        loadingPhaseManager.updatePhaseProgress('phase1', 100)
+      }
+    }
+    
+    startPhase1()
+    
+    // Listen for Phase 1 completion to start Phase 2
+    const unsubscribePhase1 = loadingPhaseManager.onPhaseComplete('phase1', async () => {
+      console.log('Game: Phase 1 complete, starting Phase 2')
+      if (!phase2StartedRef.current) {
+        phase2StartedRef.current = true
+        loadingPhaseManager.transitionToNextPhase()
+        
+        // Start Phase 2 loading after a brief delay
+        setTimeout(async () => {
+          console.log('Game: Starting Phase 2 asset loading')
+          try {
+            await progressiveLoader.loadPhase('phase2', (progress) => {
+              console.log('Phase 2 progress:', progress.phaseProgress)
+            })
+            console.log('Game: Phase 2 loading complete')
+            loadingPhaseManager.transitionToNextPhase()
+            
+            // Start Phase 3 loading
+            setTimeout(async () => {
+              console.log('Game: Starting Phase 3 asset loading')
+              try {
+                await progressiveLoader.loadPhase('phase3', (progress) => {
+                  console.log('Phase 3 progress:', progress.phaseProgress)
+                })
+                console.log('Game: Phase 3 loading complete')
+                loadingPhaseManager.transitionToNextPhase()
+              } catch (error) {
+                console.error('Game: Phase 3 loading failed:', error)
+                loadingPhaseManager.updatePhaseProgress('phase3', 100)
+              }
+            }, 100)
+          } catch (error) {
+            console.error('Game: Phase 2 loading failed:', error)
+            loadingPhaseManager.updatePhaseProgress('phase2', 100)
+          }
+        }, 100)
+      }
+    })
+
+    return () => {
+      unsubscribePhase1()
+    }
+  }, [player?.id])
 
   // Setup offline handler
   useEffect(() => {
@@ -135,23 +234,46 @@ export default function Game() {
   useEffect(() => {
     if (!player || !isConnected) return
     
+    let dynamicEventSystem: any = null
+    
     const initSystems = async () => {
-      // Initialize world boss system (client-side tracking)
-      await import('./systems/worldBoss')
-      // System is initialized but not started (server handles spawning)
+      try {
+        // Initialize world boss system (client-side tracking)
+        await import('./systems/worldBoss')
+        // System is initialized but not started (server handles spawning)
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('Failed to load world boss system:', error)
+        }
+      }
       
-      // Initialize dynamic events system
-      const { dynamicEventSystem } = await import('./systems/dynamicEvents')
-      dynamicEventSystem.start()
+      try {
+        // Initialize dynamic events system
+        const dynamicEventsModule = await import('./systems/dynamicEvents')
+        dynamicEventSystem = dynamicEventsModule.dynamicEventSystem
+        if (dynamicEventSystem) {
+          dynamicEventSystem.start()
+        }
+      } catch (error) {
+        // Silently fail if dynamic events system can't be loaded
+        // This is expected if the file doesn't exist or has errors
+        if (import.meta.env.DEV) {
+          console.warn('Failed to load dynamic events system:', error)
+        }
+      }
       
       return () => {
-        dynamicEventSystem.stop()
+        if (dynamicEventSystem && typeof dynamicEventSystem.stop === 'function') {
+          dynamicEventSystem.stop()
+        }
       }
     }
     
-    const cleanup = initSystems()
+    const cleanupPromise = initSystems()
     return () => {
-      cleanup.then(cleanupFn => cleanupFn?.())
+      cleanupPromise.then(cleanupFn => cleanupFn?.()).catch(() => {
+        // Ignore cleanup errors
+      })
     }
   }, [player?.id, isConnected])
 

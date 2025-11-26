@@ -6,7 +6,7 @@
 import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { trackGeometry } from '../utils/geometryDisposalTracker'
+import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
 import { LootDrop } from '../types'
 import { getPooledGeometry, releasePooledGeometry } from '../utils/geometryPool'
 
@@ -16,12 +16,16 @@ interface InstancedLootDropsProps {
 
 export default function InstancedLootDrops({ lootDrops }: InstancedLootDropsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
+  const geometryTrackedRef = useRef<boolean>(false)
 
   // Create geometry and material once (using geometry pool)
   const geometry = useMemo(() => {
     const geom = getPooledGeometry('loot-cylinder', () => new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8))
-    // Track geometry for disposal monitoring
-    trackGeometry(geom, `instanced-loot-geometry`, 'InstancedLootDrops')
+    // Track geometry for disposal monitoring (only once)
+    if (!geometryTrackedRef.current) {
+      trackGeometry(geom, `instanced-loot-geometry`, 'InstancedLootDrops')
+      geometryTrackedRef.current = true
+    }
     return geom
   }, [])
   const material = useMemo(() => new THREE.MeshStandardMaterial({
@@ -33,9 +37,13 @@ export default function InstancedLootDrops({ lootDrops }: InstancedLootDropsProp
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Mark geometry as disposed in tracker before releasing
+      const tracker = getGeometryDisposalTracker()
+      tracker.markDisposed('instanced-loot-geometry')
       // Release geometry back to pool instead of disposing
       releasePooledGeometry('loot-cylinder')
       material.dispose()
+      geometryTrackedRef.current = false
     }
   }, [geometry, material])
 

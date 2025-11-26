@@ -7,13 +7,22 @@ import { useMemo, useState, useEffect } from 'react'
 import * as THREE from 'three'
 import type { JSX } from 'react'
 import { assetManager } from '../assets/assetManager'
+import { tilesetLoader } from '../assets/tilesetLoader'
+import { generateRoadNetwork, type RoadNetwork } from '../utils/roadGenerator'
+import InteractiveCityObjects from './InteractiveCityObjects'
+import { progressiveLoader } from '../utils/progressiveLoader'
+import { useLoadingPhase } from '../hooks/useLoadingPhase'
+import { chunkManager, type Chunk, type Building } from '../utils/chunkManager'
+import { generateCityBlocks, placeBuildingsInBlocks } from '../utils/cityLayout'
+import { useGameStore } from '../store/useGameStore'
 
 const CITY_SIZE = 500 // Much bigger city
 const BUILDING_COUNT = 80 // More buildings
 const WALL_HEIGHT = 15 // Height of perimeter walls
 const WALL_THICKNESS = 2 // Thickness of walls
 
-// Building style types
+// Building style types (used in legacy code)
+/*
 type BuildingStyle = 'box' | 'tower' | 'wide' | 'L-shape' | 'slender'
 
 // Building size categories
@@ -29,6 +38,7 @@ interface BuildingConfig {
   hasNeonStrips: boolean
   windowDensity: number
 }
+*/
 
 // Seeded random for consistent generation
 function seededRandom(seed: number) {
@@ -41,10 +51,210 @@ function seededRandom(seed: number) {
 
 export default function CyberpunkCity() {
   const [groundTexture, setGroundTexture] = useState<THREE.Texture | undefined>(undefined)
-  const [buildingTextures, setBuildingTextures] = useState<Record<string, THREE.Texture>>({})
+  const [roadTexture, setRoadTexture] = useState<THREE.Texture | undefined>(undefined)
+  const [grassTexture, setGrassTexture] = useState<THREE.Texture | undefined>(undefined)
+  const [pavementTexture, setPavementTexture] = useState<THREE.Texture | undefined>(undefined)
+  const [roadNetwork, setRoadNetwork] = useState<RoadNetwork | null>(null)
+  const [loadedBuildings, setLoadedBuildings] = useState<number>(0) // Track how many buildings are loaded
+  const [chunkBuildings, setChunkBuildings] = useState<Map<string, Building[]>>(new Map())
+  const { phase } = useLoadingPhase()
+  const player = useGameStore((state) => state.player)
   
-  // Load textures from Pixellab
+  // Generate road network and city blocks
   useEffect(() => {
+    const network = generateRoadNetwork(CITY_SIZE, 0.6, 6, 50)
+    setRoadNetwork(network)
+    
+    // Generate city blocks from road network
+    if (network) {
+      const blocks = generateCityBlocks(network, CITY_SIZE, 40)
+      
+      // Place buildings in blocks
+      const rng = seededRandom(12345)
+      const placements = placeBuildingsInBlocks(blocks, network, BUILDING_COUNT, rng)
+      
+      // Group buildings by chunk
+      const buildingsByChunk = new Map<string, Building[]>()
+      for (const placement of placements) {
+        const chunkKey = chunkManager.getChunkKey(placement.position.x, placement.position.z)
+        if (!buildingsByChunk.has(chunkKey)) {
+          buildingsByChunk.set(chunkKey, [])
+        }
+        buildingsByChunk.get(chunkKey)!.push(placement.building)
+      }
+      setChunkBuildings(buildingsByChunk)
+    }
+  }, [])
+  
+  // Update chunks based on player position
+  useEffect(() => {
+    if (!player || !roadNetwork) return
+    
+    const playerPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
+    
+    // Generate chunk content function
+    const generateChunkContent = async (chunk: Chunk) => {
+      const chunkKey = `${chunk.x},${chunk.z}`
+      const buildings = chunkBuildings.get(chunkKey) || []
+      
+      chunk.buildings = buildings
+      
+      // Add roads in this chunk
+      // Get chunk world position (using private method access pattern)
+      const chunkSize = chunkManager.getChunkSize()
+      const chunkWorldPos = {
+        x: chunk.x * chunkSize + chunkSize / 2,
+        z: chunk.z * chunkSize + chunkSize / 2
+      }
+      
+      chunk.roads = roadNetwork.segments.filter(segment => {
+        const midPoint = new THREE.Vector3().addVectors(segment.start, segment.end).multiplyScalar(0.5)
+        const distX = Math.abs(midPoint.x - chunkWorldPos.x)
+        const distZ = Math.abs(midPoint.z - chunkWorldPos.z)
+        return distX < chunkSize / 2 && distZ < chunkSize / 2
+      })
+      
+      // Mark assets for this chunk
+      chunk.assets = buildings.map(b => `building-${b.id}`)
+    }
+    
+    // Update chunks
+    chunkManager.updateChunks(playerPos, generateChunkContent).catch(err => {
+      console.error('Error updating chunks:', err)
+    })
+  }, [player?.position.x, player?.position.y, player?.position.z, roadNetwork, chunkBuildings])
+  
+  // Phase 1: Load basic ground texture (critical for entering world)
+  useEffect(() => {
+    if (phase !== 'phase1' && phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for phase system
+    }
+
+    const loadBasicGround = async () => {
+      const textureId = 'cyberpunk-ground-basic'
+      
+      // Register with progressive loader
+      progressiveLoader.addAsset({
+        id: textureId,
+        type: 'texture',
+        priority: 10,
+        critical: true,
+        phase: 'phase1'
+      })
+
+      try {
+        // Create basic procedural texture (fast, no network)
+        const textureId_proc = 'cyberpunk-ground'
+        let texture = assetManager.getTexture(textureId_proc)
+        
+        if (!texture) {
+          texture = assetManager.generateTexture(
+            textureId_proc,
+            512,
+            512,
+            (ctx) => {
+              ctx.fillStyle = '#1a0a0a'
+              ctx.fillRect(0, 0, 512, 512)
+              
+              // Simple grid pattern
+              ctx.strokeStyle = '#00ffff'
+              ctx.lineWidth = 2
+              ctx.globalAlpha = 0.6
+              
+              for (let x = 0; x < 512; x += 32) {
+                ctx.beginPath()
+                ctx.moveTo(x, 0)
+                ctx.lineTo(x, 512)
+                ctx.stroke()
+              }
+              
+              for (let y = 0; y < 512; y += 32) {
+                ctx.beginPath()
+                ctx.moveTo(0, y)
+                ctx.lineTo(512, y)
+                ctx.stroke()
+              }
+            },
+            {
+              quality: 'high',
+              generateMipmaps: true,
+              anisotropy: 16
+            }
+          )
+        }
+        
+        if (texture) {
+          texture.wrapS = THREE.RepeatWrapping
+          texture.wrapT = THREE.RepeatWrapping
+          texture.repeat.set(CITY_SIZE / 32, CITY_SIZE / 32)
+          setGroundTexture(texture)
+        }
+        
+        // Mark as loaded
+        progressiveLoader.markAssetLoaded(textureId, 'phase1')
+      } catch (error) {
+        console.error('Failed to load basic ground texture:', error)
+        // Mark as loaded anyway (we have fallback)
+        progressiveLoader.markAssetLoaded(textureId, 'phase1')
+      }
+    }
+    
+    loadBasicGround()
+  }, [phase])
+
+  // Phase 2: Load terrain textures (roads, grass, pavement) and building textures
+  useEffect(() => {
+    if (phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for Phase 2
+    }
+
+    const loadTerrainTextures = async () => {
+      try {
+        // Register terrain textures
+        const terrainTextures = ['roads', 'grass', 'pavement']
+        terrainTextures.forEach((type) => {
+          progressiveLoader.addAsset({
+            id: `terrain-${type}`,
+            type: 'texture',
+            priority: 5,
+            critical: false,
+            phase: 'phase2'
+          })
+        })
+
+        // Load road texture
+        const roadTex = await tilesetLoader.loadCyberpunkTerrainTileset('roads')
+        setRoadTexture(roadTex)
+        progressiveLoader.markAssetLoaded('terrain-roads', 'phase2')
+        
+        // Load grass texture
+        const grassTex = await tilesetLoader.loadCyberpunkTerrainTileset('grass')
+        setGrassTexture(grassTex)
+        progressiveLoader.markAssetLoaded('terrain-grass', 'phase2')
+        
+        // Load pavement texture
+        const pavementTex = await tilesetLoader.loadCyberpunkTerrainTileset('pavement')
+        setPavementTexture(pavementTex)
+        progressiveLoader.markAssetLoaded('terrain-pavement', 'phase2')
+      } catch (error) {
+        console.error('Failed to load terrain textures:', error)
+        // Mark as loaded anyway
+        const terrainIds = ['terrain-roads', 'terrain-grass', 'terrain-pavement']
+        for (const id of terrainIds) {
+          progressiveLoader.markAssetLoaded(id, 'phase2')
+        }
+      }
+    }
+    
+    loadTerrainTextures()
+  }, [phase])
+  
+  // Phase 2: Load building textures and enhanced ground texture
+  useEffect(() => {
+    if (phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for Phase 2
+    }
+
     const loadTextures = async () => {
       try {
         // Try to load the Pixellab tileset texture
@@ -255,7 +465,11 @@ export default function CyberpunkCity() {
           textures[textureType] = buildingTex
         }
         
-        setBuildingTextures(textures)
+        // Building textures are now handled by the chunk system
+        // Mark building textures as loaded
+        textureTypes.forEach((type) => {
+          progressiveLoader.markAssetLoaded(`building-texture-${type}`, 'phase2')
+        })
         
       } catch (error) {
         console.error('Failed to load city textures:', error)
@@ -301,10 +515,63 @@ export default function CyberpunkCity() {
     
     // Cleanup interval on unmount
     return () => clearInterval(checkPixellabTextures)
-  }, [])
+  }, [phase])
+
+  // Progressive building generation - load buildings incrementally in Phase 2
+  useEffect(() => {
+    if (phase !== 'phase2' && phase !== 'phase3' && phase !== 'complete') {
+      return // Wait for Phase 2
+    }
+
+    if (loadedBuildings >= BUILDING_COUNT) {
+      return // All buildings loaded
+    }
+
+    // Use requestIdleCallback to spread building generation over time
+    const generateBuildingsProgressively = (deadline: IdleDeadline) => {
+      let generated = 0
+      const maxTimePerFrame = 5 // 5ms per frame
+      const buildingsPerFrame = 2 // Generate 2 buildings per frame
+
+      while (
+        loadedBuildings + generated < BUILDING_COUNT &&
+        generated < buildingsPerFrame &&
+        deadline.timeRemaining() > maxTimePerFrame
+      ) {
+        generated++
+      }
+
+      if (generated > 0) {
+        setLoadedBuildings(prev => Math.min(prev + generated, BUILDING_COUNT))
+      }
+
+      // Continue if more buildings to generate
+      if (loadedBuildings + generated < BUILDING_COUNT) {
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(generateBuildingsProgressively, { timeout: 100 })
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(() => {
+            generateBuildingsProgressively({ timeRemaining: () => 5 } as IdleDeadline)
+          }, 16) // ~60fps
+        }
+      }
+    }
+
+    // Start progressive generation
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(generateBuildingsProgressively, { timeout: 100 })
+    } else {
+      // Fallback
+      setTimeout(() => {
+        generateBuildingsProgressively({ timeRemaining: () => 5 } as IdleDeadline)
+      }, 16)
+    }
+  }, [phase, loadedBuildings])
   
-  // Generate building configuration
-  const generateBuildingConfig = (rng: () => number, i: number): BuildingConfig => {
+  // Generate building configuration (used in legacy code, commented out)
+  /*
+  const generateBuildingConfig = (rng: () => number, _i: number): BuildingConfig => {
     const sizeRoll = rng()
     let size: BuildingSize
     let baseWidth: number
@@ -373,8 +640,10 @@ export default function CyberpunkCity() {
       windowDensity: 0.5 + rng() * 0.4 // 50-90% window density
     }
   }
+  */
 
-  // Generate realistic window colors (warm indoor lighting)
+  // Generate realistic window colors (warm indoor lighting) - used in legacy code
+  /*
   const getWindowColor = (rng: () => number): string => {
     const colors = [
       '#ffaa44', // Warm white/yellow
@@ -387,8 +656,10 @@ export default function CyberpunkCity() {
     ]
     return colors[Math.floor(rng() * colors.length)]
   }
+  */
 
-  // Create windows on a building face
+  // Create windows on a building face - used in legacy code
+  /*
   const createBuildingFaceWindows = (
     elements: JSX.Element[],
     buildingId: number,
@@ -487,7 +758,25 @@ export default function CyberpunkCity() {
     }
   }
 
-  const cityElements = useMemo(() => {
+  // Get buildings from loaded chunks
+  const chunkBuildingsList = useMemo(() => {
+    const allBuildings: Building[] = []
+    const loadedChunks = chunkManager.getLoadedChunks()
+    
+    for (const chunk of loadedChunks) {
+      allBuildings.push(...chunk.buildings)
+    }
+    
+    return allBuildings
+  }, [chunkBuildings, phase])
+  
+  // Buildings are now rendered via chunk system
+  // Legacy building generation (kept for reference, but not used)
+  // Disabled - using chunk-based system
+  /*
+  const legacyCityElements = useMemo(() => {
+    if (true) return [] // Disabled - using chunk-based system
+    
     const elements: JSX.Element[] = []
     const rng = seededRandom(12345) // Fixed seed for consistency
     
@@ -503,7 +792,10 @@ export default function CyberpunkCity() {
       '#ff4444', '#44ff44', '#4444ff', '#ffff44'  // Primary colors
     ]
     
-    for (let i = 0; i < BUILDING_COUNT; i++) {
+    // Only generate up to loadedBuildings count
+    const buildingsToGenerate = Math.min(loadedBuildings, BUILDING_COUNT)
+    
+    for (let i = 0; i < buildingsToGenerate; i++) {
       const gridX = (i % gridSize) - gridSize / 2
       const gridZ = Math.floor(i / gridSize) - gridSize / 2
       
@@ -633,9 +925,257 @@ export default function CyberpunkCity() {
     }
     
     return elements
-  }, [buildingTextures])
+  }, [buildingTextures, phase, loadedBuildings])
+  */
   
-  // Street grid - raised slightly to prevent z-fighting with ground
+  // Generate road meshes with markings
+  const roadMeshes = useMemo(() => {
+    if (!roadNetwork || !roadTexture) return []
+    
+    const elements: JSX.Element[] = []
+    
+    for (const segment of roadNetwork.segments) {
+      const length = segment.start.distanceTo(segment.end)
+      const midPoint = new THREE.Vector3().addVectors(segment.start, segment.end).multiplyScalar(0.5)
+      const direction = new THREE.Vector3().subVectors(segment.end, segment.start).normalize()
+      const angle = Math.atan2(direction.x, direction.z)
+      
+      // Main road surface (raised to 0.1 for visibility)
+      elements.push(
+        <mesh
+          key={`road-${segment.start.x}-${segment.start.z}`}
+          position={[midPoint.x, 0.1, midPoint.z]}
+          rotation={[-Math.PI / 2, 0, angle]}
+          receiveShadow
+          renderOrder={1}
+        >
+          <planeGeometry args={[segment.width, length]} />
+          <meshStandardMaterial
+            map={roadTexture}
+            color="#1a1a2a"
+            roughness={0.8}
+            metalness={0.2}
+          />
+        </mesh>
+      )
+      
+      // Yellow center line for grid roads
+      if (segment.type === 'grid' && segment.width >= 6) {
+        const lineWidth = 0.3
+        const dashLength = 2
+        const dashGap = 2
+        const dashCount = Math.floor(length / (dashLength + dashGap))
+        
+        for (let i = 0; i < dashCount; i++) {
+          const dashPos = -length / 2 + (dashLength + dashGap) * i + dashLength / 2
+          elements.push(
+            <mesh
+              key={`road-line-${segment.start.x}-${segment.start.z}-${i}`}
+              position={[midPoint.x + Math.cos(angle) * dashPos, 0.11, midPoint.z + Math.sin(angle) * dashPos]}
+              rotation={[-Math.PI / 2, 0, angle]}
+              renderOrder={2}
+            >
+              <planeGeometry args={[lineWidth, dashLength]} />
+              <meshStandardMaterial
+                color="#ffff00"
+                emissive="#ffff00"
+                emissiveIntensity={0.5}
+              />
+            </mesh>
+          )
+        }
+      }
+      
+      // Road edge lines
+      const edgeLineWidth = 0.2
+      const edgeOffset = segment.width / 2 - edgeLineWidth / 2
+      const edgeColor = '#ffffff'
+      
+      // Left edge
+      elements.push(
+        <mesh
+          key={`road-edge-left-${segment.start.x}-${segment.start.z}`}
+          position={[midPoint.x, 0.11, midPoint.z]}
+          rotation={[-Math.PI / 2, 0, angle]}
+          renderOrder={2}
+        >
+          <planeGeometry args={[edgeLineWidth, length]} />
+          <meshStandardMaterial
+            color={edgeColor}
+            emissive={edgeColor}
+            emissiveIntensity={0.3}
+          />
+        </mesh>
+      )
+      
+      // Right edge (offset by road width)
+      const rightEdgePos = new THREE.Vector3(0, 0, edgeOffset)
+      rightEdgePos.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle)
+      elements.push(
+        <mesh
+          key={`road-edge-right-${segment.start.x}-${segment.start.z}`}
+          position={[midPoint.x + rightEdgePos.x, 0.11, midPoint.z + rightEdgePos.z]}
+          rotation={[-Math.PI / 2, 0, angle]}
+          renderOrder={2}
+        >
+          <planeGeometry args={[edgeLineWidth, length]} />
+          <meshStandardMaterial
+            color={edgeColor}
+            emissive={edgeColor}
+            emissiveIntensity={0.3}
+          />
+        </mesh>
+      )
+    }
+    
+    // Add crosswalks at intersections
+    for (const intersection of roadNetwork.intersections) {
+      const crosswalkSize = 3
+      const crosswalkWidth = 0.5
+      
+      // Crosswalk lines (perpendicular to roads)
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2
+        const offset = -crosswalkSize / 2 + (crosswalkSize / 4) * (i % 2 === 0 ? 1 : -1)
+        const pos = new THREE.Vector3(
+          intersection.x + Math.cos(angle) * offset,
+          0.11,
+          intersection.z + Math.sin(angle) * offset
+        )
+        
+        elements.push(
+          <mesh
+            key={`crosswalk-${intersection.x}-${intersection.z}-${i}`}
+            position={[pos.x, pos.y, pos.z]}
+            rotation={[-Math.PI / 2, 0, angle + Math.PI / 2]}
+            renderOrder={2}
+          >
+            <planeGeometry args={[crosswalkWidth, crosswalkSize / 2]} />
+            <meshStandardMaterial
+              color="#ffffff"
+              emissive="#ffffff"
+              emissiveIntensity={0.4}
+            />
+          </mesh>
+        )
+      }
+    }
+    
+    return elements
+  }, [roadNetwork, roadTexture])
+  
+  // Generate terrain variation meshes (grass and pavement)
+  const terrainMeshes = useMemo(() => {
+    if (!roadNetwork) return []
+    
+    const elements: JSX.Element[] = []
+    const rng = seededRandom(99999)
+    
+    // Generate grass patches (parks, open areas)
+    const grassPatchCount = 15
+    for (let i = 0; i < grassPatchCount; i++) {
+      let x: number
+      let z: number
+      let attempts = 0
+      let onRoad: boolean
+      
+      do {
+        x = (rng() - 0.5) * CITY_SIZE * 0.8
+        z = (rng() - 0.5) * CITY_SIZE * 0.8
+        
+        // Check if on road (avoid roads)
+        onRoad = isPointOnRoad(x, z, roadNetwork, 8)
+        attempts++
+      } while (onRoad && attempts < 30)
+      
+      if (attempts < 30 && grassTexture) {
+        const size = 15 + rng() * 10
+        elements.push(
+          <mesh
+            key={`grass-${i}`}
+            position={[x, 0.01, z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            receiveShadow
+          >
+            <circleGeometry args={[size, 16]} />
+            <meshStandardMaterial
+              map={grassTexture}
+              color="#1a3a1a"
+              emissive="#003322"
+              emissiveIntensity={0.1}
+            />
+          </mesh>
+        )
+      }
+    }
+    
+    // Generate pavement areas (sidewalks around buildings, plazas)
+    const pavementPatchCount = 20
+    for (let i = 0; i < pavementPatchCount; i++) {
+      let x: number
+      let z: number
+      let attempts = 0
+      let onRoad: boolean
+      
+      do {
+        x = (rng() - 0.5) * CITY_SIZE * 0.8
+        z = (rng() - 0.5) * CITY_SIZE * 0.8
+        
+        // Check if on road (avoid roads but can be near them)
+        onRoad = isPointOnRoad(x, z, roadNetwork, 3)
+        attempts++
+      } while (onRoad && attempts < 30)
+      
+      if (attempts < 30 && pavementTexture) {
+        const size = 8 + rng() * 6
+        elements.push(
+          <mesh
+            key={`pavement-${i}`}
+            position={[x, 0.01, z]}
+            rotation={[-Math.PI / 2, 0, rng() * Math.PI * 2]}
+            receiveShadow
+          >
+            <boxGeometry args={[size, 0.1, size]} />
+            <meshStandardMaterial
+              map={pavementTexture}
+              color="#3a3a3a"
+              roughness={0.8}
+              metalness={0.1}
+            />
+          </mesh>
+        )
+      }
+    }
+    
+    return elements
+  }, [roadNetwork, grassTexture, pavementTexture])
+  
+  // Helper function to check if point is on road
+  function isPointOnRoad(x: number, z: number, network: RoadNetwork, margin: number): boolean {
+    for (const segment of network.segments) {
+      const dx = segment.end.x - segment.start.x
+      const dz = segment.end.z - segment.start.z
+      const lengthSq = dx * dx + dz * dz
+      
+      if (lengthSq < 0.001) continue
+      
+      const t = Math.max(0, Math.min(1, ((x - segment.start.x) * dx + (z - segment.start.z) * dz) / lengthSq))
+      const projX = segment.start.x + t * dx
+      const projZ = segment.start.z + t * dz
+      
+      const distance = Math.sqrt((x - projX) ** 2 + (z - projZ) ** 2)
+      
+      if (distance < segment.width / 2 + margin) {
+        return true
+      }
+    }
+    
+    return false
+  }
+  
+  // Street grid - raised slightly to prevent z-fighting with ground (keep for now, may remove later)
+  // Disabled for now - using road meshes instead
+  /*
   const streetGrid = useMemo(() => {
     const grid = new THREE.GridHelper(
       CITY_SIZE,
@@ -647,6 +1187,7 @@ export default function CyberpunkCity() {
     grid.position.y = 0.05
     return grid
   }, [])
+  */
 
   // Perimeter walls to prevent falling off
   const walls = useMemo(() => {
@@ -804,10 +1345,20 @@ export default function CyberpunkCity() {
     // Track object positions to avoid overlap
     const objectPositions: Array<{ x: number; z: number; radius: number }> = []
     const isTooClose = (x: number, z: number, radius: number): boolean => {
-      return objectPositions.some(pos => {
+      // Check overlap with other objects
+      if (objectPositions.some(pos => {
         const dist = Math.sqrt((pos.x - x) ** 2 + (pos.z - z) ** 2)
         return dist < pos.radius + radius + 2
-      })
+      })) {
+        return true
+      }
+      
+      // Check if on road (avoid placing on roads)
+      if (roadNetwork && isPointOnRoad(x, z, roadNetwork, radius + 2)) {
+        return true
+      }
+      
+      return false
     }
     
     // Generate billboards (NYC style - tall and prominent)
@@ -848,6 +1399,7 @@ export default function CyberpunkCity() {
           key={`billboard-pole-${i}`}
           position={[x, poleHeight / 2, z]}
           castShadow
+          userData={{ isCollidable: true, isTerrainObject: true, objectType: 'billboard' }}
         >
           <cylinderGeometry args={[0.15, 0.15, poleHeight, 8]} />
           <meshStandardMaterial
@@ -866,6 +1418,7 @@ export default function CyberpunkCity() {
           rotation={[0, rotation, 0]}
           castShadow
           receiveShadow
+          userData={{ isCollidable: true, isTerrainObject: true, objectType: 'billboard' }}
         >
           <boxGeometry args={[billboardWidth, billboardHeight, billboardDepth]} />
           <meshStandardMaterial
@@ -993,6 +1546,7 @@ export default function CyberpunkCity() {
           rotation={[0, rotation, 0]}
           castShadow
           receiveShadow
+          userData={{ isCollidable: true, isTerrainObject: true, objectType: 'bench' }}
         >
           <boxGeometry args={[3, 0.3, 0.8]} />
           <meshStandardMaterial
@@ -1011,6 +1565,7 @@ export default function CyberpunkCity() {
           rotation={[0, rotation, -Math.PI / 12]}
           castShadow
           receiveShadow
+          userData={{ isCollidable: true, isTerrainObject: true, objectType: 'bench' }}
         >
           <boxGeometry args={[3, 0.6, 0.2]} />
           <meshStandardMaterial
@@ -1029,6 +1584,7 @@ export default function CyberpunkCity() {
             position={[x + side, 0.25, z]}
             rotation={[0, rotation, 0]}
             castShadow
+            userData={{ isCollidable: true, isTerrainObject: true, objectType: 'bench' }}
           >
             <boxGeometry args={[0.1, 0.5, 0.1]} />
             <meshStandardMaterial
@@ -1068,6 +1624,7 @@ export default function CyberpunkCity() {
           position={[x, 0.7, z]}
           castShadow
           receiveShadow
+          userData={{ isCollidable: true, isTerrainObject: true, objectType: 'trashcan' }}
         >
           <cylinderGeometry args={[0.4, 0.4, 1.4, 16]} />
           <meshStandardMaterial
@@ -1330,8 +1887,7 @@ export default function CyberpunkCity() {
         </mesh>
       )
       
-      // Neon sign on newsstand
-      const signText = ['NEWS', 'FOOD', 'DRINKS'][Math.floor(rng() * 3)]
+      // Neon sign on newsstand (text not currently used in rendering)
       elements.push(
         <mesh
           key={`newsstand-sign-${i}`}
@@ -1682,7 +2238,7 @@ export default function CyberpunkCity() {
     }
     
     return elements
-  }, [])
+  }, [roadNetwork])
 
   // Ground plane with texture
   const groundMaterial = useMemo(() => {
@@ -1720,17 +2276,25 @@ export default function CyberpunkCity() {
         <primitive object={groundMaterial} attach="material" />
       </mesh>
       
-      {/* Street grid overlay - raised to prevent z-fighting */}
-      <primitive object={streetGrid} />
+      {/* Terrain variations (grass and pavement) - below roads */}
+      {terrainMeshes}
+      
+      {/* Road meshes - above terrain, below grid */}
+      {roadMeshes}
+      
+      {/* Street grid overlay - raised to prevent z-fighting (optional, can be removed) */}
+      {/* <primitive object={streetGrid} /> */}
       
       {/* Perimeter walls */}
       {walls}
       
-      {/* Buildings and decorations */}
-      {cityElements}
+      {/* Buildings and decorations - chunk-based rendering via chunkManager */}
       
       {/* City terrain objects (billboards, street furniture, etc.) */}
       {cityObjects}
+      
+      {/* Interactive objects (fountains and gardens) */}
+      <InteractiveCityObjects citySize={CITY_SIZE} roadNetwork={roadNetwork} />
     </group>
   )
 }
