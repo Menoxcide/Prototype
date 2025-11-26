@@ -131,7 +131,9 @@ class ReconnectionManager {
     // Send queued actions
     validActions.forEach(action => {
       try {
-        room.send(action.type as any, action.data)
+        if (room.connection && room.connection.isOpen) {
+          room.send(action.type as any, action.data)
+        }
       } catch (error) {
         console.error('Failed to send queued action:', error)
       }
@@ -155,8 +157,21 @@ class ReconnectionManager {
       }
       
       // Measure round-trip time
-      const startTime = Date.now()
-      room.send('ping' as any, { timestamp: startTime })
+      if (room.connection && room.connection.isOpen) {
+        const startTime = Date.now()
+        try {
+          room.send('ping' as any, { timestamp: startTime })
+        } catch (error) {
+          // Connection might have closed
+          this.state.latency = -1
+          this.state.connectionQuality = 'poor'
+          return
+        }
+      } else {
+        this.state.latency = -1
+        this.state.connectionQuality = 'poor'
+        return
+      }
       
       // Note: In a real implementation, you'd listen for pong response
       // For now, estimate based on connection state

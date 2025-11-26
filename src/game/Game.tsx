@@ -8,7 +8,11 @@ import { createSpellProjectile, updateSpellProjectile, checkSpellHit, SpellProje
 import { joinRoom, leaveRoom, sendSpellCast, sendLootPickup } from './network/colyseus'
 import { startMovementSync, stopMovementSync } from './network/syncSystem'
 import { setupOfflineHandler } from './utils/offlineHandler'
+import { initializePrediction } from './network/prediction'
 import { getMobileOptimizationFlags, frameRateCap } from './utils/mobileOptimizations'
+import { isMobileDevice } from './utils/mobileOptimizations'
+import { playZoneTrack, playCombatTrack } from './assets/audioTracks'
+import AmbientSoundSystem from './components/AmbientSoundSystem'
 
 export default function Game() {
   const {
@@ -36,6 +40,19 @@ export default function Game() {
     const cleanup = setupOfflineHandler()
     return cleanup
   }, [])
+
+  // Initialize prediction system for offline play
+  useEffect(() => {
+    if (!player) return
+    
+    // Initialize prediction system even for offline play
+    initializePrediction({
+      id: player.id,
+      position: player.position,
+      rotation: player.rotation,
+      timestamp: Date.now()
+    })
+  }, [player?.id])
 
   // Connect to multiplayer server
   useEffect(() => {
@@ -114,6 +131,30 @@ export default function Game() {
     clearSpellCastQueue()
   }, [spellCastQueue, player, clearSpellCastQueue])
 
+  // Initialize world boss and dynamic events systems
+  useEffect(() => {
+    if (!player || !isConnected) return
+    
+    const initSystems = async () => {
+      // Initialize world boss system (client-side tracking)
+      await import('./systems/worldBoss')
+      // System is initialized but not started (server handles spawning)
+      
+      // Initialize dynamic events system
+      const { dynamicEventSystem } = await import('./systems/dynamicEvents')
+      dynamicEventSystem.start()
+      
+      return () => {
+        dynamicEventSystem.stop()
+      }
+    }
+    
+    const cleanup = initSystems()
+    return () => {
+      cleanup.then(cleanupFn => cleanupFn?.())
+    }
+  }, [player?.id, isConnected])
+
   // Game loop with frame rate capping
   useEffect(() => {
     if (!player) return
@@ -173,8 +214,25 @@ export default function Game() {
         }
       })
 
-      // Check for loot pickup
+      // Check for loot pickup (manual or auto-loot)
       if (player) {
+        // Load auto-loot settings
+        const savedSettings = localStorage.getItem('gameSettings')
+        let autoLootEnabled = false
+        let autoLootRange = 2
+        let autoLootFilter: string[] = []
+        
+        if (savedSettings) {
+          try {
+            const settings = JSON.parse(savedSettings)
+            autoLootEnabled = settings.autoLootEnabled || false
+            autoLootRange = settings.autoLootRange || 2
+            autoLootFilter = settings.autoLootFilter || []
+          } catch (e) {
+            console.error('Failed to parse auto-loot settings:', e)
+          }
+        }
+
         lootDrops.forEach(loot => {
           const distance = Math.sqrt(
             Math.pow(player.position.x - loot.position.x, 2) +
@@ -182,16 +240,28 @@ export default function Game() {
             Math.pow(player.position.z - loot.position.z, 2)
           )
 
-            if (distance < 2 && (!loot.ownerId || loot.ownerId === player.id)) {
-              // Pick up loot
-              if (isConnected) {
-                sendLootPickup(loot.id)
-              } else {
-                // Offline mode
-                addItem(loot.item.id, 1)
-                removeLootDrop(loot.id)
+          const pickupRange = autoLootEnabled ? autoLootRange : 2
+          const isInRange = distance < pickupRange
+          const canPickup = (!loot.ownerId || loot.ownerId === player.id)
+
+          if (isInRange && canPickup) {
+            // Check auto-loot filter if enabled
+            if (autoLootEnabled && autoLootFilter.length > 0) {
+              const item = getItem(loot.item.id)
+              if (item && !autoLootFilter.includes(item.type)) {
+                return // Skip this item - not in filter
               }
             }
+
+            // Pick up loot
+            if (isConnected) {
+              sendLootPickup(loot.id)
+            } else {
+              // Offline mode
+              addItem(loot.item.id, 1)
+              removeLootDrop(loot.id)
+            }
+          }
         })
       }
     }
@@ -217,6 +287,34 @@ export default function Game() {
       }
     }
   }, [player, enemies, lootDrops, isConnected, addEnemy, removeEnemy, updateEnemy, addXP, addCredits, addItem, addLootDrop, removeLootDrop])
+
+  // Music integration - play zone music based on current zone
+  useEffect(() => {
+    if (player && isConnected) {
+      const zone = player.zone || 'nexus_city'
+      playZoneTrack(zone, true)
+    }
+  }, [player?.zone, isConnected])
+
+  // Combat music - play when in combat
+  useEffect(() => {
+    const hasNearbyEnemies = Array.from(enemies.values()).some(enemy => {
+      if (!player) return false
+      const distance = Math.sqrt(
+        Math.pow(player.position.x - enemy.position.x, 2) +
+        Math.pow(player.position.y - enemy.position.y, 2) +
+        Math.pow(player.position.z - enemy.position.z, 2)
+      )
+      return distance < 20
+    })
+
+    if (hasNearbyEnemies) {
+      playCombatTrack('combat_normal', true)
+    } else if (player) {
+      const zone = player.zone || 'nexus_city'
+      playZoneTrack(zone, true)
+    }
+  }, [enemies, player])
 
   // Handle player death
   useEffect(() => {
@@ -247,7 +345,8 @@ export default function Game() {
       }}
     >
       <EnhancedScene spellProjectiles={spellProjectiles} />
-      <TouchControls />
+      {isMobileDevice() && <TouchControls />}
+      <AmbientSoundSystem />
     </div>
   )
 }

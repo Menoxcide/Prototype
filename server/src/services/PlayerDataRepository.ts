@@ -4,9 +4,15 @@
  */
 
 import { DatabaseService, PlayerData } from './DatabaseService'
+import { cacheService } from './CacheService'
 
 export class PlayerDataRepository {
   constructor(private db: DatabaseService) {}
+  
+  // Cache TTLs
+  private readonly PLAYER_DATA_TTL = 300 // 5 minutes
+  private readonly QUEST_DATA_TTL = 600 // 10 minutes
+  private readonly ACHIEVEMENT_DATA_TTL = 1800 // 30 minutes
 
   /**
    * Save player data with validation
@@ -57,22 +63,47 @@ export class PlayerDataRepository {
 
     // Save to database
     await this.db.savePlayerData(playerId, playerData)
+    
+    // Invalidate cache
+    const cacheKey = `player:${playerId}`
+    await cacheService.delete(cacheKey)
+    
+    // Update cache with new data
+    await cacheService.set(cacheKey, playerData, {
+      ttl: this.PLAYER_DATA_TTL,
+      tags: ['player', `player:${playerId}`]
+    })
   }
 
   /**
-   * Load player data with validation
+   * Load player data with validation and caching
    */
   async loadPlayerData(playerId: string): Promise<PlayerData | null> {
     if (!playerId) {
       throw new Error('Player ID is required')
     }
 
+    // Check cache first
+    const cacheKey = `player:${playerId}`
+    const cached = await cacheService.get<PlayerData>(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    // Load from database
     const data = await this.db.loadPlayerData(playerId)
     
     if (data) {
       // Validate loaded data
       try {
         this.validatePlayerData(data)
+        
+        // Store in cache
+        await cacheService.set(cacheKey, data, {
+          ttl: this.PLAYER_DATA_TTL,
+          tags: ['player', `player:${playerId}`]
+        })
+        
         return data
       } catch (error) {
         console.error(`Invalid player data for ${playerId}:`, error)
@@ -179,13 +210,43 @@ export class PlayerDataRepository {
 
   /**
    * Check if a player name already exists (for validation)
+   * Now checks within the same user's characters
    */
-  async playerNameExists(name: string, excludePlayerId?: string): Promise<boolean> {
+  async playerNameExists(name: string, excludePlayerId?: string, userId?: string): Promise<boolean> {
+    if (userId) {
+      // Check if name exists for this user (names should be unique per user)
+      const query = userId 
+        ? 'SELECT id FROM players WHERE name = $1 AND user_id = $2' + (excludePlayerId ? ' AND COALESCE(character_id, id) != $3' : '')
+        : 'SELECT id FROM players WHERE name = $1' + (excludePlayerId ? ' AND COALESCE(character_id, id) != $2' : '')
+      
+      const params = userId 
+        ? excludePlayerId ? [name, userId, excludePlayerId] : [name, userId]
+        : excludePlayerId ? [name, excludePlayerId] : [name]
+      
+      const results = await this.db.query<{ id: string }>(query, params)
+      return results.length > 0
+    }
+    
+    // Fallback to old behavior (check globally) if no userId provided
     const results = await this.db.query<{ id: string }>(
-      'SELECT id FROM players WHERE name = $1' + (excludePlayerId ? ' AND id != $2' : ''),
+      'SELECT id FROM players WHERE name = $1' + (excludePlayerId ? ' AND COALESCE(character_id, id) != $2' : ''),
       excludePlayerId ? [name, excludePlayerId] : [name]
     )
     return results.length > 0
+  }
+
+  /**
+   * List all characters for a user
+   */
+  async listCharactersByUser(userId: string): Promise<import('./DatabaseService').CharacterSummary[]> {
+    return await this.db.listCharactersByUser(userId)
+  }
+
+  /**
+   * Count characters for a user
+   */
+  async countCharactersByUser(userId: string): Promise<number> {
+    return await this.db.countCharactersByUser(userId)
   }
 }
 

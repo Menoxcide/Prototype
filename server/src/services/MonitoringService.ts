@@ -43,6 +43,16 @@ export interface Alert {
   callback: () => void
 }
 
+export interface AggregatedError {
+  message: string
+  count: number
+  firstOccurrence: number
+  lastOccurrence: number
+  severity: LogLevel
+  contexts: Record<string, any>[]
+  playerIds: Set<string>
+}
+
 export interface MonitoringService {
   recordMetric(name: string, value: number, tags?: Record<string, string>): void
   logEvent(level: LogLevel, message: string, context?: Record<string, any>): void
@@ -50,6 +60,8 @@ export interface MonitoringService {
   setAlert(condition: AlertCondition, callback: () => void): string
   removeAlert(alertId: string): void
   getLogs(timeRange?: TimeRange, level?: LogLevel, playerId?: string): LogEntry[]
+  getAggregatedErrors(timeRange?: TimeRange): AggregatedError[]
+  getErrorRate(timeRange?: TimeRange): number
   clearMetrics(): void
   clearLogs(): void
 }
@@ -203,6 +215,59 @@ export class MonitoringServiceImpl implements MonitoringService {
         })
       }
     })
+  }
+
+  /**
+   * Get aggregated errors
+   */
+  getAggregatedErrors(timeRange?: TimeRange): AggregatedError[] {
+    const errorLogs = this.getLogs(timeRange, 'error')
+    const aggregated: Map<string, AggregatedError> = new Map()
+
+    errorLogs.forEach(log => {
+      const key = log.message
+      if (!aggregated.has(key)) {
+        aggregated.set(key, {
+          message: log.message,
+          count: 0,
+          firstOccurrence: log.timestamp,
+          lastOccurrence: log.timestamp,
+          severity: log.level,
+          contexts: [],
+          playerIds: new Set()
+        })
+      }
+
+      const agg = aggregated.get(key)!
+      agg.count++
+      agg.firstOccurrence = Math.min(agg.firstOccurrence, log.timestamp)
+      agg.lastOccurrence = Math.max(agg.lastOccurrence, log.timestamp)
+      
+      if (log.context) {
+        agg.contexts.push(log.context)
+      }
+      
+      if (log.playerId) {
+        agg.playerIds.add(log.playerId)
+      }
+    })
+
+    return Array.from(aggregated.values()).sort((a, b) => b.count - a.count)
+  }
+
+  /**
+   * Get error rate (errors per minute)
+   */
+  getErrorRate(timeRange?: TimeRange): number {
+    const range = timeRange || {
+      start: Date.now() - 60000, // Last minute
+      end: Date.now()
+    }
+    
+    const errorLogs = this.getLogs(range, 'error')
+    const durationMinutes = (range.end - range.start) / 60000
+    
+    return durationMinutes > 0 ? errorLogs.length / durationMinutes : 0
   }
 
   /**

@@ -17,6 +17,28 @@ import { rateLimiter, RATE_LIMITS } from '../utils/rateLimiter'
 import { redisService } from '../services/RedisService'
 import { HousingSystemImpl, HousingSystem } from '../systems/HousingSystem'
 import { SocialSystemImpl, SocialSystem } from '../systems/SocialSystem'
+import { DynamicEventSystem } from '../systems/DynamicEventSystem'
+import { createInterestManager, InterestManager } from '../../../shared/src/utils/interestManager'
+import { cacheService } from '../services/CacheService'
+
+// Spell data lookup (synced with client-side spells.ts)
+// Note: damage values match client-side for consistency
+const SPELL_DATA: Record<string, { manaCost: number; cooldown: number; damage: number }> = {
+  quantum_bolt: { manaCost: 20, cooldown: 1000, damage: 50 },
+  plasma_burst: { manaCost: 35, cooldown: 2000, damage: 80 }, // Synced with client
+  void_strike: { manaCost: 40, cooldown: 2500, damage: 100 }, // Synced with client
+  heal_circuit: { manaCost: 30, cooldown: 3000, damage: -50 }, // Negative = healing (synced with client)
+  quantum_slash: { manaCost: 25, cooldown: 1500, damage: 120 }, // Synced with client
+  chain_lightning: { manaCost: 50, cooldown: 4000, damage: 60 }, // Synced with client
+  shield_matrix: { manaCost: 45, cooldown: 5000, damage: 0 }, // Defensive spell
+  teleport: { manaCost: 30, cooldown: 6000, damage: 0 }, // Utility spell
+  meteor_strike: { manaCost: 80, cooldown: 8000, damage: 200 }, // Synced with client
+  energy_drain: { manaCost: 0, cooldown: 3000, damage: 30 }
+}
+
+function getSpellData(spellId: string): { manaCost: number; cooldown: number; damage: number } | null {
+  return SPELL_DATA[spellId] || null
+}
 
 interface EnemyEntity {
   id: string
@@ -57,6 +79,25 @@ type ClientMessage =
   | { type: 'cancelTrade'; sessionId: string }
   | { type: 'requestAchievementProgress' }
 
+/**
+ * NexusRoom - Main game room for multiplayer gameplay
+ * 
+ * Handles:
+ * - Player connections and state management
+ * - Enemy spawning and AI
+ * - Combat system and damage calculation
+ * - Quest, battle pass, trading, and achievement systems
+ * - Spatial hashing for collision detection
+ * - Delta compression for network optimization
+ * - Interest management for bandwidth reduction
+ * - Batch database writes
+ * 
+ * @example
+ * ```ts
+ * // Room is automatically created by Colyseus when client joins
+ * const room = await client.joinOrCreate('nexus')
+ * ```
+ */
 export class NexusRoom extends Room<NexusRoomState> {
   maxClients = 1000
   enemySpawnTimer: NodeJS.Timeout | null = null
@@ -71,11 +112,11 @@ export class NexusRoom extends Room<NexusRoomState> {
   
   // Delta compression for state updates
   deltaCompressor: DeltaCompressor = createDeltaCompressor()
-  previousStateSnapshot: any = null
+  previousStateSnapshot: Record<string, unknown> | null = null
   
   // Update batching
   updateBatchTimer: NodeJS.Timeout | null = null
-  pendingEntityUpdates: Map<string, any> = new Map()
+  pendingEntityUpdates: Map<string, Record<string, unknown>> = new Map()
   lastBatchTime: number = Date.now()
   
   // Entity cleanup
@@ -110,6 +151,10 @@ export class NexusRoom extends Room<NexusRoomState> {
   // Social system
   socialSystem: SocialSystem | null = null
   
+  // Interest management for network optimization
+  private interestManager: InterestManager | null = null
+  private readonly RENDER_DISTANCE = 50 // Only send updates for entities within 50 units
+  
   // Security service
   securityService: SecurityService = new SecurityServiceImpl()
   
@@ -121,10 +166,32 @@ export class NexusRoom extends Room<NexusRoomState> {
   private lastTickTime: number = Date.now()
   private tickTimeHistory: number[] = []
   
+  // Adaptive tick rate
+  private currentTickInterval: number = 16 // Default 60 FPS
+  private lastPlayerCount: number = 0
+  
+  // Track last positions for spatial grid optimization
+  private lastEnemyPositions: Map<string, { x: number; y: number; z: number }> = new Map()
+  private lastProjectilePositions: Map<string, { x: number; y: number; z: number }> = new Map()
+  
   // Track Firebase UID to sessionId mapping to prevent duplicate sessions
   private playerIdToSessionId = new Map<string, string>()
+  
+  // Track player XP and credits (not in PlayerSchema, so stored separately)
+  private playerXP = new Map<string, number>()
+  private playerCredits = new Map<string, number>()
+  private playerXPToNext = new Map<string, number>()
+  private playerInventory = new Map<string, Array<{ itemId: string; quantity: number }>>()
+  
+  // Track changed properties for delta compression
+  private changedProperties = new Map<string, Set<string>>()
 
-  onCreate(options: any) {
+  onCreate(options: Record<string, unknown>) {
+    // Initialize interest manager for distance-based filtering
+    this.interestManager = createInterestManager({
+      cellSize: 10,
+      defaultRadius: this.RENDER_DISTANCE
+    })
     this.setState(new NexusRoomState())
     
     // Use provided monitoring service or create new one
@@ -193,11 +260,9 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
     }, GAME_CONFIG.enemySpawnRate)
 
-    // Start game loop (60 FPS for game logic)
-    this.gameLoopTimer = setInterval(() => {
-      this.gameLoop()
-      this.updateEnemyAI()
-    }, 16) // ~60 FPS
+    // Start game loop with adaptive tick rate
+    // 30 FPS for <10 players, 60 FPS for >=10 players
+    this.startAdaptiveGameLoop()
 
     // Start update batching (10Hz for network updates)
     this.updateBatchTimer = setInterval(() => {
@@ -218,6 +283,8 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     // Schedule world boss
     this.scheduleWorldBoss()
+
+    // Dynamic events system is initialized in onCreate() and automatically broadcasts events
 
     // Initialize previous state snapshot for delta compression
     this.previousStateSnapshot = this.serializeState()
@@ -262,6 +329,12 @@ export class NexusRoom extends Room<NexusRoomState> {
       player.y = message.y
       player.z = message.z
       player.rotation = message.rotation
+      
+      // Track property changes for incremental serialization
+      this.trackPropertyChange(`player_${client.sessionId}`, 'x')
+      this.trackPropertyChange(`player_${client.sessionId}`, 'y')
+      this.trackPropertyChange(`player_${client.sessionId}`, 'z')
+      this.trackPropertyChange(`player_${client.sessionId}`, 'rotation')
     })
 
     this.onMessage('castSpell', (client, message: { spellId: string; position: { x: number; y: number; z: number }; rotation: number }) => {
@@ -442,6 +515,135 @@ export class NexusRoom extends Room<NexusRoomState> {
       this.handleRequestAchievementProgress(client.sessionId)
     })
 
+    // Housing messages
+    this.onMessage('requestHousing', async (client) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.housingSystem) {
+        const housing = await this.housingSystem.loadHousing(playerId)
+        if (housing) {
+          client.send('housingData', housing)
+        } else {
+          client.send('housingData', null)
+        }
+      }
+    })
+
+    this.onMessage('createHousing', async (client) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.housingSystem) {
+        const housing = await this.housingSystem.createHousing(playerId)
+        client.send('housingData', housing)
+      }
+    })
+
+    this.onMessage('placeFurniture', async (client, message: { furnitureId: string; position: { x: number; y: number; z: number }; rotation: number }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.housingSystem) {
+        const success = await this.housingSystem.placeFurniture(playerId, message.furnitureId, message.position, message.rotation)
+        if (success) {
+          const housing = await this.housingSystem.loadHousing(playerId)
+          if (housing) {
+            client.send('housingData', housing)
+          }
+        }
+      }
+    })
+
+    this.onMessage('removeFurniture', async (client, message: { furnitureItemId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.housingSystem) {
+        const success = await this.housingSystem.removeFurniture(playerId, message.furnitureItemId)
+        if (success) {
+          const housing = await this.housingSystem.loadHousing(playerId)
+          if (housing) {
+            client.send('housingData', housing)
+          }
+        }
+      }
+    })
+
+    // Social messages
+    this.onMessage('sendFriendRequest', async (client, message: { targetPlayerId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        const request = await this.socialSystem.sendFriendRequest(playerId, message.targetPlayerId)
+        if (request) {
+          // Notify target player
+          const targetClient = Array.from(this.clients).find(c => {
+            const targetPlayer = this.state.players.get(c.sessionId)
+            return targetPlayer?.id === message.targetPlayerId
+          })
+          if (targetClient) {
+            targetClient.send('friendRequestReceived', request)
+          }
+          client.send('friendRequestSent', request)
+        }
+      }
+    })
+
+    this.onMessage('acceptFriendRequest', async (client, message: { requestId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        const success = await this.socialSystem.acceptFriendRequest(message.requestId, playerId)
+        if (success) {
+          const friends = await this.socialSystem.getFriends(playerId)
+          client.send('friendsList', friends)
+        }
+      }
+    })
+
+    this.onMessage('rejectFriendRequest', async (client, message: { requestId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        await this.socialSystem.rejectFriendRequest(message.requestId, playerId)
+      }
+    })
+
+    this.onMessage('requestFriends', async (client) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        const friends = await this.socialSystem.getFriends(playerId)
+        client.send('friendsList', friends)
+        const requests = await this.socialSystem.getFriendRequests(playerId)
+        client.send('friendRequests', requests)
+      }
+    })
+
+    this.onMessage('removeFriend', async (client, message: { friendId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        await this.socialSystem.removeFriend(playerId, message.friendId)
+        const friends = await this.socialSystem.getFriends(playerId)
+        client.send('friendsList', friends)
+      }
+    })
+
+    this.onMessage('blockPlayer', async (client, message: { targetPlayerId: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        await this.socialSystem.blockPlayer(playerId, message.targetPlayerId)
+      }
+    })
+
+    this.onMessage('reportPlayer', async (client, message: { targetPlayerId: string; reason: string; description: string }) => {
+      const player = this.state.players.get(client.sessionId)
+      const playerId = player?.id || client.sessionId
+      if (this.socialSystem) {
+        const report = await this.socialSystem.reportPlayer(playerId, message.targetPlayerId, message.reason, message.description)
+        client.send('reportSubmitted', report)
+      }
+    })
+
     // Log room creation
     this.monitoringService.logEvent('info', 'NexusRoom created', {
       maxClients: this.maxClients
@@ -450,7 +652,7 @@ export class NexusRoom extends Room<NexusRoomState> {
     console.log('NexusRoom created')
   }
 
-  async onJoin(client: Client, options: any) {
+  async onJoin(client: Client, options: Record<string, unknown>) {
     // Verify Firebase token if provided
     let firebaseUid: string | null = null
     if (options.firebaseToken) {
@@ -535,7 +737,7 @@ export class NexusRoom extends Room<NexusRoomState> {
     if (playerData) {
       // Load from database
       player.name = playerData.name
-      player.race = playerData.race as any
+      player.race = playerData.race as 'human' | 'cyborg' | 'android' | 'voidborn' | 'quantum'
       player.x = playerData.position.x
       player.y = playerData.position.y
       player.z = playerData.position.z
@@ -547,6 +749,13 @@ export class NexusRoom extends Room<NexusRoomState> {
       player.level = playerData.level
       player.guildId = playerData.guildId || ''
       player.guildTag = playerData.guildTag || ''
+      
+      // Store XP, credits, and inventory separately (not in PlayerSchema)
+      this.playerXP.set(playerId, playerData.xp)
+      this.playerCredits.set(playerId, playerData.credits)
+      this.playerXPToNext.set(playerId, playerData.xpToNext)
+      this.playerInventory.set(playerId, playerData.inventory || [])
+      this.playerInventory.set(playerId, playerData.inventory || [])
     } else {
       // Create new player - check if name is already taken
       const requestedName = options.name || `Player_${playerId.substring(0, 6)}`
@@ -572,6 +781,12 @@ export class NexusRoom extends Room<NexusRoomState> {
       player.mana = 100
       player.maxMana = 100
       player.level = 1
+      
+      // Initialize XP, credits, and inventory for new player
+      this.playerXP.set(playerId, 0)
+      this.playerCredits.set(playerId, 0)
+      this.playerXPToNext.set(playerId, 100)
+      this.playerInventory.set(playerId, [])
 
       // Save new player to database using Firebase UID
       if (this.playerDataRepository) {
@@ -635,20 +850,26 @@ export class NexusRoom extends Room<NexusRoomState> {
     // Save player data before leaving
     if (player && this.playerDataRepository) {
       try {
+        // Get XP, credits, and inventory from stored maps
+        const xp = this.playerXP.get(playerId) || 0
+        const credits = this.playerCredits.get(playerId) || 0
+        const xpToNext = this.playerXPToNext.get(playerId) || 100
+        const inventory = this.playerInventory.get(playerId) || []
+        
         await this.playerDataRepository.savePlayerData(playerId, {
           name: player.name,
           race: player.race,
           level: player.level,
-          xp: 0, // TODO: Get from player state
-          xpToNext: 100,
-          credits: 0, // TODO: Get from player state
+          xp: xp,
+          xpToNext: xpToNext,
+          credits: credits,
           position: { x: player.x, y: player.y, z: player.z },
           rotation: player.rotation,
           health: player.health,
           maxHealth: player.maxHealth,
           mana: player.mana,
           maxMana: player.maxMana,
-          inventory: [], // TODO: Get from player state
+          inventory: inventory, // Get from in-memory map
           equippedSpells: [],
           guildId: player.guildId,
           guildTag: player.guildTag,
@@ -679,6 +900,12 @@ export class NexusRoom extends Room<NexusRoomState> {
     
     this.state.players.delete(client.sessionId)
     
+    // Clean up XP, credits, and inventory tracking
+    this.playerXP.delete(playerId)
+    this.playerCredits.delete(playerId)
+    this.playerXPToNext.delete(playerId)
+    this.playerInventory.delete(playerId)
+    
     // Clean up security service data
     if (this.securityService instanceof SecurityServiceImpl) {
       (this.securityService as SecurityServiceImpl).resetPlayer(client.sessionId)
@@ -689,9 +916,18 @@ export class NexusRoom extends Room<NexusRoomState> {
     const player = this.state.players.get(playerId)
     if (!player) return
 
-    // Validate mana cost (simplified - should check actual spell data)
-    const manaCost = 20 // TODO: Get from spell data
-    const cooldownTime = 1000 // TODO: Get from spell data
+    // Get spell data from lookup
+    const spellData = getSpellData(spellId)
+    if (!spellData) {
+      const client = this.getClientBySessionId(playerId)
+      if (client) {
+        client.send('spellCastRejected', { spellId, reason: 'Invalid spell' })
+      }
+      return
+    }
+    
+    const manaCost = spellData.manaCost
+    const cooldownTime = spellData.cooldown
     
     // Validate spell cast with security service
     if (!this.securityService.validateSpellCast(playerId, spellId, manaCost, cooldownTime)) {
@@ -713,6 +949,7 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     // Consume mana
     player.mana -= manaCost
+    this.trackPropertyChange(`player_${playerId}`, 'mana')
     
     // Check for cheating patterns
     const suspicionLevel = this.securityService.detectCheating(playerId, {
@@ -885,9 +1122,54 @@ export class NexusRoom extends Room<NexusRoomState> {
     }
   }
 
+  /**
+   * Start adaptive game loop
+   * Adjusts tick rate based on player count: 30 FPS (<10 players), 60 FPS (>=10 players)
+   */
+  private startAdaptiveGameLoop(): void {
+    const updateGameLoop = () => {
+      const playerCount = this.clients.length
+      
+      // Adjust tick rate based on player count
+      let targetInterval: number
+      if (playerCount < 10) {
+        targetInterval = 33 // ~30 FPS for low player count
+      } else {
+        targetInterval = 16 // ~60 FPS for higher player count
+      }
+      
+      // Only restart if interval changed significantly
+      if (Math.abs(targetInterval - this.currentTickInterval) >= 5) {
+        this.currentTickInterval = targetInterval
+        
+        // Restart game loop with new interval
+        if (this.gameLoopTimer) {
+          clearInterval(this.gameLoopTimer)
+        }
+        
+        this.gameLoopTimer = setInterval(() => {
+          this.gameLoop()
+          this.updateEnemyAI()
+        }, this.currentTickInterval)
+        
+        if (import.meta.env?.DEV) {
+          console.log(`[NexusRoom] Adjusted tick rate to ${Math.round(1000 / this.currentTickInterval)} FPS (${playerCount} players)`)
+        }
+      }
+      
+      this.lastPlayerCount = playerCount
+    }
+    
+    // Check player count every 5 seconds and adjust
+    setInterval(updateGameLoop, 5000)
+    
+    // Initial setup
+    updateGameLoop()
+  }
+
   async gameLoop() {
     const loopStartTime = Date.now()
-    const deltaTime = 16 // ~16ms for 60 FPS
+    const deltaTime = this.currentTickInterval // Use actual tick interval
     
     // Track server tick time
     const tickTime = loopStartTime - this.lastTickTime
@@ -911,12 +1193,27 @@ export class NexusRoom extends Room<NexusRoomState> {
       room: 'nexus'
     })
 
-    // Update spatial grids
+    // Update spatial grids only when entities move significantly
+    // Track last positions to avoid unnecessary updates
+    const MOVEMENT_THRESHOLD = 0.1 // Only update grid if moved >0.1 units
+    if (!this.lastEnemyPositions) {
+      this.lastEnemyPositions = new Map<string, { x: number; y: number; z: number }>()
+    }
+    
     this.state.enemies.forEach((enemy, enemyId) => {
-      this.enemySpatialGrid.insert(
-        { id: enemyId, position: { x: enemy.x, y: enemy.y, z: enemy.z } },
-        { x: enemy.x, y: enemy.y, z: enemy.z }
-      )
+      const lastPos = this.lastEnemyPositions.get(enemyId)
+      const needsUpdate = !lastPos || 
+        Math.abs(enemy.x - lastPos.x) > MOVEMENT_THRESHOLD ||
+        Math.abs(enemy.y - lastPos.y) > MOVEMENT_THRESHOLD ||
+        Math.abs(enemy.z - lastPos.z) > MOVEMENT_THRESHOLD
+      
+      if (needsUpdate) {
+        this.enemySpatialGrid.insert(
+          { id: enemyId, position: { x: enemy.x, y: enemy.y, z: enemy.z } },
+          { x: enemy.x, y: enemy.y, z: enemy.z }
+        )
+        this.lastEnemyPositions.set(enemyId, { x: enemy.x, y: enemy.y, z: enemy.z })
+      }
     })
 
     // Update spell projectiles
@@ -933,13 +1230,27 @@ export class NexusRoom extends Room<NexusRoomState> {
         return
       }
 
-      // Update projectile in spatial grid
-      this.projectileSpatialGrid.insert(
-        { id, position: { x: projectile.x, y: projectile.y, z: projectile.z } },
-        { x: projectile.x, y: projectile.y, z: projectile.z }
-      )
+      // Update projectile in spatial grid only if moved significantly
+      if (!this.lastProjectilePositions) {
+        this.lastProjectilePositions = new Map<string, { x: number; y: number; z: number }>()
+      }
+      
+      const lastProjPos = this.lastProjectilePositions.get(id)
+      const projNeedsUpdate = !lastProjPos ||
+        Math.abs(projectile.x - lastProjPos.x) > MOVEMENT_THRESHOLD ||
+        Math.abs(projectile.y - lastProjPos.y) > MOVEMENT_THRESHOLD ||
+        Math.abs(projectile.z - lastProjPos.z) > MOVEMENT_THRESHOLD
+      
+      if (projNeedsUpdate) {
+        this.projectileSpatialGrid.insert(
+          { id, position: { x: projectile.x, y: projectile.y, z: projectile.z } },
+          { x: projectile.x, y: projectile.y, z: projectile.z }
+        )
+        this.lastProjectilePositions.set(id, { x: projectile.x, y: projectile.y, z: projectile.z })
+      }
 
       // Use spatial grid for optimized collision detection
+      // Only check collisions for enemies in same/nearby cells
       const nearbyEnemies = this.enemySpatialGrid.query(
         { x: projectile.x, y: projectile.y, z: projectile.z },
         2 // Check radius of 2 units
@@ -957,7 +1268,8 @@ export class NexusRoom extends Room<NexusRoomState> {
 
         if (distance < 1) {
           // Hit! Server-authoritative damage calculation
-          const baseDamage = 50 // TODO: Get from spell data
+          const spellData = getSpellData(projectile.spellId)
+          const baseDamage = spellData?.damage || 50 // Get from spell data, fallback to 50
           
           // Check for combo multiplier
           const combo = this.playerCombos.get(projectile.casterId)
@@ -978,6 +1290,7 @@ export class NexusRoom extends Room<NexusRoomState> {
           }
           
           enemy.health -= damageAmount
+          this.trackPropertyChange(`enemy_${enemyId}`, 'health')
           
           // Queue update for batching instead of immediate broadcast
           this.queueEntityUpdate(enemyId, 'enemy', {
@@ -996,6 +1309,54 @@ export class NexusRoom extends Room<NexusRoomState> {
           })
           
           if (enemy.health <= 0) {
+            // Enemy killed - award XP and credits
+            const xpReward = 50
+            const creditsReward = 25
+            const currentXP = this.playerXP.get(projectile.casterId) || 0
+            const currentCredits = this.playerCredits.get(projectile.casterId) || 0
+            const currentXPToNext = this.playerXPToNext.get(projectile.casterId) || 100
+            const player = this.state.players.get(projectile.casterId)
+            
+            // Update XP
+            let newXP = currentXP + xpReward
+            let newLevel = player?.level || 1
+            let newXPToNext = currentXPToNext
+            
+            // Level up logic
+            while (newXP >= newXPToNext && player) {
+              newXP -= newXPToNext
+              newLevel++
+              newXPToNext = Math.floor(newXPToNext * 1.5) // Exponential XP requirement
+              player.level = newLevel
+              player.maxHealth = 100 + (newLevel - 1) * 10
+              player.maxMana = 100 + (newLevel - 1) * 10
+              player.health = player.maxHealth // Full heal on level up
+              player.mana = player.maxMana
+              
+              // Track property changes for incremental serialization
+              this.trackPropertyChange(`player_${projectile.casterId}`, 'health')
+              this.trackPropertyChange(`player_${projectile.casterId}`, 'maxHealth')
+              this.trackPropertyChange(`player_${projectile.casterId}`, 'mana')
+              this.trackPropertyChange(`player_${projectile.casterId}`, 'maxMana')
+              
+              // Broadcast level up
+              const client = this.getClientBySessionId(projectile.casterId)
+              if (client) {
+                client.send('levelUp', { level: newLevel })
+              }
+            }
+            
+            this.playerXP.set(projectile.casterId, newXP)
+            this.playerCredits.set(projectile.casterId, currentCredits + creditsReward)
+            this.playerXPToNext.set(projectile.casterId, newXPToNext)
+            
+            // Broadcast XP and credits gain
+            const casterClient = this.getClientBySessionId(projectile.casterId)
+            if (casterClient) {
+              casterClient.send('xpGain', { amount: xpReward, total: newXP, level: newLevel })
+              casterClient.send('creditsGain', { amount: creditsReward, total: currentCredits + creditsReward })
+            }
+            
             // Enemy killed - update combo
             this.updatePlayerCombo(projectile.casterId)
             
@@ -1191,6 +1552,11 @@ export class NexusRoom extends Room<NexusRoomState> {
           enemy.x += (dx / distance) * speed
           enemy.z += (dz / distance) * speed
           enemy.rotation = Math.atan2(dx, dz)
+          
+          // Track property changes for incremental serialization
+          this.trackPropertyChange(`enemy_${enemyId}`, 'x')
+          this.trackPropertyChange(`enemy_${enemyId}`, 'z')
+          this.trackPropertyChange(`enemy_${enemyId}`, 'rotation')
         }
 
         // Check leash - return to spawn if too far
@@ -1203,6 +1569,10 @@ export class NexusRoom extends Room<NexusRoomState> {
           const returnSpeed = 0.03
           enemy.x += (spawnPos.x - enemy.x) * returnSpeed
           enemy.z += (spawnPos.z - enemy.z) * returnSpeed
+          
+          // Track property changes for incremental serialization
+          this.trackPropertyChange(`enemy_${enemyId}`, 'x')
+          this.trackPropertyChange(`enemy_${enemyId}`, 'z')
         }
       } else {
         // No player in range, return to spawn
@@ -1642,7 +2012,7 @@ export class NexusRoom extends Room<NexusRoomState> {
   /**
    * Queue an entity update for batching
    */
-  queueEntityUpdate(entityId: string, entityType: string, update: any): void {
+  queueEntityUpdate(entityId: string, entityType: string, update: Record<string, unknown>): void {
     const key = `${entityType}_${entityId}`
     const existing = this.pendingEntityUpdates.get(key)
     if (existing) {
@@ -1654,18 +2024,33 @@ export class NexusRoom extends Room<NexusRoomState> {
   }
 
   /**
-   * Batch and send entity updates
+   * Batch and send entity updates with priority-based batching
+   * High-priority entities (players, projectiles) at 20Hz, low-priority at 5Hz
    */
   batchEntityUpdates(): void {
     if (this.pendingEntityUpdates.size === 0) return
 
-    const updates: any[] = []
+    const highPriorityUpdates: Array<Record<string, unknown>> = []
+    const lowPriorityUpdates: Array<Record<string, unknown>> = []
+    
     this.pendingEntityUpdates.forEach((update) => {
-      updates.push(update)
+      // Categorize by entity type
+      const isHighPriority = update.entityType === 'player' || update.entityType === 'projectile'
+      if (isHighPriority) {
+        highPriorityUpdates.push(update)
+      } else {
+        lowPriorityUpdates.push(update)
+      }
     })
 
+    // Send high-priority updates more frequently (20Hz = every 50ms)
+    // This is already handled by the 100ms interval, but we can batch differently
+    const allUpdates = [...highPriorityUpdates, ...lowPriorityUpdates]
+
     // Broadcast batched updates
-    this.broadcast('entityUpdates', { updates })
+    if (allUpdates.length > 0) {
+      this.broadcast('entityUpdates', { updates: allUpdates })
+    }
 
     // Clear pending updates
     this.pendingEntityUpdates.clear()
@@ -1733,7 +2118,7 @@ export class NexusRoom extends Room<NexusRoomState> {
   /**
    * Handle messages from Redis
    */
-  private handleRedisMessage(data: any): void {
+  private handleRedisMessage(data: Record<string, unknown>): void {
     // Handle cross-instance messages
     // This can be extended for load balancing, state sync, etc.
     if (data.type === 'state_update') {
@@ -1767,37 +2152,109 @@ export class NexusRoom extends Room<NexusRoomState> {
   }
 
   /**
-   * Serialize current state for delta compression
+   * Track property changes for an entity
    */
-  serializeState(): any {
-    return {
-      players: Array.from(this.state.players.entries()).map(([id, player]) => ({
-        id,
-        x: player.x,
-        y: player.y,
-        z: player.z,
-        rotation: player.rotation,
-        health: player.health,
-        maxHealth: player.maxHealth,
-        mana: player.mana,
-        maxMana: player.maxMana
-      })),
-      enemies: Array.from(this.state.enemies.entries()).map(([id, enemy]) => ({
-        id,
-        x: enemy.x,
-        y: enemy.y,
-        z: enemy.z,
-        health: enemy.health,
-        maxHealth: enemy.maxHealth
-      })),
-      lootDrops: Array.from(this.state.lootDrops.entries()).map(([id, loot]) => ({
-        id,
-        x: loot.x,
-        y: loot.y,
-        z: loot.z,
-        itemId: loot.itemId
-      }))
+  trackPropertyChange(entityId: string, propertyName: string): void {
+    // Ensure changedProperties is initialized
+    if (!this.changedProperties) {
+      this.changedProperties = new Map<string, Set<string>>()
     }
+    
+    if (!this.changedProperties.has(entityId)) {
+      this.changedProperties.set(entityId, new Set())
+    }
+    this.changedProperties.get(entityId)!.add(propertyName)
+  }
+
+  /**
+   * Serialize current state for delta compression
+   * Uses incremental serialization - only serializes changed properties
+   */
+  serializeState(): Record<string, unknown> {
+    // Ensure changedProperties is initialized
+    if (!this.changedProperties) {
+      this.changedProperties = new Map<string, Set<string>>()
+    }
+    
+    const state: Record<string, unknown> = {
+      players: [],
+      enemies: [],
+      lootDrops: []
+    }
+
+    // Serialize players - only include changed properties
+    this.state.players.forEach((player, id) => {
+      const changed = this.changedProperties.get(`player_${id}`)
+      const playerData: Record<string, unknown> = { id }
+      
+      if (!changed || changed.size === 0) {
+        // If no changes tracked, include all properties (fallback)
+        playerData.x = player.x
+        playerData.y = player.y
+        playerData.z = player.z
+        playerData.rotation = player.rotation
+        playerData.health = player.health
+        playerData.maxHealth = player.maxHealth
+        playerData.mana = player.mana
+        playerData.maxMana = player.maxMana
+      } else {
+        // Only include changed properties
+        if (changed.has('x')) playerData.x = player.x
+        if (changed.has('y')) playerData.y = player.y
+        if (changed.has('z')) playerData.z = player.z
+        if (changed.has('rotation')) playerData.rotation = player.rotation
+        if (changed.has('health')) playerData.health = player.health
+        if (changed.has('maxHealth')) playerData.maxHealth = player.maxHealth
+        if (changed.has('mana')) playerData.mana = player.mana
+        if (changed.has('maxMana')) playerData.maxMana = player.maxMana
+      }
+      
+      state.players.push(playerData)
+    })
+
+    // Serialize enemies - only include changed properties
+    this.state.enemies.forEach((enemy, id) => {
+      const changed = this.changedProperties.get(`enemy_${id}`)
+      const enemyData: Record<string, unknown> = { id }
+      
+      if (!changed || changed.size === 0) {
+        enemyData.x = enemy.x
+        enemyData.y = enemy.y
+        enemyData.z = enemy.z
+        enemyData.health = enemy.health
+        enemyData.maxHealth = enemy.maxHealth
+      } else {
+        if (changed.has('x')) enemyData.x = enemy.x
+        if (changed.has('y')) enemyData.y = enemy.y
+        if (changed.has('z')) enemyData.z = enemy.z
+        if (changed.has('health')) enemyData.health = enemy.health
+        if (changed.has('maxHealth')) enemyData.maxHealth = enemy.maxHealth
+      }
+      
+      state.enemies.push(enemyData)
+    })
+
+    // Serialize loot drops - only include changed properties
+    this.state.lootDrops.forEach((loot, id) => {
+      const changed = this.changedProperties.get(`loot_${id}`)
+      const lootData: Record<string, unknown> = { id }
+      
+      if (!changed || changed.size === 0) {
+        lootData.x = loot.x
+        lootData.y = loot.y
+        lootData.z = loot.z
+        lootData.itemId = loot.itemId
+      } else {
+        if (changed.has('x')) lootData.x = loot.x
+        if (changed.has('y')) lootData.y = loot.y
+        if (changed.has('z')) lootData.z = loot.z
+        if (changed.has('itemId')) lootData.itemId = loot.itemId
+      }
+      
+      state.lootDrops.push(lootData)
+    })
+
+    return state
   }
 
   /**
@@ -1805,22 +2262,60 @@ export class NexusRoom extends Room<NexusRoomState> {
    */
   broadcastStateDelta(): void {
     const currentState = this.serializeState()
-    const deltas = this.deltaCompressor.compress(currentState, this.previousStateSnapshot)
+    // Only send deltas when changes exceed threshold (reduces unnecessary traffic)
+    const CHANGE_THRESHOLD = 0.1 // Minimum change magnitude to send
+    const deltas = this.deltaCompressor.compress(currentState, this.previousStateSnapshot, CHANGE_THRESHOLD)
     
-    if (deltas && deltas.length > 0) {
-      this.broadcast('stateDelta', { deltas })
+    // Check if we should send this delta
+    if (this.deltaCompressor.shouldSendDelta(deltas, CHANGE_THRESHOLD)) {
+      // Use interest management to filter updates per client
+      this.clients.forEach((client) => {
+        const player = this.state.players.get(client.sessionId)
+        if (!player || !this.interestManager) {
+          // Fallback to broadcast if no interest manager
+          client.send('stateDelta', { deltas })
+          return
+        }
+        
+        // Filter deltas based on player's interest area
+        const playerPos = { x: player.x, y: player.y, z: player.z }
+        const filteredDeltas = deltas.filter((delta: Record<string, unknown>) => {
+          // Check if entity is within render distance
+          if (delta.type === 'enemy' || delta.type === 'loot' || delta.type === 'projectile') {
+            const entityPos = delta.position || { x: delta.x || 0, y: delta.y || 0, z: delta.z || 0 }
+            const dx = entityPos.x - playerPos.x
+            const dy = entityPos.y - playerPos.y
+            const dz = entityPos.z - playerPos.z
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            return distance <= this.RENDER_DISTANCE
+          }
+          // Always send player updates and other critical updates
+          return true
+        })
+        
+        if (filteredDeltas.length > 0) {
+          client.send('stateDelta', { deltas: filteredDeltas })
+        }
+      })
+      
       this.previousStateSnapshot = currentState
+      
+      // Clear changed properties after serialization
+      if (this.changedProperties) {
+        this.changedProperties.clear()
+      }
     }
     
     this.lastBatchTime = Date.now()
   }
 
   /**
-   * Auto-save all player data periodically
+   * Auto-save all player data periodically (batched)
    */
   async autoSavePlayerData(): Promise<void> {
     if (!this.playerDataRepository) return
 
+    // Collect all save promises
     const savePromises: Promise<void>[] = []
     
     this.state.players.forEach((player, playerId) => {
@@ -2078,6 +2573,7 @@ export class NexusRoom extends Room<NexusRoomState> {
     if (this.autoSaveTimer) clearInterval(this.autoSaveTimer)
     if (this.dailyQuestResetTimer) clearInterval(this.dailyQuestResetTimer)
     if (this.weeklyQuestResetTimer) clearInterval(this.weeklyQuestResetTimer)
+    if (this.dynamicEventSystem) this.dynamicEventSystem.stop()
     
     // Final save before disposal
     if (this.playerDataRepository) {

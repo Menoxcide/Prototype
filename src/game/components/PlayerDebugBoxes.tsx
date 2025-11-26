@@ -6,8 +6,13 @@ import * as THREE from 'three'
 /**
  * Standalone debug boxes that update position every frame
  * These are OUTSIDE the player mesh group to verify rendering
+ * DEV ONLY - Disabled in production builds
  */
 export default function PlayerDebugBoxes() {
+  // Only render in development mode
+  if (import.meta.env.PROD || process.env.NODE_ENV === 'production') {
+    return null
+  }
   const redBoxRef = useRef<THREE.Mesh>(null)
   const blueBoxRef = useRef<THREE.Mesh>(null)
   

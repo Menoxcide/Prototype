@@ -1,23 +1,26 @@
-// Service Worker for offline support
-const CACHE_NAME = 'nex-void-v1'
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/src/main.tsx',
-  '/src/App.tsx'
-]
+/**
+ * Service Worker for Push Notifications
+ */
 
-self.addEventListener('install', (event) => {
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {}
+  const title = data.title || 'NEX://VOID'
+  const options = {
+    body: data.body || 'You have a new notification',
+    icon: '/icon-192x192.png',
+    badge: '/icon-96x96.png',
+    data: data.url || '/',
+    ...data.options
+  }
+
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
+    self.registration.showNotification(title, options)
   )
 })
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => response || fetch(event.request))
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    clients.openWindow(event.notification.data || '/')
   )
 })
-

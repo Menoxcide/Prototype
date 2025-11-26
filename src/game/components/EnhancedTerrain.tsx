@@ -1,85 +1,76 @@
 /**
- * Enhanced terrain with textures and biomes
+ * Enhanced Cyberpunk Terrain for NEX://VOID
+ * Uses pixel art tilesets from Pixellab for zone-specific terrain
  */
 
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
-
-const TERRAIN_SIZE = 200
-const GRID_SIZE = 20
+import { tilesetLoader } from '../assets/tilesetLoader'
+import { assetManager } from '../assets/assetManager'
 
 export default function EnhancedTerrain() {
   const player = useGameStore((state) => state.player)
+  const currentZoneFromStore = useGameStore((state) => state.currentZone)
+  const [_terrainTexture, setTerrainTexture] = useState<THREE.Texture | null>(null)
+  
+  // Determine current zone - prefer store, fallback to player.zone, then default
+  const currentZone = currentZoneFromStore || player?.zone || 'nexus_city'
 
-  // Create ground material with cyberpunk aesthetic
-  const groundMaterial = useMemo(() => {
-    return new THREE.MeshStandardMaterial({
-      color: '#1a1a2e', // Dark blue-gray base (cyberpunk)
-      emissive: '#000011', // Subtle blue glow
-      emissiveIntensity: 0.2,
-      roughness: 0.8,
-      metalness: 0.1,
-    })
-  }, [])
-
-  // Create grid helper for better visibility
-  const gridHelper = useMemo(() => {
-    return new THREE.GridHelper(TERRAIN_SIZE, GRID_SIZE, '#4a6a4a', '#2a4a2a')
-  }, [])
-
-  // Create ground plane with height variation
-  const groundGeometry = useMemo(() => {
-    const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 50, 50)
-    const positions = geometry.attributes.position
-    
-    // Add some height variation (simple noise-like pattern)
-    // PlaneGeometry: X and Z are in the plane, Y is the height
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i)
-      const z = positions.getZ(i)
-      const y = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 0.3
-      positions.setY(i, y)
+  // Load tileset texture for current zone
+  useEffect(() => {
+    const loadTexture = async () => {
+      try {
+        const texture = await tilesetLoader.loadZoneTileset(currentZone)
+        setTerrainTexture(texture)
+      } catch (error) {
+        console.error('Failed to load terrain texture:', error)
+        // Try enhanced ground texture as fallback
+        try {
+          const { enhancedAssetLoader } = await import('../assets/enhancedAssetLoader')
+          const enhancedTexture = await enhancedAssetLoader.loadTexture('ground-texture')
+          setTerrainTexture(enhancedTexture)
+        } catch (enhancedError) {
+          // Final fallback to procedural texture
+          const fallback = assetManager.getTexture(`ground-${currentZone}`) ||
+            assetManager.generateTexture(`ground-${currentZone}`, 512, 512, (ctx) => {
+              ctx.fillStyle = '#0a0a0a'
+              ctx.fillRect(0, 0, 512, 512)
+            })
+          setTerrainTexture(fallback)
+        }
+      }
     }
-    positions.needsUpdate = true
-    geometry.computeVertexNormals()
-    return geometry
-  }, [])
+    
+    loadTexture()
+  }, [currentZone])
+
+  // Note: Ground material, grid helper, and ground geometry are commented out
+  // because CyberpunkCity component handles the ground rendering to prevent z-fighting
+  // These could be uncommented if needed for a different terrain system
+
+  // Remove decorative elements - city buildings handle this
 
   return (
     <>
-      {/* Main ground plane */}
+      {/* Main ground plane - properly oriented for traversal */}
+      {/* Note: CyberpunkCity also has a ground plane, so this one is disabled to prevent z-fighting */}
+      {/* Uncomment if you want EnhancedTerrain's ground instead of CyberpunkCity's */}
+      {/* 
       <mesh 
         rotation={[-Math.PI / 2, 0, 0]} 
         position={[0, 0, 0]}
         receiveShadow
+        renderOrder={-1}
       >
         <primitive object={groundGeometry} />
         <primitive object={groundMaterial} />
       </mesh>
+      */}
 
-      {/* Grid helper for visual reference */}
-      <primitive object={gridHelper} />
-
-      {/* Add some decorative elements */}
-      {Array.from({ length: 20 }).map((_, i) => {
-        const angle = (i / 20) * Math.PI * 2
-        const radius = 15 + Math.random() * 10
-        const x = Math.cos(angle) * radius
-        const z = Math.sin(angle) * radius
-        const height = 0.5 + Math.random() * 1.5
-        
-        return (
-          <mesh key={i} position={[x, height / 2, z]} castShadow receiveShadow>
-            <boxGeometry args={[0.5, height, 0.5]} />
-            <meshStandardMaterial 
-              color={new THREE.Color().setHSL(0.3 + Math.random() * 0.1, 0.6, 0.4)}
-              roughness={0.7}
-            />
-          </mesh>
-        )
-      })}
+      {/* Cyberpunk grid helper for visual reference - disabled to prevent z-fighting */}
+      {/* Grid is now integrated into CyberpunkCity's ground texture */}
+      {/* <primitive object={gridHelper} /> */}
     </>
   )
 }
-

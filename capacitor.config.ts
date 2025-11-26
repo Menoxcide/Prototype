@@ -14,11 +14,26 @@ const config: CapacitorConfig = {
       backgroundColor: '#0a0a0a',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
-      showSpinner: false
+      showSpinner: false,
+      iosSpinnerStyle: 'small',
+      spinnerColor: '#00ffff'
     },
     Haptics: {
       enabled: true
+    },
+    App: {
+      enabled: true
+    },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert']
     }
+  },
+  android: {
+    allowMixedContent: true,
+    captureInput: true
+  },
+  ios: {
+    contentInset: 'automatic'
   }
 }
 

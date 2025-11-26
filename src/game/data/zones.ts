@@ -1,6 +1,8 @@
 import { Zone } from '../types'
+import { BIOMES } from './biomes'
 
-export const ZONES: Zone[] = [
+// Cyberpunk zones (original)
+const CYBERPUNK_ZONES: Zone[] = [
   {
     id: 'nexus_city',
     name: 'Nexus City',
@@ -47,6 +49,20 @@ export const ZONES: Zone[] = [
     color: '#00ff00'
   }
 ]
+
+// Convert biomes to zones for portal system
+const BIOME_ZONES: Zone[] = BIOMES.map(biome => ({
+  id: biome.id,
+  name: biome.name,
+  description: biome.description,
+  levelRange: biome.levelRange,
+  enemies: biome.monsters,
+  resources: biome.resources,
+  color: biome.color
+}))
+
+// Combined zones list
+export const ZONES: Zone[] = [...CYBERPUNK_ZONES, ...BIOME_ZONES]
 
 export const ZONE_MAP = new Map(ZONES.map(zone => [zone.id, zone]))
 

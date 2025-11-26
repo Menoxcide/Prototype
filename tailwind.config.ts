@@ -5,6 +5,8 @@ const config: Config = {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  // Safelist to prevent errors from deleted files
+  safelist: [],
   theme: {
     extend: {
       colors: {

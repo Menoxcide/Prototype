@@ -106,10 +106,10 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-cyan-400 neon-glow mb-4">
-            NEX://VOID
+          <h1 className="text-4xl font-bold neon-glow mb-4" style={{ color: '#ff6b35' }}>
+            MARS://NEXUS
           </h1>
-          <p className="text-cyan-300">Initializing...</p>
+          <p style={{ color: '#ff8c42' }}>Initializing...</p>
         </div>
       </div>
     )
@@ -133,11 +133,11 @@ export default function LoginScreen({ onAuthSuccess }: LoginScreenProps) {
 
   return (
     <div className="fixed inset-0 bg-black flex items-center justify-center p-4 z-50">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-8 max-w-md w-full neon-border">
-        <h1 className="text-4xl font-bold text-cyan-400 neon-glow mb-2 text-center">
-          NEX://VOID
+      <div className="bg-gray-900 border-2 rounded-lg p-8 max-w-md w-full neon-border" style={{ borderColor: '#ff6b35' }}>
+        <h1 className="text-4xl font-bold neon-glow mb-2 text-center" style={{ color: '#ff6b35' }}>
+          MARS://NEXUS
         </h1>
-        <p className="text-cyan-300 text-center mb-8">Mobile Cyberpunk MMO</p>
+        <p className="text-center mb-8" style={{ color: '#ff8c42' }}>Mars Cyberpunk MMO</p>
 
         {error && (
           <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded text-red-300 text-sm">

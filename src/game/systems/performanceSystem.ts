@@ -63,22 +63,37 @@ export function getLODLevel(distance: number, renderDistance: number): 'high' | 
   const settings = getPerformanceSettings()
   if (!settings.enableLOD) return 'high'
   
+  // Import quality settings for more aggressive LOD based on quality preset
+  const { getQualitySettings } = require('../utils/qualitySettings')
+  const qualitySettings = getQualitySettings()
+  
   // Apply mobile-specific LOD multipliers for more aggressive LOD switching
   const mobileFlags = getMobileOptimizationFlags()
   const effectiveRenderDistance = mobileFlags.isMobile 
     ? renderDistance * mobileFlags.lodMultiplier 
     : renderDistance
   
-  // Adjust distance thresholds for mobile (switch to lower LOD sooner)
+  // Adjust distance thresholds based on quality preset and device type
   const ratio = distance / effectiveRenderDistance
   
-  if (mobileFlags.isMobile) {
-    // More aggressive LOD on mobile: switch to medium at 20%, low at 50%
+  // More aggressive LOD for lower quality presets
+  if (qualitySettings.preset === 'low') {
+    // Low quality: very aggressive LOD - switch to medium at 15%, low at 40%
+    if (ratio < 0.15) return 'high'
+    if (ratio < 0.4) return 'medium'
+    return 'low'
+  } else if (qualitySettings.preset === 'medium') {
+    // Medium quality: aggressive LOD - switch to medium at 25%, low at 60%
+    if (ratio < 0.25) return 'high'
+    if (ratio < 0.6) return 'medium'
+    return 'low'
+  } else if (mobileFlags.isMobile) {
+    // Mobile on high/ultra: switch to medium at 20%, low at 50%
     if (ratio < 0.2) return 'high'
     if (ratio < 0.5) return 'medium'
     return 'low'
   } else {
-    // Desktop: switch to medium at 30%, low at 70%
+    // Desktop high/ultra: switch to medium at 30%, low at 70%
     if (ratio < 0.3) return 'high'
     if (ratio < 0.7) return 'medium'
     return 'low'

@@ -16,6 +16,26 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Early error handler for React DevTools compatibility with React 19 -->
+    <script>
+      // Catch React DevTools semver error before React loads
+      window.addEventListener('error', function(event) {
+        if (event.message && event.message.includes('Invalid argument not valid semver')) {
+          event.preventDefault();
+          event.stopPropagation();
+          // Silently handle - this is a known React 19 + DevTools compatibility issue
+          return true;
+        }
+      }, true);
+      
+      // Also catch unhandled promise rejections
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event.reason && event.reason.message && event.reason.message.includes('Invalid argument not valid semver')) {
+          event.preventDefault();
+          return true;
+        }
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

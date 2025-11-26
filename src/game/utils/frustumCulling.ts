@@ -105,6 +105,9 @@ export function createFrustumCuller(): FrustumCuller {
 
 /**
  * Mesh pool for LOD meshes to reduce GC pauses
+ * 
+ * NOTE: This pool is currently unused but available for future optimization.
+ * Use with LODMesh component to reduce memory allocation overhead.
  */
 class LODMeshPool {
   private pools: Map<string, THREE.Mesh[]> = new Map()

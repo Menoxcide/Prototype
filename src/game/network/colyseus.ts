@@ -1,6 +1,7 @@
 import { Client, Room } from 'colyseus.js'
 import { useGameStore } from '../store/useGameStore'
 import { getItem } from '../data/items'
+import type { StateDelta, QuestUpdateMessage, AvailableQuestsMessage, BattlePassUpdateMessage, HousingDataMessage, FriendsListMessage, FriendRequestsMessage, FriendRequestReceivedMessage, FriendRequestSentMessage } from '../../../shared/src/types/network'
 
 // Type definitions for room state
 interface PlayerSchema {
@@ -56,8 +57,30 @@ let client: Client | null = null
 let room: Room | null = null
 let isConnecting = false
 
-export function initializeClient(serverUrl: string = 'ws://localhost:2567') {
-  client = new Client(serverUrl)
+/**
+ * Get the server URL from environment variables or use default
+ */
+function getServerUrl(): string {
+  // Check for WebSocket URL first (for Colyseus)
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL
+  }
+  // Fallback to HTTP URL converted to WebSocket
+  if (import.meta.env.VITE_SERVER_URL) {
+    const url = import.meta.env.VITE_SERVER_URL
+    // Convert http:// to ws:// and https:// to wss://
+    return url.replace(/^http/, 'ws')
+  }
+  // Default to localhost
+  return 'ws://localhost:2567'
+}
+
+export function initializeClient(serverUrl?: string) {
+  const url = serverUrl || getServerUrl()
+  if (import.meta.env.DEV) {
+    console.log('🔌 Initializing Colyseus client:', url)
+  }
+  client = new Client(url)
   return client
 }
 
@@ -70,7 +93,9 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
   // Prevent multiple simultaneous connection attempts
   if (isConnecting && !isReconnectAttempt) {
-    console.log('Connection already in progress, waiting...')
+    if (import.meta.env.DEV) {
+      console.log('Connection already in progress, waiting...')
+    }
     // Wait for existing connection to complete
     while (isConnecting) {
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -106,8 +131,14 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
   isConnecting = true
 
+  // Reinitialize client if needed or if server URL changed
+  const serverUrl = getServerUrl()
   if (!client) {
-    client = initializeClient()
+    client = initializeClient(serverUrl)
+  } else {
+    // Check if we need to reinitialize with a new URL
+    // Note: Colyseus Client doesn't expose the URL, so we'll just reinitialize if client is null
+    // In practice, the URL shouldn't change during runtime
   }
 
   try {
@@ -118,11 +149,31 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       idToken = await getIdToken() || undefined
     }
 
-    room = await client.joinOrCreate<NexusRoomState>('nexus', {
+    // Validate client is initialized
+    if (!client) {
+      throw new Error('Colyseus client not initialized')
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('🔌 Attempting to connect to server:', serverUrl)
+    }
+
+    // Set a timeout for the connection attempt
+    const connectionTimeout = 10000 // 10 seconds
+    const connectionPromise = client.joinOrCreate<NexusRoomState>('nexus', {
       name: playerName,
       race,
       firebaseToken: idToken || undefined // Send Firebase token for verification
     })
+
+    // Race between connection and timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Connection timeout: Server at ${serverUrl} did not respond within ${connectionTimeout}ms. Make sure the server is running.`))
+      }, connectionTimeout)
+    })
+
+    room = await Promise.race([connectionPromise, timeoutPromise])
 
     // Validate room object is properly initialized
     if (!room) {
@@ -145,7 +196,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Register message handlers IMMEDIATELY to prevent "not registered" warnings
     // These must be registered before any messages can arrive
-    room.onMessage('stateDelta', (data: { deltas: any[] }) => {
+    room.onMessage('stateDelta', (data: { deltas: StateDelta[] }) => {
       // Apply delta updates to game state
       // This is handled by the onAdd/onRemove/onChange listeners in setupRoomListeners
       // but we register the handler early to prevent warnings
@@ -243,7 +294,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       let stateChangeHandled = false
       let cleanupListener: (() => void) | null = null
       
-      const stateChangeHandler = (state: any) => {
+      const stateChangeHandler = (_state: unknown) => {
         if (!stateChangeHandled && room && !resolved) {
           stateChangeHandled = true
           // Clean up listener after first call
@@ -337,8 +388,8 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
       // Sync existing other players (for whisper dropdown)
       // onAdd only fires for NEW players, so we need to sync existing ones
-      room.state.players.forEach((player: PlayerSchema, sessionId: string) => {
-        if (sessionId !== room.sessionId) {
+      room?.state.players.forEach((player: PlayerSchema, sessionId: string) => {
+        if (sessionId !== room?.sessionId) {
           const { otherPlayers } = useGameStore.getState()
           // Only add if not already present
           if (!otherPlayers.has(sessionId)) {
@@ -454,18 +505,72 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     useGameStore.getState().setConnected(true)
     isConnecting = false
     
-    // Start latency monitoring
+    // Start latency monitoring and connection quality tracking
+    import('./connectionMonitor').then(({ connectionMonitor }) => {
+      // Track latency for connection monitoring
+      let lastPingTime = 0
+      // pingInterval is set but not stored (intentional - runs until cleanup)
+      setInterval(() => {
+        if (room && room.connection.isOpen) {
+          lastPingTime = Date.now()
+          // Send ping (if room supports it) or measure round-trip on next message
+        }
+      }, 5000) // Ping every 5 seconds
+      
+      // Measure latency on state updates
+      if (room && typeof room.onStateChange === 'function') {
+        const originalOnStateChange = room.onStateChange.bind(room)
+        room.onStateChange = ((state: any) => {
+          if (lastPingTime > 0) {
+            const latency = Date.now() - lastPingTime
+            connectionMonitor.recordPacket(latency)
+            lastPingTime = 0
+          }
+          if (originalOnStateChange) {
+            originalOnStateChange(state)
+          }
+        }) as any
+      }
+    })
     const { reconnectionManager } = await import('./reconnection')
     reconnectionManager.startLatencyMonitoring(room)
 
     return room
   } catch (error) {
-    console.error('Failed to join room:', error)
-    useGameStore.getState().setConnected(false)
-    room = null
     isConnecting = false
     listenersSetup = false // Reset listeners flag on error
-    throw error
+    room = null
+    useGameStore.getState().setConnected(false)
+    
+    // Provide more helpful error messages
+    const serverUrl = getServerUrl()
+    let errorMessage = 'Failed to connect to game server'
+    
+    if (error instanceof Error) {
+      // Check for specific error types
+      if (error.message.includes('timeout')) {
+        errorMessage = error.message
+      } else if (error.message.includes('get')) {
+        errorMessage = `Server connection failed: The game server at ${serverUrl} is not responding. Please make sure the server is running.`
+      } else if (error.message.includes('ECONNREFUSED') || error.message.includes('Failed to fetch')) {
+        errorMessage = `Cannot connect to server at ${serverUrl}. Is the server running?`
+      } else {
+        errorMessage = `Connection error: ${error.message}`
+      }
+    }
+    
+    console.error('❌ Failed to join room:', errorMessage)
+    if (import.meta.env.DEV) {
+      console.error('   Server URL:', serverUrl)
+      console.error('   Original error:', error)
+    }
+    
+    // Create a more user-friendly error
+    const friendlyError = new Error(errorMessage)
+    if (error instanceof Error && error.stack) {
+      friendlyError.stack = error.stack
+    }
+    throw friendlyError
   }
 }
 
@@ -489,12 +594,14 @@ let listenersSetup = false
 /**
  * Wait for room state to be fully initialized
  * Checks that state properties are MapSchema instances
+ * Currently unused - kept for potential future use
  */
-function waitForStateInitialization(room: Room): Promise<void> {
+/*
+function _waitForStateInitialization(room: Room): Promise<void> {
   return new Promise((resolve) => {
     // Helper to check if a property is a valid MapSchema
     // Check for both onAdd method (when fully initialized) and MapSchema structure ($items, $indexes)
-    const isMapSchema = (obj: any): boolean => {
+    const isMapSchema = (obj: unknown): boolean => {
       if (!obj || typeof obj !== 'object') return false
       // Check for MapSchema structure (has $items and $indexes properties)
       const hasMapSchemaStructure = obj.$items !== undefined && obj.$indexes !== undefined
@@ -568,6 +675,7 @@ function waitForStateInitialization(room: Room): Promise<void> {
     checkState()
   })
 }
+*/
 
 async function setupRoomListeners(room: Room) {
   // Prevent duplicate listener setup during reconnection
@@ -600,7 +708,7 @@ async function setupRoomListeners(room: Room) {
   // No need to register them here again
 
   // Listen for quest updates
-  room.onMessage('questUpdate', (data: { activeQuests: any[] }) => {
+  room.onMessage('questUpdate', (data: QuestUpdateMessage) => {
     useGameStore.getState().setActiveQuests(data.activeQuests)
   })
 
@@ -629,12 +737,12 @@ async function setupRoomListeners(room: Room) {
     console.error('Quest error:', data.message)
   })
 
-  room.onMessage('availableQuests', (data: { quests: any[] }) => {
+  room.onMessage('availableQuests', (data: AvailableQuestsMessage) => {
     useGameStore.getState().setAvailableQuests(data.quests)
   })
 
   // Listen for battle pass updates
-  room.onMessage('battlePassUpdate', (data: { progress: any; season: any }) => {
+  room.onMessage('battlePassUpdate', (data: BattlePassUpdateMessage) => {
     useGameStore.getState().setBattlePassProgress(data.progress)
     useGameStore.getState().setBattlePassSeason(data.season)
   })
@@ -666,6 +774,71 @@ async function setupRoomListeners(room: Room) {
 
   room.onMessage('battlePassError', (data: { message: string }) => {
     console.error('Battle pass error:', data.message)
+  })
+
+  // Listen for housing updates
+  room.onMessage('housingData', (data: HousingDataMessage) => {
+    // Store housing data in game store
+    useGameStore.getState().setHousing(data)
+  })
+
+  // Listen for social updates
+  room.onMessage('friendsList', (data: FriendsListMessage) => {
+    // Store friends list in game store
+    const friends = Array.isArray(data) ? data : (data.friends || [])
+    useGameStore.getState().setFriends(friends.map(f => ({
+      id: f.id,
+      name: f.name,
+      level: 1, // Default level if not provided
+      isOnline: f.online,
+      lastSeen: f.lastSeen
+    })))
+  })
+
+  room.onMessage('friendRequests', (data: FriendRequestsMessage) => {
+    // Store friend requests in game store
+    const requests = Array.isArray(data) ? data : (data.requests || [])
+    useGameStore.getState().setFriendRequests(requests.map(r => ({
+      id: r.id,
+      fromPlayerId: r.fromId,
+      fromPlayerName: r.fromName,
+      toPlayerId: '', // Will be set by server
+      timestamp: r.timestamp,
+      status: 'pending'
+    })))
+  })
+
+  room.onMessage('friendRequestReceived', (data: FriendRequestReceivedMessage) => {
+    // Show notification for new friend request
+    useGameStore.getState().addChatMessage({
+      id: `friend_req_${Date.now()}`,
+      playerId: '',
+      playerName: 'System',
+      message: `${data.fromName} sent you a friend request!`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#00ffff'
+    })
+  })
+
+  room.onMessage('friendRequestSent', (data: FriendRequestSentMessage) => {
+    // Confirm friend request was sent
+    if (import.meta.env.DEV) {
+      console.log('Friend request sent:', data)
+    }
+  })
+
+  room.onMessage('reportSubmitted', (_data: any) => {
+    // Confirm report was submitted
+    useGameStore.getState().addChatMessage({
+      id: `report_${Date.now()}`,
+      playerId: '',
+      playerName: 'System',
+      message: 'Report submitted successfully. Thank you!',
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#00ff00'
+    })
   })
 
   // Listen for trade updates
@@ -730,16 +903,19 @@ async function setupRoomListeners(room: Room) {
     // Update progress
     const currentProgress = useGameStore.getState().achievementProgress
     const updated = currentProgress.map(p => 
-      p.achievementId === data.achievement.id
-        ? { ...p, unlocked: true, unlockedAt: Date.now(), progress: 1 }
+      p.id === data.achievement.id
+        ? { ...p, completed: true, progress: p.maxProgress }
         : p
     )
     useGameStore.getState().setAchievementProgress(updated)
   })
 
   // Listen for world boss spawn
-  room.onMessage('worldBossSpawned', (data) => {
-    useGameStore.getState().addChatMessage({
+  room.onMessage('worldBossSpawned', async (data: { message: string; position: { x: number; y: number; z: number }; bossId: string }) => {
+    const store = useGameStore.getState()
+    
+    // Add chat message
+    store.addChatMessage({
       id: `boss_${Date.now()}`,
       playerId: 'system',
       playerName: 'System',
@@ -748,11 +924,94 @@ async function setupRoomListeners(room: Room) {
       type: 'system',
       color: '#ff00ff'
     })
+    
+    // Initialize world boss system and add boss to store
+    const { worldBossSystem } = await import('../systems/worldBoss')
+    // Get active bosses to populate the store (if needed)
+    worldBossSystem.getActiveBosses()
+    
+    // Find or create boss from server data
+    const bossData = {
+      id: data.bossId,
+      bossId: data.bossId,
+      type: 'boss',
+      level: 50,
+      health: 10000,
+      maxHealth: 10000,
+      position: data.position,
+      rotation: 0,
+      phase: 1,
+      maxPhase: 3,
+      participants: []
+    }
+    
+    store.setActiveBoss(data.bossId, bossData)
+  })
+  
+  // Listen for boss ability usage
+  room.onMessage('bossAbility', (data: { bossId: string; ability: { id: string; name: string } }) => {
+    const store = useGameStore.getState()
+    store.addChatMessage({
+      id: `boss_ability_${Date.now()}`,
+      playerId: 'system',
+      playerName: 'System',
+      message: `⚠️ Boss used ${data.ability.name}!`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#ff4444'
+    })
+  })
+  
+  // Listen for boss phase transition
+  room.onMessage('bossPhaseTransition', (data: { bossId: string; phase: number }) => {
+    const store = useGameStore.getState()
+    store.updateBoss(data.bossId, { phase: data.phase })
+    store.addChatMessage({
+      id: `boss_phase_${Date.now()}`,
+      playerId: 'system',
+      playerName: 'System',
+      message: `⚡ Boss entered Phase ${data.phase}!`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#ff00ff'
+    })
+  })
+  
+  // Listen for dynamic events
+  room.onMessage('dynamicEvent', (data: { event: any }) => {
+    const store = useGameStore.getState()
+    store.addActiveEvent(data.event)
+    store.addChatMessage({
+      id: `event_${Date.now()}`,
+      playerId: 'system',
+      playerName: 'System',
+      message: `🌟 ${data.event.name}: ${data.event.description}`,
+      timestamp: Date.now(),
+      type: 'system',
+      color: '#00ff00'
+    })
+  })
+  
+  // Listen for event completion
+  room.onMessage('eventCompleted', (data: { eventId: string; rewards: any[] }) => {
+    const store = useGameStore.getState()
+    store.removeActiveEvent(data.eventId)
+    if (data.rewards && data.rewards.length > 0) {
+      store.addChatMessage({
+        id: `event_reward_${Date.now()}`,
+        playerId: 'system',
+        playerName: 'System',
+        message: `🎁 Event completed! Rewards received.`,
+        timestamp: Date.now(),
+        type: 'system',
+        color: '#ffd700'
+      })
+    }
   })
 
   // Listen for damage numbers
   room.onMessage('damageNumber', async (data: { enemyId: string; damage: number; isCrit: boolean; position: { x: number; y: number; z: number } }) => {
-    // Get damage number from pool
+    // Legacy damage number system (for backward compatibility)
     const { damageNumberPool } = await import('../utils/damageNumberPool')
     const damageNumber = damageNumberPool.get()
     
@@ -764,8 +1023,19 @@ async function setupRoomListeners(room: Room) {
     damageNumber.opacity = 1
     damageNumber.yOffset = 0
     
-    // Add to game store
+    // Add to game store (legacy)
     useGameStore.getState().addDamageNumber(damageNumber)
+    
+    // Also create enhanced floating number
+    const { createDamageNumber } = await import('../utils/floatingNumbers')
+    const { logDamageDealt } = await import('../utils/combatLog')
+    
+    createDamageNumber(data.damage, data.position, data.isCrit)
+    
+    // Get enemy name for combat log
+    const enemy = useGameStore.getState().enemies.get(data.enemyId)
+    const enemyName = enemy?.type || 'Enemy'
+    logDamageDealt(data.damage, enemyName, data.isCrit)
     
     // Auto-remove after 2 seconds
     setTimeout(() => {
@@ -775,31 +1045,28 @@ async function setupRoomListeners(room: Room) {
   })
 
   // Listen for kills
-  room.onMessage('kill', (data) => {
-    useGameStore.getState().addChatMessage({
-      id: `kill_${Date.now()}`,
-      playerId: data.killerId,
-      playerName: data.killerName,
-      message: `defeated ${data.enemyType}`,
-      timestamp: Date.now(),
-      type: 'system',
-      color: '#00ff00'
-    })
+  room.onMessage('kill', async (data) => {
+    const { logKill } = await import('../utils/combatLog')
+    logKill(data.killerName, data.enemyType)
   })
 
   // Listen for combo updates
-  room.onMessage('combo', (data) => {
+  room.onMessage('combo', async (data) => {
     if (data.playerId === room?.sessionId) {
       // Your combo!
-      useGameStore.getState().addChatMessage({
-        id: `combo_${Date.now()}`,
-        playerId: 'system',
-        playerName: 'System',
-        message: `🔥 ${data.kills}x COMBO! ${data.multiplier.toFixed(1)}x multiplier! 🔥`,
-        timestamp: Date.now(),
-        type: 'system',
-        color: '#ff00ff'
-      })
+      const { logCombo } = await import('../utils/combatLog')
+      const { createComboNumber } = await import('../utils/floatingNumbers')
+      const { player } = useGameStore.getState()
+      
+      logCombo(data.kills, data.multiplier)
+      
+      // Show floating combo number above player
+      if (player) {
+        createComboNumber(
+          `${data.kills}x COMBO!`,
+          { x: player.position.x, y: player.position.y + 2, z: player.position.z }
+        )
+      }
     }
   })
 
@@ -891,7 +1158,7 @@ async function setupRoomListeners(room: Room) {
   if (!room.state.players || !isMapSchema(room.state.players)) {
     // Set up a fallback to retry when state changes
     let retryHandled = false
-    const retryOnStateChange = (state: any) => {
+    const retryOnStateChange = (_state: any) => {
       if (!retryHandled && room && room.state && isMapSchema(room.state.players) && hasMapSchemaMethods(room.state.players)) {
         retryHandled = true
         setupRoomListeners(room)
@@ -914,7 +1181,7 @@ async function setupRoomListeners(room: Room) {
   if (!hasMapSchemaMethods(room.state.players)) {
     // Set up a fallback to retry when state changes
     let retryHandled = false
-    const retryOnStateChange = (state: any) => {
+    const retryOnStateChange = (_state: any) => {
       if (!retryHandled && room && room.state && hasMapSchemaMethods(room.state.players)) {
         retryHandled = true
         setupRoomListeners(room)
@@ -1017,39 +1284,42 @@ async function setupRoomListeners(room: Room) {
           const { isPlayerMoving } = useGameStore.getState()
           
           // If player is actively moving, NEVER update position from server (client-side prediction)
-          // This is critical for responsive movement
+          // This is critical for responsive movement and prevents stuttering/rubberbanding
           if (isPlayerMoving) {
-            if (import.meta.env.DEV) {
-              console.log('⏭️ Ignoring server position (player actively moving):', {
-                local: { x: currentPlayer.position.x.toFixed(3), z: currentPlayer.position.z.toFixed(3) },
-                server: { x: player.x.toFixed(3), z: player.z.toFixed(3) },
-                diff: positionDiff.toFixed(3),
-                isMoving: isPlayerMoving
+            // Only update non-position stats, preserve local position completely
+            // Use a more efficient update that doesn't trigger unnecessary re-renders
+            const currentState = useGameStore.getState()
+            if (
+              currentState.player &&
+              (currentState.player.health !== player.health ||
+              currentState.player.mana !== player.mana ||
+              currentState.player.level !== player.level)
+            ) {
+              // Only update if stats actually changed to prevent unnecessary state updates
+              useGameStore.setState({
+                player: {
+                  ...currentPlayer,
+                  health: player.health,
+                  maxHealth: player.maxHealth,
+                  mana: player.mana,
+                  maxMana: player.maxMana,
+                  level: player.level,
+                  guildId: player.guildId || undefined,
+                  guildTag: player.guildTag || undefined,
+                  guildName: player.guildName || undefined
+                }
               })
             }
-            // Only update non-position stats, preserve local position completely
-            const { setPlayer } = useGameStore.getState()
-            setPlayer({
-              ...currentPlayer,
-              health: player.health,
-              maxHealth: player.maxHealth,
-              mana: player.mana,
-              maxMana: player.maxMana,
-              level: player.level,
-              guildId: player.guildId || undefined,
-              guildTag: player.guildTag || undefined,
-              guildName: player.guildName || undefined
-            })
             return // Exit early - don't process position update at all
           }
           
           // Check if local position is significantly different from server
           // If difference is large, server is correcting (anti-cheat or lag correction)
           // If difference is small, player is moving locally - ignore server update
-          const shouldReconcile = positionDiff > 2.0 // Increased threshold to 2.0 units to prevent overwriting
+          const shouldReconcile = positionDiff > 5.0 // Increased threshold to 5.0 units to prevent overwriting during movement
           
           // IMPORTANT: Only update position from server if reconciliation is needed
-          // Otherwise, client-side prediction handles movement smoothly
+          // Completely ignore server updates when difference < 5.0 units to allow client-side prediction
           if (shouldReconcile) {
             // Large difference - server correction needed (anti-cheat or significant lag)
             if (import.meta.env.DEV) {
@@ -1070,7 +1340,7 @@ async function setupRoomListeners(room: Room) {
               diff: positionDiff.toFixed(2)
             })
           }
-          // If difference is small (< 2.0 units), ignore server position update
+          // If difference is small (< 5.0 units), ignore server position update
           // This allows client-side prediction to work smoothly
           
           // Always update non-position stats (health, mana, etc.) from server
@@ -1170,90 +1440,294 @@ async function setupRoomListeners(room: Room) {
 }
 
 function syncGameState(state: NexusRoomState) {
-  // Sync the player's own state from room state
-  if (room && room.sessionId) {
-    const playerInState = state.players.get(room.sessionId)
-    if (playerInState) {
-      const { player, setPlayer } = useGameStore.getState()
-      if (player) {
-        // Update player state from room state (server is authoritative)
-        setPlayer({
-          ...player,
-          position: { x: playerInState.x, y: playerInState.y, z: playerInState.z },
-          rotation: playerInState.rotation,
-          health: playerInState.health,
-          maxHealth: playerInState.maxHealth,
-          mana: playerInState.mana,
-          maxMana: playerInState.maxMana,
-          level: playerInState.level,
-          guildId: playerInState.guildId || undefined,
-          guildTag: playerInState.guildTag || undefined
-        })
-      }
+  if (!room?.sessionId) return
+
+  const serverPlayer = state.players.get(room.sessionId)
+  if (!serverPlayer) return
+
+  const { player, isPlayerMoving } = useGameStore.getState()
+  if (!player) return
+
+  // Calculate distance between local and server position
+  const dx = player.position.x - serverPlayer.x
+  const dz = player.position.z - serverPlayer.z
+  const distance = Math.sqrt(dx * dx + dz * dz)
+
+  // ONLY reconcile when player is NOT moving OR if there's a significant discrepancy
+  // This prevents server from overwriting client-side prediction during active movement
+  if (!isPlayerMoving || distance > 5.0) {
+    // Only update if difference is significant to prevent micro-corrections
+    if (distance > 2.0 || !isPlayerMoving) {
+      useGameStore.getState().updatePlayerPosition({
+        x: serverPlayer.x,
+        y: serverPlayer.y,
+        z: serverPlayer.z
+      })
+      useGameStore.getState().updatePlayerRotation(serverPlayer.rotation)
     }
   }
-  
-  // Sync enemies, resource nodes, loot drops, etc.
-  // This is handled by the onAdd/onRemove/onChange listeners above
+
+  // Update other stats always
+  useGameStore.getState().setPlayer({
+    ...player,
+    health: serverPlayer.health,
+    mana: serverPlayer.mana,
+    level: serverPlayer.level,
+  })
 }
 
 export function sendMovement(x: number, y: number, z: number, rotation: number) {
-  if (room) {
-    room.send('move', { x, y, z, rotation })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('move', { x, y, z, rotation })
+    } catch (error) {
+      // Connection might have closed between check and send
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send movement:', error)
+      }
+    }
   }
 }
 
 export function sendSpellCast(spellId: string, position: { x: number; y: number; z: number }, rotation: number) {
-  if (room) {
-    room.send('castSpell', { spellId, position, rotation })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('castSpell', { spellId, position, rotation })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send spell cast:', error)
+      }
+    }
   }
 }
 
 export function sendChatMessage(message: string) {
-  if (room) {
-    room.send('chat', { text: message })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('chat', { text: message })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send chat message:', error)
+      }
+    }
   }
 }
 
 export function sendLootPickup(lootId: string) {
-  if (room) {
-    room.send('pickupLoot', { lootId })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('pickupLoot', { lootId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send loot pickup:', error)
+      }
+    }
   }
 }
 
 export function sendGuildCreate(name: string, tag: string) {
-  if (room) {
-    room.send('createGuild', { name, tag })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('createGuild', { name, tag })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send guild create:', error)
+      }
+    }
   }
 }
 
 export function sendGuildJoin(guildId: string) {
-  if (room) {
-    room.send('joinGuild', { guildId })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('joinGuild', { guildId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send guild join:', error)
+      }
+    }
   }
 }
 
 export function sendGuildLeave() {
-  if (room) {
-    room.send('leaveGuild', {})
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('leaveGuild', {})
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send guild leave:', error)
+      }
+    }
+  }
+}
+
+// Housing functions
+export function requestHousing() {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('requestHousing', {})
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to request housing:', error)
+      }
+    }
+  }
+}
+
+export function createHousing() {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('createHousing', {})
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to create housing:', error)
+      }
+    }
+  }
+}
+
+export function placeFurniture(furnitureId: string, position: { x: number; y: number; z: number }, rotation: number) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('placeFurniture', { furnitureId, position, rotation })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to place furniture:', error)
+      }
+    }
+  }
+}
+
+export function removeFurniture(furnitureItemId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('removeFurniture', { furnitureItemId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to remove furniture:', error)
+      }
+    }
+  }
+}
+
+// Social functions
+export function sendFriendRequest(targetPlayerId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('sendFriendRequest', { targetPlayerId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send friend request:', error)
+      }
+    }
+  }
+}
+
+export function acceptFriendRequest(requestId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('acceptFriendRequest', { requestId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to accept friend request:', error)
+      }
+    }
+  }
+}
+
+export function rejectFriendRequest(requestId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('rejectFriendRequest', { requestId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to reject friend request:', error)
+      }
+    }
+  }
+}
+
+export function requestFriends() {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('requestFriends', {})
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to request friends:', error)
+      }
+    }
+  }
+}
+
+export function removeFriend(friendId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('removeFriend', { friendId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to remove friend:', error)
+      }
+    }
+  }
+}
+
+export function blockPlayer(targetPlayerId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('blockPlayer', { targetPlayerId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to block player:', error)
+      }
+    }
+  }
+}
+
+export function reportPlayer(targetPlayerId: string, reason: string, description: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('reportPlayer', { targetPlayerId, reason, description })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to report player:', error)
+      }
+    }
   }
 }
 
 export function sendGuildChat(message: string) {
-  if (room) {
-    room.send('guildChat', { text: message })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('guildChat', { text: message })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send guild chat:', error)
+      }
+    }
   }
 }
 
 export function sendWhisper(targetId: string, message: string) {
-  if (room) {
-    room.send('whisper', { targetId, text: message })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('whisper', { targetId, text: message })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send whisper:', error)
+      }
+    }
   }
 }
 
 export function sendEmote(emote: string) {
-  if (room) {
-    room.send('emote', { emote })
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      room.send('emote', { emote })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send emote:', error)
+      }
+    }
   }
 }
 

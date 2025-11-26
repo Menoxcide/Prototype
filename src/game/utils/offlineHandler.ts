@@ -1,14 +1,31 @@
 // Handle offline/online state changes
 import { useGameStore } from '../store/useGameStore'
+import { joinRoom } from '../network/colyseus'
+import { startMovementSync } from '../network/syncSystem'
 
 export function setupOfflineHandler() {
-  const handleOnline = () => {
+  const handleOnline = async () => {
     console.log('Connection restored')
     const store = useGameStore.getState()
     if (store.setConnected) {
       store.setConnected(true)
     }
-    // TODO: Reconnect to server
+    
+    // Reconnect to server if player exists and not already connected
+    const { player, isConnected } = store
+    if (player && !isConnected) {
+      try {
+        // Get Firebase token for reconnection
+        const { getIdToken } = await import('../../firebase/auth')
+        const firebaseToken = await getIdToken()
+        
+        await joinRoom(player.name, player.race, true, firebaseToken || undefined)
+        startMovementSync()
+        console.log('Reconnected to server after going online')
+      } catch (error) {
+        console.error('Failed to reconnect after going online:', error)
+      }
+    }
   }
 
   const handleOffline = () => {

@@ -1,8 +1,49 @@
+/**
+ * Game Store - Centralized state management for the game
+ * 
+ * Uses Zustand for efficient state management with:
+ * - Selective subscriptions to reduce re-renders
+ * - Immutable state updates
+ * - State update batching
+ * 
+ * This store manages:
+ * - Player state (position, health, mana, XP, credits)
+ * - Inventory and items
+ * - Spells and equipment
+ * - Game world entities (enemies, loot, resource nodes)
+ * - Other players (multiplayer)
+ * - Chat messages
+ * - UI state (modals, HUD visibility)
+ * - Network connection status
+ * - Quest, battle pass, trading, achievement systems
+ * - Social features (friends, guilds)
+ * - Housing system
+ * - Performance metrics
+ * 
+ * @example
+ * ```ts
+ * // Get player state
+ * const player = useGameStore(state => state.player)
+ * 
+ * // Update player position
+ * useGameStore.getState().updatePlayerPosition({ x: 10, y: 0, z: 5 })
+ * 
+ * // Add item to inventory
+ * useGameStore.getState().addItem('sword', 1)
+ * ```
+ */
+
 import { create } from 'zustand'
 import { Player, InventoryItem, Spell, ChatMessage, Enemy, ResourceNode, LootDrop, PlayerSkill } from '../types'
 import { getItem } from '../data/items'
 import { getSpell } from '../data/spells'
+import type { QualitySettings } from '../utils/qualitySettings'
+import { getQualityManager } from '../utils/qualitySettings'
+// batchUpdate is available but not used in this file
 
+/**
+ * Complete game state interface
+ */
 interface GameState {
   // Authentication
   firebaseUid: string | null
@@ -73,6 +114,16 @@ interface GameState {
   toggleBattlePass: () => void
   isShopOpen: boolean
   toggleShop: () => void
+  isSettingsOpen: boolean
+  toggleSettings: () => void
+  isTutorialOpen: boolean
+  toggleTutorial: () => void
+  hasCompletedTutorial: boolean
+  setHasCompletedTutorial: (completed: boolean) => void
+  isMinimapOpen: boolean
+  toggleMinimap: () => void
+  isHousingOpen: boolean
+  toggleHousing: () => void
   
   // Game state
   currentZone: string
@@ -105,10 +156,10 @@ interface GameState {
     description: string
     category: string
     level: number
-    rewards: any[]
+    rewards: Array<{ type: string; amount: number }>
   }>
-  setActiveQuests: (quests: any[]) => void
-  setAvailableQuests: (quests: any[]) => void
+  setActiveQuests: (quests: Array<{ questId: string; status: string; objectives: Array<{ id: string; current: number; required: number }> }>) => void
+  setAvailableQuests: (quests: Array<{ id: string; name: string; description: string; category: string; level: number; prerequisites: string[]; objectives: Array<{ id: string; type: string; target: string; required: number }>; rewards: Array<{ type: string; amount: number }>; repeatable: boolean; timeLimit?: number }>) => void
   updateQuestProgress: (questId: string, objectiveId: string, progress: number) => void
   
   // Battle pass system
@@ -125,23 +176,23 @@ interface GameState {
     season: number
     startDate: number
     endDate: number
-    tiers: any[]
+    tiers: Array<{ tier: number; freeReward?: { type: string; amount: number }; premiumReward?: { type: string; amount: number } }>
   } | null
-  setBattlePassProgress: (progress: any) => void
-  setBattlePassSeason: (season: any) => void
+  setBattlePassProgress: (progress: { season: number; currentTier: number; currentXP: number; premiumUnlocked: boolean; claimedTiers: number[] }) => void
+  setBattlePassSeason: (season: { id: number; name: string; startDate: number; endDate: number }) => void
   
   // Trading system
-  currentTrade: any | null
+  currentTrade: { sessionId: string; otherPlayerId: string; otherPlayerName: string; myItems: Array<{ itemId: string; quantity: number }>; otherItems: Array<{ itemId: string; quantity: number }>; myCredits: number; otherCredits: number; myConfirmed: boolean; otherConfirmed: boolean } | null
   isTradeOpen: boolean
-  setCurrentTrade: (trade: any | null) => void
+  setCurrentTrade: (trade: { sessionId: string; otherPlayerId: string; otherPlayerName: string; myItems: Array<{ itemId: string; quantity: number }>; otherItems: Array<{ itemId: string; quantity: number }>; myCredits: number; otherCredits: number; myConfirmed: boolean; otherConfirmed: boolean } | null) => void
   toggleTrade: () => void
   
   // Achievement system
-  achievements: any[]
-  achievementProgress: any[]
+  achievements: Array<{ id: string; name: string; description: string; progress: number; maxProgress: number; completed: boolean; completedAt?: number; reward?: { type: string; amount: number } }>
+  achievementProgress: Array<{ id: string; progress: number; maxProgress: number; completed: boolean }>
   isAchievementOpen: boolean
-  setAchievements: (achievements: any[]) => void
-  setAchievementProgress: (progress: any[]) => void
+  setAchievements: (achievements: Array<{ id: string; name: string; description: string; progress: number; maxProgress: number; completed: boolean; completedAt?: number; reward?: { type: string; amount: number } }>) => void
+  setAchievementProgress: (progress: Array<{ id: string; progress: number; maxProgress: number; completed: boolean }>) => void
   toggleAchievement: () => void
   
   // Skills system
@@ -157,6 +208,10 @@ interface GameState {
   // Performance monitoring
   fps: number
   setFPS: (fps: number) => void
+  networkLatency: number
+  setNetworkLatency: (latency: number) => void
+  packetLoss: number
+  setPacketLoss: (loss: number) => void
   
   // Camera mode - default to third-person so player is visible
   cameraMode: 'first-person' | 'third-person'
@@ -166,8 +221,43 @@ interface GameState {
   // Movement state (to prevent server overwrites during active movement)
   isPlayerMoving: boolean
   setIsPlayerMoving: (moving: boolean) => void
+  isClimbingBuilding: boolean
+  setIsClimbingBuilding: (climbing: boolean) => void
   
-  // Damage numbers
+  // Stamina system
+  stamina: number
+  maxStamina: number
+  setStamina: (stamina: number) => void
+  consumeStamina: (amount: number) => void
+  rechargeStamina: (amount: number) => void
+  
+  // Grapple system
+  canGrapple: boolean
+  setCanGrapple: (canGrapple: boolean) => void
+  grappledBuilding: { id: string | null, position: { x: number, y: number, z: number } } | null
+  setGrappledBuilding: (building: { id: string | null, position: { x: number, y: number, z: number } } | null) => void
+
+  // Settings
+  qualitySettings: QualitySettings
+  setQualitySettings: (settings: QualitySettings) => void
+
+  // Combat Feedback
+  screenShakeIntensity: number
+  setScreenShakeIntensity: (intensity: number) => void
+
+  // Social Features
+  friends: Array<{ id: string; name: string; level: number; isOnline: boolean; lastSeen: number; status?: string }>
+  friendRequests: Array<{ id: string; fromPlayerId: string; fromPlayerName: string; toPlayerId: string; timestamp: number; status: string }>
+  setFriends: (friends: Array<{ id: string; name: string; level: number; isOnline: boolean; lastSeen: number; status?: string }>) => void
+  setFriendRequests: (requests: Array<{ id: string; fromPlayerId: string; fromPlayerName: string; toPlayerId: string; timestamp: number; status: string }>) => void
+  isSocialOpen: boolean
+  toggleSocial: () => void
+
+  // Housing
+  housing: any | null
+  setHousing: (housing: any | null) => void
+  
+  // Damage numbers (legacy - kept for backward compatibility)
   damageNumbers: Map<string, {
     id: string
     damage: number
@@ -191,6 +281,66 @@ interface GameState {
     opacity: number
     yOffset: number
   }>) => void
+  
+  // World Boss System
+  activeBosses: Map<string, {
+    id: string
+    bossId: string
+    type: string
+    level: number
+    health: number
+    maxHealth: number
+    position: { x: number; y: number; z: number }
+    rotation: number
+    phase: number
+    maxPhase: number
+    participants: string[]
+  }>
+  setActiveBoss: (bossId: string, boss: any) => void
+  removeActiveBoss: (bossId: string) => void
+  updateBoss: (bossId: string, updates: Partial<any>) => void
+  
+  // Dynamic Events System
+  activeEvents: Array<{
+    id: string
+    type: string
+    name: string
+    description: string
+    position?: { x: number; y: number; z: number }
+    startTime: number
+    endTime: number
+    active: boolean
+  }>
+  setActiveEvents: (events: any[]) => void
+  addActiveEvent: (event: any) => void
+  removeActiveEvent: (eventId: string) => void
+  
+  // Floating numbers (enhanced system for all types)
+  floatingNumbers: Map<string, {
+    id: string
+    value: number | string
+    position: { x: number; y: number; z: number }
+    type: 'damage' | 'healing' | 'status' | 'xp' | 'level-up' | 'mana' | 'buff' | 'debuff' | 'combo' | 'critical'
+    isCrit?: boolean
+    createdAt: number
+    opacity: number
+    yOffset: number
+  }>
+  addFloatingNumber: (floatingNumber: {
+    id: string
+    value: number | string
+    position: { x: number; y: number; z: number }
+    type: 'damage' | 'healing' | 'status' | 'xp' | 'level-up' | 'mana' | 'buff' | 'debuff' | 'combo' | 'critical'
+    isCrit?: boolean
+    createdAt: number
+    opacity: number
+    yOffset: number
+  }) => void
+  removeFloatingNumber: (id: string) => void
+  updateFloatingNumber: (id: string, updates: Partial<{
+    opacity: number
+    yOffset: number
+  }>) => void
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -211,7 +361,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       return
     }
     
-    // Always update position - create new object to ensure React reactivity
+    // Always update position for smooth movement
+    // The threshold was causing stuttering/rubberbanding
+    // React will handle re-render optimization if values are the same
     const updatedPlayer = { 
       ...player, 
       position: { 
@@ -233,14 +385,57 @@ export const useGameStore = create<GameState>((set, get) => ({
   updatePlayerHealth: (health) => {
     const { player } = get()
     if (player) {
-      set({ player: { ...player, health: Math.max(0, Math.min(health, player.maxHealth)) } })
+      const oldHealth = player.health
+      const newHealth = Math.max(0, Math.min(health, player.maxHealth))
+      const healthChange = newHealth - oldHealth
+      
+      set({ player: { ...player, health: newHealth } })
+      
+      // Show floating numbers and combat log for health changes
+      if (healthChange !== 0 && player.position) {
+        import('../utils/floatingNumbers').then(({ createHealingNumber, createDamageNumber }) => {
+          import('../utils/combatLog').then(({ logHealing, logDamageTaken }) => {
+            if (healthChange > 0) {
+              // Healing
+              createHealingNumber(
+                healthChange,
+                { x: player.position.x, y: player.position.y + 1.5, z: player.position.z }
+              )
+              logHealing(healthChange)
+            } else if (healthChange < 0) {
+              // Damage taken
+              createDamageNumber(
+                Math.abs(healthChange),
+                { x: player.position.x, y: player.position.y + 1.5, z: player.position.z },
+                false
+              )
+              logDamageTaken(Math.abs(healthChange), 'Unknown')
+            }
+          })
+        })
+      }
     }
   },
   
   updatePlayerMana: (mana) => {
     const { player } = get()
     if (player) {
-      set({ player: { ...player, mana: Math.max(0, Math.min(mana, player.maxMana)) } })
+      const oldMana = player.mana
+      const newMana = Math.max(0, Math.min(mana, player.maxMana))
+      const manaChange = newMana - oldMana
+      
+      set({ player: { ...player, mana: newMana } })
+      
+      // Show floating numbers for significant mana changes
+      if (Math.abs(manaChange) > 5 && player.position) {
+        import('../utils/floatingNumbers').then(({ createManaNumber }) => {
+          createManaNumber(
+            Math.abs(manaChange),
+            { x: player.position.x, y: player.position.y + 1.2, z: player.position.z },
+            manaChange > 0
+          )
+        })
+      }
     }
   },
   
@@ -251,6 +446,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     let newXP = player.xp + amount
     let newLevel = player.level
     let xpToNext = player.xpToNext
+    const leveledUp = newLevel > player.level
     
     // Level up logic
     while (newXP >= xpToNext) {
@@ -267,6 +463,29 @@ export const useGameStore = create<GameState>((set, get) => ({
         xpToNext
       }
     })
+    
+    // Show floating numbers and combat log
+    if (player.position) {
+      import('../utils/floatingNumbers').then(({ createXPNumber, createLevelUpNumber }) => {
+        import('../utils/combatLog').then(({ logXP, logLevelUp }) => {
+          // Show XP gain
+          createXPNumber(
+            amount,
+            { x: player.position.x, y: player.position.y + 1.8, z: player.position.z }
+          )
+          logXP(amount)
+          
+          // Show level up if applicable
+          if (leveledUp) {
+            createLevelUpNumber(
+              newLevel,
+              { x: player.position.x, y: player.position.y + 2.5, z: player.position.z }
+            )
+            logLevelUp(newLevel)
+          }
+        })
+      })
+    }
   },
   
   addCredits: (amount) => {
@@ -496,10 +715,30 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   isShopOpen: false,
   toggleShop: () => set((state) => ({ isShopOpen: !state.isShopOpen })),
+  isSettingsOpen: false,
+  toggleSettings: () => set((state) => ({ isSettingsOpen: !state.isSettingsOpen })),
+  isTutorialOpen: false,
+  toggleTutorial: () => set((state) => ({ isTutorialOpen: !state.isTutorialOpen })),
+  hasCompletedTutorial: false,
+  setHasCompletedTutorial: (completed) => {
+    set({ hasCompletedTutorial: completed })
+    localStorage.setItem('hasCompletedTutorial', String(completed))
+  },
+  isMinimapOpen: false,
+  toggleMinimap: () => set((state) => ({ isMinimapOpen: !state.isMinimapOpen })),
+  isHousingOpen: false,
+  toggleHousing: () => set((state) => ({ isHousingOpen: !state.isHousingOpen })),
   
   // Game state
   currentZone: 'nexus_city',
-  setCurrentZone: (zoneId) => set({ currentZone: zoneId }),
+  setCurrentZone: (zoneId) => {
+    set({ currentZone: zoneId })
+    // Also update player zone property if player exists
+    const { player } = get()
+    if (player) {
+      set({ player: { ...player, zone: zoneId } })
+    }
+  },
   
   isConnected: false,
   setConnected: (connected) => set({ isConnected: connected }),
@@ -515,7 +754,23 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Quest system
   activeQuests: [],
   availableQuests: [],
-  setActiveQuests: (quests) => set({ activeQuests: quests }),
+  setActiveQuests: (quests) => {
+    // Transform quests to match the expected type
+    const transformedQuests = quests.map(q => ({
+      questId: q.questId,
+      status: q.status as 'active' | 'completed' | 'failed',
+      objectives: q.objectives.map(obj => ({
+        id: obj.id,
+        type: 'unknown',
+        target: 'unknown',
+        quantity: obj.required,
+        current: obj.current
+      })),
+      startedAt: Date.now(),
+      expiresAt: undefined
+    }))
+    set({ activeQuests: transformedQuests })
+  },
   setAvailableQuests: (quests) => set({ availableQuests: quests }),
   updateQuestProgress: (questId, objectiveId, progress) => {
     const { activeQuests } = get()
@@ -538,7 +793,18 @@ export const useGameStore = create<GameState>((set, get) => ({
   battlePassProgress: null,
   battlePassSeason: null,
   setBattlePassProgress: (progress) => set({ battlePassProgress: progress }),
-  setBattlePassSeason: (season) => set({ battlePassSeason: season }),
+  setBattlePassSeason: (season) => {
+    // Transform season to match expected type
+    const transformedSeason = {
+      id: String(season.id),
+      name: season.name,
+      season: season.id, // Use id as season number if not provided
+      startDate: season.startDate,
+      endDate: season.endDate,
+      tiers: [] // Will be populated by server
+    }
+    set({ battlePassSeason: transformedSeason })
+  },
   
   // Trading system
   currentTrade: null,
@@ -553,6 +819,42 @@ export const useGameStore = create<GameState>((set, get) => ({
   setAchievements: (achievements) => set({ achievements }),
   setAchievementProgress: (progress) => set({ achievementProgress: progress }),
   toggleAchievement: () => set((state) => ({ isAchievementOpen: !state.isAchievementOpen })),
+  
+  // World Boss System
+  activeBosses: new Map(),
+  setActiveBoss: (bossId, boss) => {
+    const { activeBosses } = get()
+    const updated = new Map(activeBosses)
+    updated.set(bossId, boss)
+    set({ activeBosses: updated })
+  },
+  removeActiveBoss: (bossId) => {
+    const { activeBosses } = get()
+    const updated = new Map(activeBosses)
+    updated.delete(bossId)
+    set({ activeBosses: updated })
+  },
+  updateBoss: (bossId, updates) => {
+    const { activeBosses } = get()
+    const boss = activeBosses.get(bossId)
+    if (boss) {
+      const updated = new Map(activeBosses)
+      updated.set(bossId, { ...boss, ...updates })
+      set({ activeBosses: updated })
+    }
+  },
+  
+  // Dynamic Events System
+  activeEvents: [],
+  setActiveEvents: (events) => set({ activeEvents: events }),
+  addActiveEvent: (event) => {
+    const { activeEvents } = get()
+    set({ activeEvents: [...activeEvents, event] })
+  },
+  removeActiveEvent: (eventId) => {
+    const { activeEvents } = get()
+    set({ activeEvents: activeEvents.filter(e => e.id !== eventId) })
+  },
   
   // Skills system
   playerSkills: new Map(),
@@ -620,9 +922,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Performance monitoring
   fps: 60,
   setFPS: (fps) => set({ fps }),
+  networkLatency: 0,
+  setNetworkLatency: (latency) => set({ networkLatency: latency }),
+  packetLoss: 0,
+  setPacketLoss: (loss) => set({ packetLoss: loss }),
   
-  // Camera mode
-  cameraMode: 'third-person' as 'first-person' | 'third-person',
+  // Camera mode - default to first-person for cyberpunk city experience
+  cameraMode: 'first-person' as 'first-person' | 'third-person',
   setCameraMode: (mode) => set({ cameraMode: mode }),
   toggleCameraMode: () => {
     const current = useGameStore.getState().cameraMode
@@ -634,6 +940,48 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Movement state
   isPlayerMoving: false,
   setIsPlayerMoving: (moving) => set({ isPlayerMoving: moving }),
+  isClimbingBuilding: false,
+  setIsClimbingBuilding: (climbing) => set({ isClimbingBuilding: climbing }),
+  
+  // Stamina system
+  stamina: 100,
+  maxStamina: 100,
+  setStamina: (stamina: number) => set({ stamina: Math.max(0, Math.min(stamina, get().maxStamina)) }),
+  consumeStamina: (amount: number) => {
+    const current = get().stamina
+    set({ stamina: Math.max(0, current - amount) })
+  },
+  rechargeStamina: (amount: number) => {
+    const current = get().stamina
+    const max = get().maxStamina
+    set({ stamina: Math.min(max, current + amount) })
+  },
+  
+  // Grapple system
+  canGrapple: false,
+  setCanGrapple: (canGrapple) => set({ canGrapple }),
+  grappledBuilding: null,
+  setGrappledBuilding: (building) => set({ grappledBuilding: building }),
+
+  // Settings
+  qualitySettings: getQualityManager().getSettings(),
+  setQualitySettings: (settings: QualitySettings) => set({ qualitySettings: settings }),
+
+  // Combat Feedback
+  screenShakeIntensity: 0,
+  setScreenShakeIntensity: (intensity) => set({ screenShakeIntensity: intensity }),
+
+  // Social Features
+  friends: [],
+  friendRequests: [],
+  setFriends: (friends) => set({ friends }),
+  setFriendRequests: (requests) => set({ friendRequests: requests }),
+  isSocialOpen: false,
+  toggleSocial: () => set((state) => ({ isSocialOpen: !state.isSocialOpen })),
+
+  // Housing
+  housing: null,
+  setHousing: (housing) => set({ housing }),
   
   // Damage numbers
   damageNumbers: new Map(),
@@ -659,6 +1007,33 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newNumbers = new Map(damageNumbers)
       newNumbers.set(id, { ...damageNumber, ...updates })
       set({ damageNumbers: newNumbers })
+    }
+  },
+  
+  // Floating numbers (enhanced system)
+  floatingNumbers: new Map(),
+  
+  addFloatingNumber: (floatingNumber) => {
+    const { floatingNumbers } = get()
+    const newNumbers = new Map(floatingNumbers)
+    newNumbers.set(floatingNumber.id, floatingNumber)
+    set({ floatingNumbers: newNumbers })
+  },
+  
+  removeFloatingNumber: (id) => {
+    const { floatingNumbers } = get()
+    const newNumbers = new Map(floatingNumbers)
+    newNumbers.delete(id)
+    set({ floatingNumbers: newNumbers })
+  },
+  
+  updateFloatingNumber: (id, updates) => {
+    const { floatingNumbers } = get()
+    const floatingNumber = floatingNumbers.get(id)
+    if (floatingNumber) {
+      const newNumbers = new Map(floatingNumbers)
+      newNumbers.set(id, { ...floatingNumber, ...updates })
+      set({ floatingNumbers: newNumbers })
     }
   }
 }))

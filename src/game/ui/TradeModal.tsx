@@ -9,34 +9,32 @@ export default function TradeModal() {
 
   useEffect(() => {
     if (currentTrade) {
-      const isPlayer1 = currentTrade.player1Id === player?.id
-      setCreditsInput(isPlayer1 ? currentTrade.player1Offer.credits.toString() : currentTrade.player2Offer.credits.toString())
+      setCreditsInput(currentTrade.myCredits.toString())
     }
   }, [currentTrade, player])
 
   if (!isTradeOpen || !currentTrade || !player) return null
 
-  const isPlayer1 = currentTrade.player1Id === player.id
-  const myOffer = isPlayer1 ? currentTrade.player1Offer : currentTrade.player2Offer
-  const theirOffer = isPlayer1 ? currentTrade.player2Offer : currentTrade.player1Offer
-  const myConfirmed = isPlayer1 ? currentTrade.player1Confirmed : currentTrade.player2Confirmed
-  const theirConfirmed = isPlayer1 ? currentTrade.player2Confirmed : currentTrade.player1Confirmed
+  const myOffer = { items: currentTrade.myItems, credits: currentTrade.myCredits }
+  const theirOffer = { items: currentTrade.otherItems, credits: currentTrade.otherCredits }
+  const myConfirmed = currentTrade.myConfirmed
+  const theirConfirmed = currentTrade.otherConfirmed
 
   const handleRemoveItem = (itemId: string) => {
-    removeTradeItem(currentTrade.id, itemId)
+    removeTradeItem(currentTrade.sessionId, itemId)
   }
 
   const handleSetCredits = () => {
     const credits = parseInt(creditsInput) || 0
-    setTradeCredits(currentTrade.id, credits)
+    setTradeCredits(currentTrade.sessionId, credits)
   }
 
   const handleConfirm = () => {
-    confirmTrade(currentTrade.id)
+    confirmTrade(currentTrade.sessionId)
   }
 
   const handleCancel = () => {
-    cancelTrade(currentTrade.id)
+    cancelTrade(currentTrade.sessionId)
     setCurrentTrade(null)
   }
 
@@ -137,7 +135,7 @@ export default function TradeModal() {
         <div className="flex gap-4 mt-4">
           <button
             onClick={handleConfirm}
-            disabled={myConfirmed || currentTrade.status !== 'pending'}
+            disabled={myConfirmed}
             className="flex-1 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:cursor-not-allowed px-4 py-2 rounded font-bold"
           >
             {myConfirmed ? 'Confirmed' : 'Confirm Trade'}

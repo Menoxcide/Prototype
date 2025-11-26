@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { RACES } from '../data/races'
 import QualitySettingsModal from '../components/QualitySettingsModal'
@@ -18,6 +18,12 @@ export default function HUD() {
     isAchievementOpen,
     isShopOpen,
     isSkillsOpen,
+    isSettingsOpen,
+    isClimbingBuilding,
+    canGrapple,
+    grappledBuilding,
+    stamina,
+    maxStamina,
     toggleInventory,
     toggleCrafting,
     toggleMarket,
@@ -27,10 +33,82 @@ export default function HUD() {
     toggleBattlePass,
     toggleAchievement,
     toggleShop,
-    toggleSkills
+    toggleSkills,
+    toggleSettings,
+    isHousingOpen,
+    toggleHousing,
+    isSocialOpen,
+    toggleSocial,
+    isMinimapOpen,
+    toggleMinimap
   } = useGameStore()
   
   const [isQualitySettingsOpen, setIsQualitySettingsOpen] = useState(false)
+  const [showClimbingIndicator, setShowClimbingIndicator] = useState(false)
+  const [showGrappleIndicator, setShowGrappleIndicator] = useState(false)
+  const indicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const grappleIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Show indicator when climbing starts, and keep it visible for 3 seconds after climbing stops
+  useEffect(() => {
+    if (isClimbingBuilding) {
+      // Show indicator immediately when climbing starts
+      setShowClimbingIndicator(true)
+      
+      // Clear any existing timeout
+      if (indicatorTimeoutRef.current) {
+        clearTimeout(indicatorTimeoutRef.current)
+        indicatorTimeoutRef.current = null
+      }
+    } else {
+      // When climbing stops, set a timer to hide the indicator after 3 seconds
+      if (showClimbingIndicator && !indicatorTimeoutRef.current) {
+        indicatorTimeoutRef.current = setTimeout(() => {
+          setShowClimbingIndicator(false)
+          indicatorTimeoutRef.current = null
+        }, 3000) // 3 seconds
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (indicatorTimeoutRef.current) {
+        clearTimeout(indicatorTimeoutRef.current)
+      }
+    }
+  }, [isClimbingBuilding, showClimbingIndicator])
+
+  // Show grapple indicator when canGrapple is true OR when actively grappling, and keep it visible for 3 seconds after it becomes false
+  useEffect(() => {
+    const isActivelyGrappling = grappledBuilding !== null
+    const shouldShow = canGrapple || isActivelyGrappling
+    
+    if (shouldShow) {
+      // Show indicator immediately when grapple becomes available or when actively grappling
+      setShowGrappleIndicator(true)
+      
+      // Clear any existing timeout
+      if (grappleIndicatorTimeoutRef.current) {
+        clearTimeout(grappleIndicatorTimeoutRef.current)
+        grappleIndicatorTimeoutRef.current = null
+      }
+    } else {
+      // When grapple becomes unavailable, set a timer to hide the indicator after 3 seconds
+      if (showGrappleIndicator && !grappleIndicatorTimeoutRef.current) {
+        grappleIndicatorTimeoutRef.current = setTimeout(() => {
+          setShowGrappleIndicator(false)
+          grappleIndicatorTimeoutRef.current = null
+        }, 3000) // 3 seconds
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (grappleIndicatorTimeoutRef.current) {
+        clearTimeout(grappleIndicatorTimeoutRef.current)
+      }
+    }
+  }, [canGrapple, grappledBuilding, showGrappleIndicator])
 
   if (!player) return null
 
@@ -288,16 +366,131 @@ export default function HUD() {
               👥 Guild
             </button>
             <button
-              onClick={() => setIsQualitySettingsOpen(true)}
+              onClick={toggleMinimap}
               onMouseDown={(e) => e.stopPropagation()}
-              className="px-4 py-2 rounded-lg font-bold transition-all bg-gray-800 text-cyan-400 hover:bg-gray-700"
-              title="Quality Settings"
+              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                isMinimapOpen
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+              }`}
+              title="Minimap"
+            >
+              🗺️
+            </button>
+            <button
+              onClick={toggleHousing}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                isHousingOpen
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+              }`}
+              title="Housing"
+            >
+              🏠
+            </button>
+            <button
+              onClick={toggleSocial}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                isSocialOpen
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+              }`}
+              title="Social"
+            >
+              👥
+            </button>
+            <button
+              onClick={toggleSettings}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                isSettingsOpen
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+              }`}
+              title="Settings"
             >
               ⚙️
             </button>
           </div>
         </div>
       </DraggableResizable>
+
+      {/* Stamina Bar - Top Right */}
+      <div className="absolute top-20 right-4 pointer-events-auto">
+        <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-yellow-500 rounded-lg p-2 neon-border">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-400 text-sm font-bold">⚡</span>
+            <div className="w-32">
+              <div className="flex justify-between text-xs text-gray-400 mb-1">
+                <span>Stamina</span>
+                <span>{Math.round(stamina)}/{maxStamina}</span>
+              </div>
+              <div className="w-full bg-gray-800 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    stamina < 20 ? 'bg-red-500' : stamina < 50 ? 'bg-yellow-500' : 'bg-yellow-400'
+                  }`}
+                  style={{
+                    width: `${(stamina / maxStamina) * 100}%`,
+                    boxShadow: stamina < 20 ? '0 0 10px #ff0000' : '0 0 10px #ffd700'
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Small indicators below stamina box */}
+        <div className="mt-2 space-y-1">
+          {/* Building Jump Indicator - Small and concise */}
+          {showClimbingIndicator && (
+            <div className="bg-gray-900/90 backdrop-blur-sm border border-orange-500 rounded px-2 py-1 neon-border">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">🏢</span>
+                <span className="text-orange-400 text-xs font-semibold">Climbing</span>
+              </div>
+            </div>
+          )}
+
+          {/* Grapple Indicator - Small and concise */}
+          {showGrappleIndicator && (
+            <div 
+              className={`bg-gray-900/90 backdrop-blur-sm border rounded px-2 py-1 neon-border ${
+                grappledBuilding 
+                  ? 'border-orange-500 animate-pulse' 
+                  : 'border-cyan-500'
+              }`}
+              style={{
+                boxShadow: grappledBuilding 
+                  ? '0 0 15px rgba(255, 165, 0, 0.8), 0 0 30px rgba(255, 165, 0, 0.4)' 
+                  : '0 0 10px rgba(0, 255, 255, 0.5)'
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">{grappledBuilding ? '⚡' : '🎯'}</span>
+                <span className={`text-xs font-semibold ${
+                  grappledBuilding ? 'text-orange-400' : 'text-cyan-400'
+                }`}>
+                  {grappledBuilding ? 'Grappling' : 'Grapple'}
+                </span>
+                {grappledBuilding && player && (
+                  <div className="ml-1 w-8 h-1 bg-gray-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-orange-500 transition-all"
+                      style={{
+                        width: `${Math.min(100, (grappledBuilding.position.y / 50) * 100)}%`,
+                        boxShadow: '0 0 5px rgba(255, 165, 0, 0.8)'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Quality Settings Modal */}
       <QualitySettingsModal

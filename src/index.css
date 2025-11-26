@@ -10,8 +10,8 @@
 
 body {
   font-family: 'Orbitron', monospace;
-  background: #0a0a0a;
-  color: #00ffff;
+  background: #1a0a0a; /* Mars dark red */
+  color: #ff6b35; /* Mars orange */
   overflow: hidden;
   touch-action: none;
   -webkit-touch-callout: none;
@@ -61,12 +61,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #00ffff;
+  background: #ff6b35; /* Mars orange */
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #ff00ff;
+  background: #ff8c42; /* Mars amber */
 }
 
 /* Enhanced Cyberpunk Effects */
@@ -233,20 +233,20 @@ body {
   height: 100%;
   pointer-events: none;
   z-index: -1;
-  background: radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
-              radial-gradient(circle at 80% 80%, rgba(255, 0, 255, 0.1) 0%, transparent 50%),
-              radial-gradient(circle at 40% 20%, rgba(157, 0, 255, 0.1) 0%, transparent 50%);
+  background: radial-gradient(circle at 20% 50%, rgba(255, 107, 53, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(255, 140, 66, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 40% 20%, rgba(255, 170, 92, 0.1) 0%, transparent 50%);
 }
 
 /* Enhanced Selection */
 ::selection {
-  background: rgba(0, 255, 255, 0.3);
-  color: #00ffff;
+  background: rgba(255, 107, 53, 0.3); /* Mars orange */
+  color: #ff6b35;
 }
 
 ::-moz-selection {
-  background: rgba(0, 255, 255, 0.3);
-  color: #00ffff;
+  background: rgba(255, 107, 53, 0.3); /* Mars orange */
+  color: #ff6b35;
 }
 
 /* Screen reader only - visually hidden but accessible to assistive technologies */

@@ -3,7 +3,6 @@ import { useGameStore } from '../store/useGameStore'
 import { getItem } from '../data/items'
 import { getCosmetic } from '../data/cosmetics'
 import { claimBattlePassReward, unlockBattlePassPremium, requestBattlePassProgress } from '../network/battlePass'
-import type { BattlePassTier } from '../../../shared/src/types/battlePass'
 
 export default function BattlePassModal() {
   const { isBattlePassOpen, toggleBattlePass, player, battlePassProgress, battlePassSeason } = useGameStore()
@@ -26,17 +25,18 @@ export default function BattlePassModal() {
   }
 
   // Calculate progress to next tier
-  const currentTierData = battlePassSeason.tiers.find((t: BattlePassTier) => t.tier === progress.currentTier)
-  const nextTierData = battlePassSeason.tiers.find((t: BattlePassTier) => t.tier === progress.currentTier + 1)
+  // Store tiers have a simpler structure: { tier: number; freeReward?: {...}; premiumReward?: {...} }
+  const nextTierData = battlePassSeason.tiers.find((t: any) => t.tier === progress.currentTier + 1)
   
   let progressToNext = 0
   let xpForNext = 0
   
+  // For now, use a simple calculation since store doesn't have xpRequired
   if (nextTierData) {
-    const currentTierXP = currentTierData?.xpRequired || 0
-    const nextTierXP = nextTierData.xpRequired
-    xpForNext = nextTierXP - currentTierXP
-    const xpInCurrentTier = progress.currentXP - currentTierXP
+    // Estimate XP needed per tier (1000 XP per tier)
+    const estimatedXPPerTier = 1000
+    xpForNext = estimatedXPPerTier
+    const xpInCurrentTier = progress.currentXP % estimatedXPPerTier
     progressToNext = xpInCurrentTier / xpForNext
   } else if (progress.currentTier >= battlePassSeason.tiers.length) {
     progressToNext = 1 // Max tier reached
@@ -105,7 +105,7 @@ export default function BattlePassModal() {
 
         {/* Tiers */}
         <div className="grid grid-cols-5 gap-3">
-          {battlePassSeason.tiers.map((tier: BattlePassTier, tierIdx: number) => {
+          {battlePassSeason.tiers.map((tier: any, tierIdx: number) => {
             const isUnlocked = tier.tier <= progress.currentTier
             const isCurrentTier = tier.tier === progress.currentTier
             const claimedTiers = (progress.claimedTiers as number[]) || []
@@ -128,24 +128,22 @@ export default function BattlePassModal() {
                 </div>
 
                 {/* Free Reward */}
-                {tier.freeRewards.length > 0 && (
+                {tier.freeReward && (
                   <div className="mb-2 p-2 bg-gray-800 rounded text-center">
                     <div className="text-xs text-gray-400 mb-1">Free</div>
-                    {tier.freeRewards.map((reward, idx) => (
-                      <div key={idx} className="text-xs">
-                        {reward.type === 'credits' && (
-                          <div className="text-yellow-400">💰 {reward.amount}</div>
-                        )}
-                        {reward.type === 'xp' && (
-                          <div className="text-cyan-400">⭐ {reward.amount} XP</div>
-                        )}
-                        {reward.type === 'item' && reward.itemId && (
-                          <div>
-                            {getItem(reward.itemId)?.icon} x{reward.quantity}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    <div className="text-xs">
+                      {tier.freeReward.type === 'credits' && (
+                        <div className="text-yellow-400">💰 {tier.freeReward.amount}</div>
+                      )}
+                      {tier.freeReward.type === 'xp' && (
+                        <div className="text-cyan-400">⭐ {tier.freeReward.amount} XP</div>
+                      )}
+                      {tier.freeReward.type === 'item' && (
+                        <div>
+                          {getItem(tier.freeReward.itemId || '')?.icon} x{tier.freeReward.quantity || 1}
+                        </div>
+                      )}
+                    </div>
                     {isUnlocked && !freeClaimed && (
                       <button
                         onClick={() => claimBattlePassReward(tier.tier, 'free')}
@@ -161,26 +159,24 @@ export default function BattlePassModal() {
                 )}
 
                 {/* Premium Reward */}
-                {tier.premiumRewards.length > 0 && progress.premiumUnlocked && (
+                {tier.premiumReward && progress.premiumUnlocked && (
                   <div className="p-2 bg-yellow-900/30 border border-yellow-500 rounded text-center">
                     <div className="text-xs text-yellow-400 mb-1">Premium</div>
-                    {tier.premiumRewards.map((reward, idx) => (
-                      <div key={idx} className="text-xs">
-                        {reward.type === 'cosmetic' && reward.cosmeticId && (
-                          <div className="text-yellow-400">
-                            {getCosmetic(reward.cosmeticId)?.icon}
-                          </div>
-                        )}
-                        {reward.type === 'item' && reward.itemId && (
-                          <div>
-                            {getItem(reward.itemId)?.icon} x{reward.quantity}
-                          </div>
-                        )}
-                        {reward.type === 'credits' && (
-                          <div className="text-yellow-400">💰 {reward.amount}</div>
-                        )}
-                      </div>
-                    ))}
+                    <div className="text-xs">
+                      {tier.premiumReward.type === 'cosmetic' && tier.premiumReward.cosmeticId && (
+                        <div className="text-yellow-400">
+                          {getCosmetic(tier.premiumReward.cosmeticId)?.icon}
+                        </div>
+                      )}
+                      {tier.premiumReward.type === 'item' && tier.premiumReward.itemId && (
+                        <div>
+                          {getItem(tier.premiumReward.itemId)?.icon} x{tier.premiumReward.quantity || 1}
+                        </div>
+                      )}
+                      {tier.premiumReward.type === 'credits' && (
+                        <div className="text-yellow-400">💰 {tier.premiumReward.amount}</div>
+                      )}
+                    </div>
                     {isUnlocked && !premiumClaimed && (
                       <button
                         onClick={() => claimBattlePassReward(tier.tier, 'premium')}

@@ -8,6 +8,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { Enemy } from '../types'
+import { trackGeometry } from '../utils/geometryDisposalTracker'
+import { getPooledGeometry, releasePooledGeometry } from '../utils/geometryPool'
 
 interface InstancedEnemiesProps {
   enemies: Map<string, Enemy>
@@ -15,20 +17,32 @@ interface InstancedEnemiesProps {
 
 export default function InstancedEnemies({ enemies }: InstancedEnemiesProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
-  const { player } = useGameStore()
+  // Use selective subscription to reduce re-renders
+  const player = useGameStore((state) => state.player)
 
-  // Create geometry and material once
-  const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), [])
+  // Create geometry and material once (using geometry pool)
+  const geometry = useMemo(() => {
+    const geom = getPooledGeometry('enemy-box', () => new THREE.BoxGeometry(1, 1, 1))
+    // Track geometry for disposal monitoring
+    trackGeometry(geom, `instanced-enemies-geometry`, 'InstancedEnemies')
+    return geom
+  }, [])
+  // Batch entities by material type for better GPU efficiency
   const material = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#ff0000',
     emissive: '#ff0000',
     emissiveIntensity: 0.3
   }), [])
   
+  // Note: For material batching with multiple materials, we would need to
+  // group enemies by material type and create separate instanced meshes
+  // This is a simplified version with a single material
+  
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      geometry.dispose()
+      // Release geometry back to pool instead of disposing
+      releasePooledGeometry('enemy-box')
       material.dispose()
     }
   }, [geometry, material])

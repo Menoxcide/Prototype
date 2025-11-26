@@ -26,7 +26,7 @@ export interface BoundingBox {
 
 export interface DeltaUpdate {
   path: string
-  value: any
+  value: unknown
   operation: 'set' | 'delete' | 'add' | 'remove'
 }
 
@@ -38,9 +38,13 @@ export interface PlayerState {
   timestamp: number
 }
 
+// NetworkMessage is now defined in shared/src/types/network.ts
+// Re-export for backward compatibility
+export type { NetworkMessageData, TypedNetworkMessage, StateDelta, StateDeltaMessage } from './types/network'
+
 export interface NetworkMessage {
   type: string
-  data: any
+  data: unknown
   timestamp: number
   priority: number
 }
@@ -53,8 +57,8 @@ export interface NetworkPacket {
 export interface LODLevel {
   level: number
   distance: number
-  geometry?: any
-  material?: any
+  geometry?: unknown
+  material?: unknown
 }
 
 export interface LODConfig {

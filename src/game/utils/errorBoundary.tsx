@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react'
+import { errorReporting } from './errorReporting'
 
 interface Props {
   children: ReactNode
@@ -19,7 +20,27 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo)
+    // Use centralized error handler
+    const { handleError, ErrorType, ErrorSeverity } = require('./errorHandler')
+    handleError(
+      error,
+      ErrorType.UNKNOWN,
+      ErrorSeverity.HIGH,
+      {
+        componentStack: errorInfo.componentStack,
+        errorBoundary: true
+      }
+    )
+    
+    // Also report to existing error reporting system
+    errorReporting.reportCrash(
+      error.message,
+      error.stack,
+      {
+        componentStack: errorInfo.componentStack,
+        errorBoundary: true
+      }
+    )
   }
 
   public render() {

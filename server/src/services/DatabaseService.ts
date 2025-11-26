@@ -4,7 +4,8 @@
  */
 
 export interface PlayerData {
-  id: string
+  id: string // Character ID (unique identifier for the character)
+  userId?: string // Firebase UID (owner of the character)
   name: string
   race: string
   level: number
@@ -35,17 +36,96 @@ export interface PlayerData {
   updatedAt: Date
 }
 
+/**
+ * Simplified character info for selection screens
+ */
+export interface CharacterSummary {
+  id: string // Character ID
+  name: string
+  race: string
+  level: number
+  lastLogin: Date
+  createdAt: Date
+}
+
+/**
+ * Database Service Interface
+ * 
+ * Provides abstraction for database operations with support for:
+ * - Player data persistence
+ * - Connection pooling
+ * - Transactions
+ * - Query execution
+ * 
+ * Implementations:
+ * - `InMemoryDatabaseService` - For development/testing
+ * - `PostgreSQLDatabaseService` - For production
+ * 
+ * @example
+ * ```ts
+ * const db = new PostgreSQLDatabaseService()
+ * await db.connect()
+ * await db.savePlayerData('player-1', playerData)
+ * const data = await db.loadPlayerData('player-1')
+ * ```
+ */
 export interface DatabaseService {
+  /**
+   * Save player data to database
+   * @param playerId - Unique player identifier (character ID)
+   * @param data - Complete player data object
+   */
   savePlayerData(playerId: string, data: PlayerData): Promise<void>
+  
+  /**
+   * Load player data from database
+   * @param playerId - Unique player identifier (character ID)
+   * @returns Player data or null if not found
+   */
   loadPlayerData(playerId: string): Promise<PlayerData | null>
-  query<T>(query: string, params: any[]): Promise<T[]>
+  
+  /**
+   * List all characters for a user
+   * @param userId - Firebase UID (user account)
+   * @returns Array of character summaries
+   */
+  listCharactersByUser(userId: string): Promise<CharacterSummary[]>
+  
+  /**
+   * Count characters for a user
+   * @param userId - Firebase UID (user account)
+   * @returns Number of characters owned by the user
+   */
+  countCharactersByUser(userId: string): Promise<number>
+  
+  /**
+   * Execute a SQL query
+   * @param query - SQL query string
+   * @param params - Query parameters
+   * @returns Array of results
+   */
+  query<T>(query: string, params: unknown[]): Promise<T[]>
+  
+  /**
+   * Execute operations within a transaction
+   * @param callback - Transaction callback
+   * @returns Result of callback
+   */
   transaction<T>(callback: (tx: Transaction) => Promise<T>): Promise<T>
+  
+  /**
+   * Connect to database
+   */
   connect(): Promise<void>
+  
+  /**
+   * Disconnect from database
+   */
   disconnect(): Promise<void>
 }
 
 export interface Transaction {
-  query<T>(query: string, params: any[]): Promise<T[]>
+  query<T>(query: string, params: unknown[]): Promise<T[]>
   commit(): Promise<void>
   rollback(): Promise<void>
 }
@@ -97,6 +177,43 @@ export class InMemoryDatabaseService implements DatabaseService {
     return null
   }
 
+  async listCharactersByUser(userId: string): Promise<CharacterSummary[]> {
+    if (!this.connected) {
+      throw new Error('Database not connected')
+    }
+
+    const characters: CharacterSummary[] = []
+    for (const [id, data] of this.players.entries()) {
+      if (data.userId === userId || (!data.userId && id === userId)) {
+        characters.push({
+          id: data.id,
+          name: data.name,
+          race: data.race,
+          level: data.level,
+          lastLogin: data.lastLogin,
+          createdAt: data.createdAt
+        })
+      }
+    }
+
+    // Sort by last login (most recent first)
+    return characters.sort((a, b) => b.lastLogin.getTime() - a.lastLogin.getTime())
+  }
+
+  async countCharactersByUser(userId: string): Promise<number> {
+    if (!this.connected) {
+      throw new Error('Database not connected')
+    }
+
+    let count = 0
+    for (const [id, data] of this.players.entries()) {
+      if (data.userId === userId || (!data.userId && id === userId)) {
+        count++
+      }
+    }
+    return count
+  }
+
   async query<T>(query: string, params: any[]): Promise<T[]> {
     if (!this.connected) {
       throw new Error('Database not connected')
@@ -114,7 +231,7 @@ export class InMemoryDatabaseService implements DatabaseService {
     }
 
     const tx: Transaction = {
-      query: async <T>(query: string, params: any[]): Promise<T[]> => {
+      query: async <T>(query: string, params: unknown[]): Promise<T[]> => {
         return this.query<T>(query, params)
       },
       commit: async (): Promise<void> => {
@@ -141,7 +258,7 @@ export class InMemoryDatabaseService implements DatabaseService {
  * Requires pg package: npm install pg @types/pg
  */
 export class PostgreSQLDatabaseService implements DatabaseService {
-  private pool: any = null
+  private pool: unknown = null
   private connected: boolean = false
 
   constructor(private config: {
@@ -194,16 +311,22 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       throw new Error('Database not connected')
     }
 
+    // Use character_id if available, otherwise use id
+    const characterId = playerId
+    const userId = data.userId || null
+
     const query = `
       INSERT INTO players (
-        id, name, race, level, xp, xp_to_next, credits,
+        id, character_id, user_id, name, race, level, xp, xp_to_next, credits,
         position_x, position_y, position_z, rotation,
         health, max_health, mana, max_mana,
         inventory, equipped_spells, guild_id, guild_tag,
         achievements, quests, battle_pass,
         created_at, last_login, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
       ON CONFLICT (id) DO UPDATE SET
+        character_id = COALESCE(EXCLUDED.character_id, players.character_id),
+        user_id = COALESCE(EXCLUDED.user_id, players.user_id),
         name = EXCLUDED.name,
         level = EXCLUDED.level,
         xp = EXCLUDED.xp,
@@ -229,7 +352,9 @@ export class PostgreSQLDatabaseService implements DatabaseService {
     `
 
     const params = [
-      playerId,
+      playerId, // id (keep for backwards compatibility)
+      characterId, // character_id
+      userId, // user_id
       data.name,
       data.race,
       data.level,
@@ -265,8 +390,11 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       throw new Error('Database not connected')
     }
 
+    // Try to load by character_id first, then fall back to id for backwards compatibility
     const query = `
-      SELECT * FROM players WHERE id = $1
+      SELECT * FROM players 
+      WHERE character_id = $1 OR (character_id IS NULL AND id = $1)
+      LIMIT 1
     `
 
     const result = await this.pool.query(query, [playerId])
@@ -276,8 +404,10 @@ export class PostgreSQLDatabaseService implements DatabaseService {
     }
 
     const row = result.rows[0]
+    const characterId = row.character_id || row.id
     return {
-      id: row.id,
+      id: characterId,
+      userId: row.user_id,
       name: row.name,
       race: row.race,
       level: row.level,
@@ -307,6 +437,51 @@ export class PostgreSQLDatabaseService implements DatabaseService {
     }
   }
 
+  async listCharactersByUser(userId: string): Promise<CharacterSummary[]> {
+    if (!this.connected || !this.pool) {
+      throw new Error('Database not connected')
+    }
+
+    const query = `
+      SELECT 
+        COALESCE(character_id, id) as id,
+        name,
+        race,
+        level,
+        last_login,
+        created_at
+      FROM players
+      WHERE user_id = $1
+      ORDER BY last_login DESC
+    `
+
+    const result = await this.pool.query(query, [userId])
+    
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      race: row.race,
+      level: row.level,
+      lastLogin: row.last_login,
+      createdAt: row.created_at
+    }))
+  }
+
+  async countCharactersByUser(userId: string): Promise<number> {
+    if (!this.connected || !this.pool) {
+      throw new Error('Database not connected')
+    }
+
+    const query = `
+      SELECT COUNT(*) as count
+      FROM players
+      WHERE user_id = $1
+    `
+
+    const result = await this.pool.query(query, [userId])
+    return parseInt(result.rows[0].count, 10)
+  }
+
   async query<T>(query: string, params: any[]): Promise<T[]> {
     if (!this.connected || !this.pool) {
       throw new Error('Database not connected')
@@ -327,7 +502,7 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       await client.query('BEGIN')
       
       const tx: Transaction = {
-        query: async <T>(query: string, params: any[]): Promise<T[]> => {
+        query: async <T>(query: string, params: unknown[]): Promise<T[]> => {
           const result = await client.query(query, params)
           return result.rows as T[]
         },

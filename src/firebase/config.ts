@@ -1,7 +1,10 @@
 /**
  * Firebase Configuration
  * 
- * TODO: Replace these placeholder values with your actual Firebase config
+ * Configuration is loaded from environment variables (VITE_FIREBASE_*)
+ * with fallback values for development. In production, ensure all
+ * environment variables are set in your deployment platform.
+ * 
  * Get these from: Firebase Console → Project Settings → General → Your apps
  */
 

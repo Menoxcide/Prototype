@@ -29,13 +29,13 @@ export interface QualitySettings {
 const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   low: {
     preset: 'low',
-    renderDistance: 30,
+    renderDistance: 150, // Increased from 30 to prevent seeing outside world
     shadowDistance: 0,
     particleCount: 50,
     lodDistance: {
-      high: 10,
-      medium: 20,
-      low: 30
+      high: 30,
+      medium: 60,
+      low: 150
     },
     textureQuality: 'low',
     antialiasing: false,
@@ -47,13 +47,13 @@ const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   },
   medium: {
     preset: 'medium',
-    renderDistance: 50,
+    renderDistance: 200, // Increased from 50
     shadowDistance: 20,
     particleCount: 100,
     lodDistance: {
-      high: 15,
-      medium: 30,
-      low: 50
+      high: 40,
+      medium: 80,
+      low: 200
     },
     textureQuality: 'medium',
     antialiasing: false,
@@ -65,13 +65,13 @@ const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   },
   high: {
     preset: 'high',
-    renderDistance: 75,
+    renderDistance: 300, // Increased from 75
     shadowDistance: 40,
     particleCount: 200,
     lodDistance: {
-      high: 25,
-      medium: 50,
-      low: 75
+      high: 60,
+      medium: 120,
+      low: 300
     },
     textureQuality: 'high',
     antialiasing: true,
@@ -83,13 +83,13 @@ const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   },
   ultra: {
     preset: 'ultra',
-    renderDistance: 100,
+    renderDistance: 400, // Increased from 100
     shadowDistance: 60,
     particleCount: 500,
     lodDistance: {
-      high: 40,
-      medium: 70,
-      low: 100
+      high: 80,
+      medium: 160,
+      low: 400
     },
     textureQuality: 'high',
     antialiasing: true,
@@ -101,6 +101,19 @@ const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   }
 }
 
+/**
+ * Quality Settings Manager
+ * 
+ * Manages rendering quality presets and automatic quality adjustment based on performance.
+ * Supports low, medium, high, and ultra presets with automatic FPS-based adjustment.
+ * 
+ * @example
+ * ```ts
+ * const manager = getQualityManager()
+ * manager.setPreset('high')
+ * manager.adjustQualityBasedOnPerformance(45) // Auto-adjusts if FPS is low
+ * ```
+ */
 class QualitySettingsManager {
   private currentSettings: QualitySettings
   private listeners: Set<(settings: QualitySettings) => void> = new Set()

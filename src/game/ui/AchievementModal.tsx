@@ -1,21 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { requestAchievementProgress } from '../network/achievements'
-import type { AchievementProgress } from '../../../shared/src/types/achievements'
-
-const RARITY_COLORS = {
-  common: '#9ca3af',
-  rare: '#3b82f6',
-  epic: '#a855f7',
-  legendary: '#f59e0b'
-}
-
-const RARITY_BORDERS = {
-  common: 'border-gray-500',
-  rare: 'border-blue-500',
-  epic: 'border-purple-500',
-  legendary: 'border-yellow-500'
-}
 
 export default function AchievementModal() {
   const { isAchievementOpen, toggleAchievement, player, achievementProgress, achievements } = useGameStore()
@@ -32,19 +17,19 @@ export default function AchievementModal() {
   const categories = ['all', 'combat', 'exploration', 'social', 'crafting', 'collection', 'progression']
   const filteredAchievements = selectedCategory === 'all'
     ? achievements
-    : achievements.filter(a => a.category === selectedCategory)
+    : achievements.filter(() => {
+        // Store achievements don't have category, so filter by all for now
+        return true
+      })
 
-  const getProgress = (achievementId: string): AchievementProgress | null => {
-    return achievementProgress.find(p => p.achievementId === achievementId) || null
+  const getProgress = (achievementId: string) => {
+    return achievementProgress.find(p => p.id === achievementId) || null
   }
 
-  const unlockedCount = achievementProgress.filter(p => p.unlocked).length
-  const totalPoints = achievementProgress
-    .filter(p => p.unlocked)
-    .reduce((sum, p) => {
-      const achievement = achievements.find(a => a.id === p.achievementId)
-      return sum + (achievement?.points || 0)
-    }, 0)
+  const unlockedCount = achievementProgress.filter(p => p.completed).length
+  const totalPoints = achievements
+    .filter(a => achievementProgress.find(p => p.id === a.id)?.completed)
+    .reduce((sum, a) => sum + (a.reward?.amount || 0), 0)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
@@ -85,14 +70,14 @@ export default function AchievementModal() {
         <div className="grid grid-cols-1 gap-3">
           {filteredAchievements.map(achievement => {
             const progress = getProgress(achievement.id)
-            const isUnlocked = progress?.unlocked || false
+            const isUnlocked = progress?.completed || false
 
             return (
               <div
                 key={achievement.id}
                 className={`border-2 rounded-lg p-4 ${
                   isUnlocked
-                    ? `${RARITY_BORDERS[achievement.rarity as keyof typeof RARITY_BORDERS]} bg-${achievement.rarity === 'legendary' ? 'yellow' : achievement.rarity === 'epic' ? 'purple' : achievement.rarity === 'rare' ? 'blue' : 'gray'}-900/20`
+                    ? 'border-cyan-500 bg-cyan-900/20'
                     : 'border-gray-700 bg-gray-800/50 opacity-60'
                 }`}
               >
@@ -103,55 +88,44 @@ export default function AchievementModal() {
                         {achievement.name}
                         {isUnlocked && <span className="text-green-400 ml-2">✓</span>}
                       </h3>
-                      <span
-                        className="text-xs px-2 py-1 rounded"
-                        style={{
-                          backgroundColor: `${RARITY_COLORS[achievement.rarity as keyof typeof RARITY_COLORS]}20`,
-                          color: RARITY_COLORS[achievement.rarity as keyof typeof RARITY_COLORS],
-                          border: `1px solid ${RARITY_COLORS[achievement.rarity as keyof typeof RARITY_COLORS]}`
-                        }}
-                      >
-                        {achievement.rarity.toUpperCase()}
+                      <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">
+                        ACHIEVEMENT
                       </span>
                       <span className="text-xs text-gray-500">
-                        {achievement.points} pts
+                        {achievement.reward?.amount || 0} {achievement.reward?.type || 'pts'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-400 mb-2">{achievement.description}</p>
 
-                    {/* Requirements Progress */}
+                    {/* Progress */}
                     {!isUnlocked && progress && (
                       <div className="space-y-1">
-                        {progress.requirements.map((req, idx) => (
-                          <div key={idx} className="text-xs">
-                            <div className="flex justify-between text-gray-400 mb-1">
-                              <span>
-                                {req.type === 'kill' && `Defeat ${req.target || 'enemies'}`}
-                                {req.type === 'collect' && `Collect items`}
-                                {req.type === 'craft' && 'Craft items'}
-                                {req.type === 'reach_level' && 'Reach level'}
-                                {req.type === 'complete_quest' && 'Complete quests'}
-                                {req.type === 'join_guild' && 'Join guild'}
-                                {req.type === 'trade' && 'Complete trades'}
-                                {req.type === 'dungeon_complete' && 'Complete dungeons'}
-                              </span>
-                              <span>{req.current} / {req.quantity}</span>
-                            </div>
-                            <div className="w-full bg-gray-800 rounded-full h-1.5">
-                              <div
-                                className="bg-cyan-500 h-1.5 rounded-full transition-all"
-                                style={{ width: `${Math.min((req.current / req.quantity) * 100, 100)}%` }}
-                              />
-                            </div>
+                        <div className="text-xs">
+                          <div className="flex justify-between text-gray-400 mb-1">
+                            <span>Progress</span>
+                            <span>{progress.progress} / {progress.maxProgress}</span>
                           </div>
-                        ))}
+                          <div className="w-full bg-gray-800 rounded-full h-1.5">
+                            <div
+                              className="bg-cyan-500 h-1.5 rounded-full transition-all"
+                              style={{ width: `${Math.min((progress.progress / progress.maxProgress) * 100, 100)}%` }}
+                            />
+                          </div>
+                        </div>
                       </div>
                     )}
 
                     {/* Rewards */}
-                    {achievement.rewards.length > 0 && (
+                    {achievement.reward && (
                       <div className="mt-2 flex gap-2 flex-wrap">
-                        {achievement.rewards.map((reward: any, idx: number) => (
+                        <div key={0} className="text-xs px-2 py-1 bg-gray-800 rounded">
+                          {achievement.reward.type}: {achievement.reward.amount}
+                        </div>
+                      </div>
+                    )}
+                    {achievement.reward && (
+                      <div className="mt-2 flex gap-2 flex-wrap">
+                        {[achievement.reward].map((reward: any, idx: number) => (
                           <div key={idx} className="text-xs bg-gray-800 px-2 py-1 rounded">
                             {reward.type === 'xp' && `⭐ ${reward.amount} XP`}
                             {reward.type === 'credits' && `💰 ${reward.amount} Credits`}

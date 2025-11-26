@@ -1,5 +1,17 @@
-// Analytics and telemetry for game events
-// Can be integrated with services like Google Analytics, Mixpanel, etc.
+/**
+ * Analytics and Telemetry System
+ * Fully integrated with Firebase Analytics for production event tracking
+ * 
+ * Features:
+ * - Automatic Firebase Analytics integration in production
+ * - In-memory event buffer (last 100 events)
+ * - Console logging in development mode
+ * - Event type constants for consistent tracking
+ * 
+ * Usage:
+ *   import { analytics, EVENT_TYPES } from './utils/analytics'
+ *   analytics.track(EVENT_TYPES.PLAYER_LEVEL_UP, { level: 5 })
+ */
 
 export interface GameEvent {
   type: string
@@ -10,6 +22,35 @@ export interface GameEvent {
 class Analytics {
   private events: GameEvent[] = []
   private enabled = true
+  private firebaseAnalytics: any = null
+
+  constructor() {
+    // Initialize Firebase Analytics if available
+    if (typeof window !== 'undefined' && import.meta.env.PROD) {
+      this.initializeFirebaseAnalytics()
+    }
+  }
+
+  private async initializeFirebaseAnalytics() {
+    try {
+      // Dynamically import Firebase Analytics
+      const analyticsModule = await import('firebase/analytics')
+      const appModule = await import('firebase/app')
+      
+      try {
+        const app = appModule.getApp()
+        this.firebaseAnalytics = analyticsModule.getAnalytics(app)
+      } catch (e) {
+        // App not initialized yet, try to initialize
+        const { firebaseConfig } = await import('../../firebase/config')
+        const app = appModule.initializeApp(firebaseConfig)
+        this.firebaseAnalytics = analyticsModule.getAnalytics(app)
+      }
+    } catch (error) {
+      // Firebase Analytics not available or not configured
+      // This is fine - analytics is optional
+    }
+  }
 
   track(eventType: string, data?: Record<string, any>) {
     if (!this.enabled) return
@@ -27,9 +68,20 @@ class Analytics {
       this.events.shift()
     }
 
-    // In production, send to analytics service
-    if (import.meta.env.PROD) {
-      // TODO: Send to analytics service
+    // Send to Firebase Analytics in production
+    if (import.meta.env.PROD && this.firebaseAnalytics) {
+      // Use dynamic import asynchronously
+      import('firebase/analytics').then(({ logEvent }) => {
+        try {
+          logEvent(this.firebaseAnalytics, eventType, data || {})
+        } catch (error) {
+          // Silently fail - analytics is optional
+        }
+      }).catch(() => {
+        // Analytics not available
+      })
+    } else if (import.meta.env.DEV) {
+      // Log to console in development
       console.log('Analytics:', event)
     }
   }

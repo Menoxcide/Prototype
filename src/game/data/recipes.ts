@@ -77,6 +77,83 @@ export const RECIPES: Recipe[] = [
     result: { itemId: 'energy_drink', quantity: 2 },
     craftingTime: 10000,
     level: 3
+  },
+  {
+    id: 'void_shield_craft',
+    name: 'Void Shield',
+    description: 'Craft a powerful void shield.',
+    ingredients: [
+      { itemId: 'void_essence', quantity: 5 },
+      { itemId: 'quantum_circuit', quantity: 8 },
+      { itemId: 'cyber_scrap', quantity: 25 }
+    ],
+    result: { itemId: 'void_shield', quantity: 1 },
+    craftingTime: 45000,
+    level: 8
+  },
+  {
+    id: 'plasma_grenade_craft',
+    name: 'Plasma Grenade',
+    description: 'Craft explosive plasma grenades.',
+    ingredients: [
+      { itemId: 'plasma_core', quantity: 3 },
+      { itemId: 'quantum_crystal', quantity: 2 },
+      { itemId: 'cyber_scrap', quantity: 10 }
+    ],
+    result: { itemId: 'plasma_grenade', quantity: 5 },
+    craftingTime: 20000,
+    level: 6
+  },
+  {
+    id: 'neural_enhancer_craft',
+    name: 'Neural Enhancer',
+    description: 'Enhance your neural interface.',
+    ingredients: [
+      { itemId: 'neural_interface', quantity: 5 },
+      { itemId: 'quantum_circuit', quantity: 3 },
+      { itemId: 'void_essence', quantity: 2 }
+    ],
+    result: { itemId: 'neural_enhancer', quantity: 1 },
+    craftingTime: 35000,
+    level: 12
+  },
+  {
+    id: 'quantum_boots_craft',
+    name: 'Quantum Boots',
+    description: 'Craft boots with quantum speed enhancement.',
+    ingredients: [
+      { itemId: 'quantum_crystal', quantity: 8 },
+      { itemId: 'quantum_circuit', quantity: 4 },
+      { itemId: 'cyber_scrap', quantity: 15 }
+    ],
+    result: { itemId: 'quantum_boots', quantity: 1 },
+    craftingTime: 25000,
+    level: 7
+  },
+  {
+    id: 'repair_kit_craft',
+    name: 'Repair Kit',
+    description: 'Craft a kit to repair damaged equipment.',
+    ingredients: [
+      { itemId: 'cyber_scrap', quantity: 10 },
+      { itemId: 'quantum_circuit', quantity: 2 }
+    ],
+    result: { itemId: 'repair_kit', quantity: 3 },
+    craftingTime: 15000,
+    level: 4
+  },
+  {
+    id: 'energy_core_craft',
+    name: 'Energy Core',
+    description: 'Craft a powerful energy core.',
+    ingredients: [
+      { itemId: 'plasma_core', quantity: 10 },
+      { itemId: 'quantum_crystal', quantity: 5 },
+      { itemId: 'void_essence', quantity: 3 }
+    ],
+    result: { itemId: 'energy_core', quantity: 1 },
+    craftingTime: 60000,
+    level: 20
   }
 ]
 

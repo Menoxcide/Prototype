@@ -7,7 +7,7 @@ import { networkMonitor, isMobileDevice } from '../utils/mobileOptimizations'
 
 interface NetworkMessage {
   type: string
-  data: any
+  data: unknown
   timestamp: number
   priority: number
 }
@@ -20,7 +20,7 @@ interface NetworkPacket {
 /**
  * Shallow equality check for objects
  */
-function shallowEqual(obj1: any, obj2: any): boolean {
+function shallowEqual(obj1: unknown, obj2: unknown): boolean {
   if (obj1 === obj2) return true
   if (obj1 == null || obj2 == null) return false
   if (typeof obj1 !== 'object' || typeof obj2 !== 'object') return obj1 === obj2
@@ -31,7 +31,7 @@ function shallowEqual(obj1: any, obj2: any): boolean {
   if (keys1.length !== keys2.length) return false
 
   for (const key of keys1) {
-    if (obj1[key] !== obj2[key]) return false
+    if ((obj1 as any)[key] !== (obj2 as any)[key]) return false
   }
 
   return true
@@ -90,8 +90,12 @@ class MessageBatcher {
   }
 
   add(message: NetworkMessage, priority: number = 5): void {
-    // Shallow equality check for mobile to reduce duplicate messages
-    if (this.isMobile) {
+    // Critical messages (priority >= 9) are sent immediately
+    const clampedPriority = Math.max(0, Math.min(priority, 10))
+    const isCritical = clampedPriority >= 9
+    
+    // Shallow equality check for mobile to reduce duplicate messages (skip for critical)
+    if (this.isMobile && !isCritical) {
       const lastMessage = this.lastMessageCache.get(message.type)
       if (lastMessage && shallowEqual(lastMessage.data, message.data)) {
         // Skip duplicate message (within same batch window)
@@ -100,10 +104,15 @@ class MessageBatcher {
       this.lastMessageCache.set(message.type, message)
     }
 
-    const clampedPriority = Math.max(0, Math.min(priority, 10))
     const messageWithPriority: NetworkMessage = {
       ...message,
       priority: clampedPriority
+    }
+
+    // Critical messages bypass queue and are sent immediately
+    if (isCritical) {
+      // Return immediately for caller to send
+      return messageWithPriority as any
     }
 
     // Insert in priority order
@@ -120,6 +129,26 @@ class MessageBatcher {
     if (this.messageQueue.length > this.maxBatchSize * 2) {
       this.messageQueue = this.messageQueue.slice(0, this.maxBatchSize)
     }
+  }
+  
+  /**
+   * Add message and return immediately if critical, otherwise queue it
+   */
+  addWithImmediateSend(message: NetworkMessage, priority: number = 5, sendFn?: (msg: NetworkMessage) => void): void {
+    const clampedPriority = Math.max(0, Math.min(priority, 10))
+    const isCritical = clampedPriority >= 9
+    
+    if (isCritical && sendFn) {
+      // Send critical messages immediately
+      sendFn({
+        ...message,
+        priority: clampedPriority
+      })
+      return
+    }
+    
+    // Non-critical messages go to queue
+    this.add(message, priority)
   }
 
   flush(): NetworkPacket | null {
@@ -161,16 +190,25 @@ export function initializeMessageBatcher(): void {
   messageBatcher = new MessageBatcher()
 }
 
-export function addMessage(type: string, data: any, priority: number = 5): void {
+export function addMessage(type: string, data: unknown, priority: number = 5, sendFn?: (msg: NetworkMessage) => void): void {
   if (!messageBatcher) {
     initializeMessageBatcher()
   }
-  messageBatcher!.add({
+  
+  const message: NetworkMessage = {
     type,
     data,
     timestamp: Date.now(),
     priority
-  }, priority)
+  }
+  
+  // If sendFn provided and message is critical, send immediately
+  if (sendFn && priority >= 9) {
+    messageBatcher!.addWithImmediateSend(message, priority, sendFn)
+  } else {
+    // Otherwise queue it
+    messageBatcher!.add(message, priority)
+  }
 }
 
 export function flushMessages(): NetworkPacket | null {

@@ -27,36 +27,72 @@ export default function SpaceSkybox() {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
-      fragmentShader: `
+        fragmentShader: `
         uniform float time;
         varying vec3 vWorldPosition;
         
-        // Simple star field
+        // Improved star field with multiple layers
         float random(vec2 st) {
           return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+        
+        float noise(vec2 st) {
+          vec2 i = floor(st);
+          vec2 f = fract(st);
+          float a = random(i);
+          float b = random(i + vec2(1.0, 0.0));
+          float c = random(i + vec2(0.0, 1.0));
+          float d = random(i + vec2(1.0, 1.0));
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
         }
         
         void main() {
           vec3 dir = normalize(vWorldPosition);
           
-          // Base color - dark blue to black gradient
+          // Cyberpunk sky - dark blue/purple to black gradient
           vec3 color = mix(
-            vec3(0.05, 0.05, 0.15), // Dark blue
-            vec3(0.0, 0.0, 0.0),     // Black
-            smoothstep(-0.5, 0.5, dir.y)
+            vec3(0.05, 0.05, 0.15),  // Dark blue-purple
+            vec3(0.0, 0.0, 0.02),     // Near black
+            smoothstep(-0.3, 0.7, dir.y)
           );
           
-          // Add stars
-          vec2 starCoord = dir.xy * 100.0;
-          float star = random(floor(starCoord));
-          if (star > 0.98) {
-            float twinkle = sin(time * 2.0 + star * 10.0) * 0.5 + 0.5;
-            color += vec3(1.0) * star * twinkle * 0.5;
+          // Enhanced star field - multiple layers for depth
+          vec2 starCoord1 = dir.xy * 200.0;
+          vec2 starCoord2 = dir.xy * 150.0;
+          vec2 starCoord3 = dir.xy * 100.0;
+          
+          // Bright stars (distant)
+          float star1 = random(floor(starCoord1));
+          if (star1 > 0.995) {
+            float twinkle = sin(time * 1.5 + star1 * 20.0) * 0.3 + 0.7;
+            float brightness = pow(star1, 0.3);
+            color += vec3(1.0, 1.0, 0.9) * brightness * twinkle * 1.2;
           }
           
-          // Add nebula-like effect
-          float nebula = sin(dir.x * 5.0 + time) * sin(dir.z * 5.0 + time * 0.7) * 0.1;
-          color += vec3(0.2, 0.1, 0.3) * max(0.0, nebula);
+          // Medium stars
+          float star2 = random(floor(starCoord2));
+          if (star2 > 0.99) {
+            float twinkle = sin(time * 2.0 + star2 * 15.0) * 0.4 + 0.6;
+            color += vec3(0.9, 0.9, 1.0) * star2 * twinkle * 0.8;
+          }
+          
+          // Small stars (close)
+          float star3 = random(floor(starCoord3));
+          if (star3 > 0.985) {
+            float twinkle = sin(time * 2.5 + star3 * 12.0) * 0.5 + 0.5;
+            color += vec3(1.0, 1.0, 1.0) * star3 * twinkle * 0.5;
+          }
+          
+          // Add nebula/cloud effects using noise
+          vec2 cloudCoord = dir.xy * 10.0 + time * 0.1;
+          float clouds = noise(cloudCoord) * 0.3;
+          clouds = smoothstep(0.3, 0.7, clouds);
+          color += vec3(0.2, 0.15, 0.3) * clouds * 0.4; // Purple nebula
+          
+          // Add some cyberpunk neon glow in the distance
+          float glow = sin(dir.x * 3.0 + time) * sin(dir.z * 3.0 + time * 0.8) * 0.2;
+          color += vec3(0.1, 0.2, 0.4) * max(0.0, glow);
           
           gl_FragColor = vec4(color, 1.0);
         }

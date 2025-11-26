@@ -27,6 +27,39 @@ export default {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      branches: 60,
+      functions: 60,
+      lines: 60,
+      statements: 60
+    },
+    // Core systems require 80% coverage
+    'src/game/store/gameStore.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    },
+    'src/game/systems/combatSystem.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    },
+    'server/src/rooms/NexusRoom.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    },
+    'src/game/network/colyseus.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testTimeout: 10000
 }

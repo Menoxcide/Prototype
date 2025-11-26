@@ -4,13 +4,14 @@
  */
 
 import * as THREE from 'three'
+import { modelLoader } from './modelLoader'
 
 export interface AssetDefinition {
   id: string
   type: 'texture' | 'sprite' | 'icon' | 'sound' | 'model' | 'animation'
   path?: string
   data?: string // For inline SVG/data URLs
-  options?: any
+  options?: Record<string, unknown>
 }
 
 export interface TextureAsset extends AssetDefinition {
@@ -42,6 +43,16 @@ class AssetManager {
   private readonly UNUSED_ASSET_TIMEOUT = 60000 // 60 seconds
   private lastUsedTime: Map<string, number> = new Map()
   
+  /**
+   * Get adaptive cleanup interval based on device type
+   * Mobile: 30 seconds, Desktop: 90 seconds
+   */
+  private getCleanupInterval(): number {
+    // Check if mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    return isMobile ? 30000 : 90000 // 30s mobile, 90s desktop
+  }
+  
   // Zone-based asset loading
   private loadedZones: Set<string> = new Set()
   private zoneAssets: Map<string, Set<string>> = new Map() // zone -> set of asset IDs
@@ -50,13 +61,36 @@ class AssetManager {
   private isLoading: boolean = false
 
   /**
-   * Generate procedural texture
+   * Get optimal texture size based on quality settings
+   */
+  private getOptimalTextureSize(baseSize: number, quality: 'low' | 'medium' | 'high' = 'medium'): number {
+    switch (quality) {
+      case 'low':
+        return Math.max(128, baseSize / 4)
+      case 'medium':
+        return Math.max(256, baseSize / 2)
+      case 'high':
+        return baseSize
+      default:
+        return baseSize
+    }
+  }
+
+  /**
+   * Generate procedural texture with optimization
    */
   generateTexture(
     id: string,
     width: number = 512,
     height: number = 512,
-    generator: (ctx: CanvasRenderingContext2D) => void
+    generator: (ctx: CanvasRenderingContext2D) => void,
+    options?: {
+      quality?: 'low' | 'medium' | 'high'
+      generateMipmaps?: boolean
+      minFilter?: THREE.TextureFilter
+      magFilter?: THREE.TextureFilter
+      anisotropy?: number
+    }
   ): THREE.Texture {
     if (this.textures.has(id)) {
       // Increment reference count
@@ -64,20 +98,125 @@ class AssetManager {
       return this.textures.get(id)!
     }
 
+    // Optimize texture size based on quality
+    const quality = options?.quality || 'medium'
+    const optimalWidth = this.getOptimalTextureSize(width, quality)
+    const optimalHeight = this.getOptimalTextureSize(height, quality)
+
     const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
+    canvas.width = optimalWidth
+    canvas.height = optimalHeight
     const ctx = canvas.getContext('2d')!
+    
+    // Scale context if needed for quality
+    if (optimalWidth !== width || optimalHeight !== height) {
+      ctx.scale(optimalWidth / width, optimalHeight / height)
+    }
     
     generator(ctx)
     
     const texture = new THREE.CanvasTexture(canvas)
     texture.needsUpdate = true
+    
+    // Texture optimization settings
+    texture.generateMipmaps = options?.generateMipmaps !== false
+    texture.minFilter = options?.minFilter || (texture.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter)
+    texture.magFilter = (options?.magFilter as THREE.MagnificationTextureFilter) || THREE.LinearFilter
+    texture.anisotropy = options?.anisotropy || (quality === 'high' ? 16 : quality === 'medium' ? 8 : 4)
+    
+    // Compression hints (WebGL will use these if supported)
+    texture.format = THREE.RGBAFormat
+    texture.type = THREE.UnsignedByteType
+    
+    // Set wrap mode for better tiling
+    texture.wrapS = THREE.RepeatWrapping
+    texture.wrapT = THREE.RepeatWrapping
+    
     this.textures.set(id, texture)
     this.textureRefs.set(id, 1)
     this.lastUsedTime.set(id, Date.now())
     
     return texture
+  }
+  
+  /**
+   * Compress texture using canvas compression
+   * Returns a compressed data URL (for storage/transmission)
+   */
+  compressTexture(texture: THREE.Texture, quality: number = 0.9): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!texture.image) {
+        reject(new Error('Texture has no image data'))
+        return
+      }
+
+      const canvas = document.createElement('canvas')
+      const image = texture.image as HTMLImageElement | HTMLCanvasElement | ImageBitmap | { width?: number; height?: number } | null
+      if (!image || (typeof image !== 'object') || !('width' in image) || !('height' in image)) {
+        reject(new Error('Texture has no valid image data'))
+        return
+      }
+      canvas.width = image.width || 512
+      canvas.height = image.height || 512
+      const ctx = canvas.getContext('2d')
+      
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'))
+        return
+      }
+
+      if (image instanceof HTMLImageElement || image instanceof HTMLCanvasElement || image instanceof ImageBitmap) {
+        ctx.drawImage(image, 0, 0)
+      } else {
+        reject(new Error('Texture image is not a valid CanvasImageSource'))
+        return
+      }
+      
+      // Convert to compressed format
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error('Failed to compress texture'))
+            return
+          }
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = () => reject(new Error('Failed to read compressed texture'))
+          reader.readAsDataURL(blob)
+        },
+        'image/webp', // Use WebP for better compression
+        quality
+      )
+    })
+  }
+  
+  /**
+   * Create texture from compressed data
+   */
+  loadCompressedTexture(id: string, dataUrl: string): Promise<THREE.Texture> {
+    return new Promise((resolve, reject) => {
+      if (this.textures.has(id)) {
+        this.incrementTextureRef(id)
+        resolve(this.textures.get(id)!)
+        return
+      }
+
+      const img = new Image()
+      img.onload = () => {
+        const texture = new THREE.Texture(img)
+        texture.needsUpdate = true
+        texture.generateMipmaps = true
+        texture.minFilter = THREE.LinearMipmapLinearFilter
+        texture.magFilter = THREE.LinearFilter
+        
+        this.textures.set(id, texture)
+        this.textureRefs.set(id, 1)
+        this.lastUsedTime.set(id, Date.now())
+        resolve(texture)
+      }
+      img.onerror = () => reject(new Error('Failed to load compressed texture'))
+      img.src = dataUrl
+    })
   }
   
   /**
@@ -221,6 +360,7 @@ class AssetManager {
 
   /**
    * Generate material with enhanced properties
+   * Enhanced with better PBR support including normal maps, ao maps, and roughness maps
    */
   createEnhancedMaterial(
     id: string,
@@ -231,6 +371,15 @@ class AssetManager {
       roughness?: number
       emissiveIntensity?: number
       normalMap?: THREE.Texture
+      aoMap?: THREE.Texture
+      roughnessMap?: THREE.Texture
+      metalnessMap?: THREE.Texture
+      envMap?: THREE.Texture
+      envMapIntensity?: number
+      clearcoat?: number
+      clearcoatRoughness?: number
+      sheen?: number
+      sheenRoughness?: number
     }
   ): THREE.MeshStandardMaterial {
     if (this.materials.has(id)) {
@@ -239,7 +388,7 @@ class AssetManager {
       return this.materials.get(id) as THREE.MeshStandardMaterial
     }
 
-    const materialOptions: any = {
+    const materialOptions: Record<string, unknown> = {
       color: baseColor,
       emissive: emissiveColor || baseColor,
       emissiveIntensity: options?.emissiveIntensity || 0.3,
@@ -247,9 +396,44 @@ class AssetManager {
       roughness: options?.roughness || 0.3,
     }
     
-    // Only include normalMap if it's actually provided
+    // Add normal map if provided
     if (options?.normalMap) {
       materialOptions.normalMap = options.normalMap
+      materialOptions.normalScale = new THREE.Vector2(1, 1)
+    }
+    
+    // Add ambient occlusion map
+    if (options?.aoMap) {
+      materialOptions.aoMap = options.aoMap
+      materialOptions.aoMapIntensity = 1.0
+    }
+    
+    // Add roughness map
+    if (options?.roughnessMap) {
+      materialOptions.roughnessMap = options.roughnessMap
+    }
+    
+    // Add metalness map
+    if (options?.metalnessMap) {
+      materialOptions.metalnessMap = options.metalnessMap
+    }
+    
+    // Add environment map for reflections
+    if (options?.envMap) {
+      materialOptions.envMap = options.envMap
+      materialOptions.envMapIntensity = options?.envMapIntensity || 1.0
+    }
+    
+    // Add clearcoat for glossy surfaces (cyberpunk materials)
+    if (options?.clearcoat !== undefined) {
+      materialOptions.clearcoat = options.clearcoat
+      materialOptions.clearcoatRoughness = options?.clearcoatRoughness || 0.1
+    }
+    
+    // Add sheen for fabric-like materials
+    if (options?.sheen !== undefined) {
+      materialOptions.sheen = options.sheen
+      materialOptions.sheenRoughness = options?.sheenRoughness || 0.5
     }
     
     const material = new THREE.MeshStandardMaterial(materialOptions)
@@ -258,6 +442,52 @@ class AssetManager {
     this.materialRefs.set(id, 1)
     this.lastUsedTime.set(id, Date.now())
     return material
+  }
+  
+  /**
+   * Generate a procedural normal map texture
+   */
+  generateNormalMap(
+    id: string,
+    width: number = 512,
+    height: number = 512,
+    intensity: number = 1.0
+  ): THREE.Texture {
+    const existing = this.textures.get(`normal-${id}`)
+    if (existing) {
+      this.incrementTextureRef(`normal-${id}`)
+      return existing
+    }
+
+    return this.generateTexture(`normal-${id}`, width, height, (ctx) => {
+      // Create a simple normal map pattern
+      // Normal maps use RGB where R=X, G=Y, B=Z (normalized to 0-255)
+      // Default normal is (0, 0, 1) which is RGB(128, 128, 255)
+      
+      const imageData = ctx.createImageData(width, height)
+      const data = imageData.data
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4
+          
+          // Create a subtle noise pattern for surface detail
+          const noise = (Math.sin(x * 0.1) * Math.cos(y * 0.1)) * intensity
+          
+          // Normal vector components (default pointing up)
+          const nx = 128 + noise * 20 // X component
+          const ny = 128 + noise * 20 // Y component
+          const nz = 255 - Math.abs(noise) * 30 // Z component (depth)
+          
+          data[i] = Math.max(0, Math.min(255, nx))     // R
+          data[i + 1] = Math.max(0, Math.min(255, ny)) // G
+          data[i + 2] = Math.max(0, Math.min(255, nz))  // B
+          data[i + 3] = 255                             // A
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0)
+    })
   }
   
   /**
@@ -284,6 +514,13 @@ class AssetManager {
   /**
    * Get texture by ID
    */
+  /**
+   * Get the textures map (for internal use by sprite animation system)
+   */
+  getTexturesMap(): Map<string, THREE.Texture> {
+    return this.textures
+  }
+
   getTexture(id: string): THREE.Texture | undefined {
     return this.textures.get(id)
   }
@@ -297,13 +534,28 @@ class AssetManager {
 
   /**
    * Start automatic cleanup of unused assets
+   * Uses adaptive intervals: 30s for mobile, 90s for desktop
+   * Integrates with memory monitor for pressure-based cleanup
    */
   startAutoCleanup(): void {
     if (this.unusedAssetCheckInterval) return
     
+    const interval = this.getCleanupInterval()
     this.unusedAssetCheckInterval = setInterval(() => {
+      // Check memory pressure and perform cleanup
       this.cleanupUnusedAssets()
-    }, 30000) // Check every 30 seconds
+      
+      // If memory is high, perform more aggressive cleanup
+      try {
+        const { memoryMonitor } = require('../utils/memoryMonitor')
+        if (memoryMonitor.checkMemoryThreshold(1500)) { // 1.5GB threshold
+          // More aggressive cleanup when memory is high
+          this.cleanupUnusedAssets(true)
+        }
+      } catch (e) {
+        // Memory monitor not available, continue with normal cleanup
+      }
+    }, interval)
   }
   
   /**
@@ -318,16 +570,18 @@ class AssetManager {
   
   /**
    * Cleanup unused assets
+   * @param aggressive If true, uses shorter timeout for more aggressive cleanup
    */
-  private cleanupUnusedAssets(): void {
+  private cleanupUnusedAssets(aggressive: boolean = false): void {
     const now = Date.now()
+    const timeout = aggressive ? this.UNUSED_ASSET_TIMEOUT / 2 : this.UNUSED_ASSET_TIMEOUT
     const toRemove: string[] = []
     
     // Check textures
     this.textureRefs.forEach((refCount, id) => {
       if (refCount === 0) {
         const lastUsed = this.lastUsedTime.get(id) || 0
-        if (now - lastUsed > this.UNUSED_ASSET_TIMEOUT) {
+        if (now - lastUsed > timeout) {
           toRemove.push(id)
         }
       }
@@ -349,7 +603,7 @@ class AssetManager {
     this.materialRefs.forEach((refCount, id) => {
       if (refCount === 0) {
         const lastUsed = this.lastUsedTime.get(id) || 0
-        if (now - lastUsed > this.UNUSED_ASSET_TIMEOUT) {
+        if (now - lastUsed > timeout) {
           materialsToRemove.push(id)
         }
       }
@@ -368,12 +622,59 @@ class AssetManager {
   }
   
   /**
+   * Load a 3D model (GLTF/GLB or procedural)
+   */
+  async loadModel(
+    id: string,
+    pathOrType: string,
+    options?: {
+      lodVersions?: { high?: string; medium?: string; low?: string }
+      scale?: number
+      color?: string
+      emissive?: string
+      onProgress?: (progress: number) => void
+    }
+  ): Promise<THREE.Group | THREE.Object3D> {
+    // Check if it's a procedural model type
+    const proceduralTypes = ['player', 'enemy-basic', 'enemy-elite', 'enemy-boss', 'resource-node', 'loot-drop']
+    if (proceduralTypes.includes(pathOrType)) {
+      return modelLoader.createProceduralModel(
+        id,
+        pathOrType as any,
+        {
+          color: options?.color,
+          emissive: options?.emissive,
+          scale: options?.scale
+        }
+      )
+    }
+
+    // Otherwise, load from path
+    return modelLoader.loadModel(id, pathOrType, options)
+  }
+
+  /**
+   * Get a cached model
+   */
+  getModel(id: string, lodLevel: 'high' | 'medium' | 'low' = 'high'): THREE.Group | THREE.Object3D | null {
+    return modelLoader.getModel(id, lodLevel)
+  }
+
+  /**
+   * Release a model reference
+   */
+  releaseModel(id: string): void {
+    modelLoader.releaseModel(id)
+  }
+
+  /**
    * Get asset usage statistics
    */
   getAssetStats(): {
     textures: { total: number; inUse: number; unused: number }
     materials: { total: number; inUse: number; unused: number }
     sounds: { total: number }
+    models: { total: number; inUse: number; memoryEstimate: number }
   } {
     let texturesInUse = 0
     let materialsInUse = 0
@@ -399,7 +700,8 @@ class AssetManager {
       },
       sounds: {
         total: this.sounds.size
-      }
+      },
+      models: modelLoader.getStats()
     }
   }
 
@@ -426,6 +728,12 @@ class AssetManager {
     // Preload expanded textures
     const { preloadExpandedTextures } = await import('./expandedTextures')
     preloadExpandedTextures()
+    
+    // Preload sprite characters for races (background loading)
+    const { downloadAllCharacters } = await import('../utils/downloadCharacters')
+    downloadAllCharacters().catch(err => {
+      console.warn('Character preloading failed (non-critical):', err)
+    })
     
     // Create texture atlas for common textures (especially important on mobile)
     const { isMobileDevice } = await import('../utils/mobileOptimizations')

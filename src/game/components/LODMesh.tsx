@@ -1,3 +1,21 @@
+/**
+ * LOD (Level of Detail) Mesh Component
+ * Automatically renders different detail levels based on distance from player
+ * 
+ * Usage:
+ * <LODMesh 
+ *   position={{ x: 0, y: 0, z: 0 }}
+ *   highDetail={<ComplexMesh />}
+ *   mediumDetail={<SimplifiedMesh />}
+ *   lowDetail={<BasicMesh />}
+ * />
+ * 
+ * NOTE: This component is available for future optimization but is not currently used.
+ * Consider using it for:
+ * - Complex environmental objects (buildings, trees, etc.)
+ * - NPCs and non-critical entities
+ * - Particle systems and effects
+ */
 import { useMemo } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { getLODLevel } from '../systems/performanceSystem'

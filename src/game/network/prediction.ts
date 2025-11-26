@@ -26,7 +26,7 @@ class ClientPredictionSystem {
   private currentState: PlayerState | null = null
   private lastServerState: PlayerState | null = null
   private maxRollbackTime = 1000
-  private reconciliationThreshold = 0.1
+  private reconciliationThreshold = 3.0 // Increased to 3.0 to prevent frequent corrections and rubberbanding
 
   constructor(initialState: PlayerState) {
     this.currentState = initialState
@@ -73,21 +73,22 @@ class ClientPredictionSystem {
     const posDiff = this.distance(this.currentState.position, serverState.position)
     
     if (posDiff > this.reconciliationThreshold) {
-      // Prediction was off, rollback
+      // Prediction was significantly off, rollback
       this.rollback()
       this.currentState = serverState
-    } else {
-      // Smooth correction
+    } else if (posDiff > 1.0) {
+      // Medium difference - smooth correction with less aggressive smoothing
       this.currentState = {
         ...this.currentState,
         position: {
-          x: this.currentState.position.x * 0.7 + serverState.position.x * 0.3,
-          y: this.currentState.position.y * 0.7 + serverState.position.y * 0.3,
-          z: this.currentState.position.z * 0.7 + serverState.position.z * 0.3
+          x: this.currentState.position.x * 0.85 + serverState.position.x * 0.15,
+          y: this.currentState.position.y * 0.85 + serverState.position.y * 0.15,
+          z: this.currentState.position.z * 0.85 + serverState.position.z * 0.15
         },
-        rotation: this.currentState.rotation * 0.7 + serverState.rotation * 0.3
+        rotation: this.currentState.rotation * 0.9 + serverState.rotation * 0.1
       }
     }
+    // If difference is very small (< 1.0), ignore server update to prevent micro-corrections
   }
 
   rollback(): PlayerState | null {

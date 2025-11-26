@@ -1,4 +1,5 @@
 import { Html } from '@react-three/drei'
+import { useMemo } from 'react'
 import { useGameStore } from '../store/useGameStore'
 
 interface PlayerNameplateProps {
@@ -10,19 +11,44 @@ interface PlayerNameplateProps {
  * PlayerNameplate - Renders player name and health bar
  * When used as child of Player group, position is relative to group
  * Html component automatically handles world transform from parent
+ * 
+ * Hides own player's nameplate in first-person view to avoid blocking vision
  */
 export default function PlayerNameplate({ playerId, position }: PlayerNameplateProps) {
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AT THE TOP
   const player = useGameStore((state) => 
     playerId === state.player?.id ? state.player : state.otherPlayers.get(playerId)
   )
+  const cameraMode = useGameStore((state) => state.cameraMode)
+  const isOwnPlayer = useGameStore((state) => playerId === state.player?.id)
+  const isFirstPerson = cameraMode === 'first-person'
+  
+  // Create unique key for Html component to prevent React from reusing wrong instances
+  // MUST be called before any early returns
+  const htmlKey = useMemo(() => `nameplate-${playerId}`, [playerId])
 
+  // Early return if player doesn't exist or playerId doesn't match
+  // This prevents nameplates from showing for wrong players
   if (!player) return null
+  
+  // Double-check the playerId matches (prevent showing wrong player's nameplate)
+  if (player.id !== playerId) {
+    if (import.meta.env.DEV) {
+      console.warn(`PlayerNameplate: playerId mismatch. Expected ${playerId}, got ${player.id}`)
+    }
+    return null
+  }
+
+  // Hide nameplate for own player in first-person view (to avoid blocking vision)
+  // Show in third-person or for other players/enemies
+  if (isOwnPlayer && isFirstPerson) return null
 
   const healthPercent = (player.health / player.maxHealth) * 100
   const healthColor = healthPercent > 60 ? '#00ff00' : healthPercent > 30 ? '#ffaa00' : '#ff0000'
 
   return (
     <Html
+      key={htmlKey}
       position={position}
       center
       distanceFactor={10}

@@ -9,7 +9,7 @@ interface CharacterCreationProps {
   onComplete: () => void
 }
 
-export default function CharacterCreation({ firebaseUid, onComplete }: CharacterCreationProps) {
+export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplete }: CharacterCreationProps) {
   const { setPlayer } = useGameStore()
   const [selectedRace, setSelectedRace] = useState<Race>('human')
   const [selectedTradition, setSelectedTradition] = useState<MagicTradition>('none')
@@ -38,16 +38,25 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
       const baseHealth = 100 + raceData.bonuses.health
       const baseMana = 100 + raceData.bonuses.mana
 
-      // Use Firebase UID as player ID for persistence
+      // Generate a unique character ID (UUID v4 style)
+      // For browser compatibility, we'll use a simple UUID generator
+      const generateCharacterId = () => {
+        return 'char_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+      }
+
+      const characterId = generateCharacterId()
+
+      // Create player object with character ID
+      // The userId (Firebase UID) will be passed separately to the server
       const player = {
-        id: firebaseUid, // Use Firebase UID instead of timestamp
+        id: characterId, // Character ID (unique per character)
         name: playerName.trim(),
         race: selectedRace,
         level: 1,
         xp: 0,
         xpToNext: 100,
         credits: 100,
-        position: { x: 0, y: 1, z: 0 }, // Y=1 to stand on ground (ground is at Y=0)
+        position: { x: 0, y: 1.1, z: 0 }, // Y=1.1 to stand on flat city streets
         rotation: 0,
         health: baseHealth,
         maxHealth: baseHealth,
@@ -70,15 +79,15 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
 
   return (
     <div className="fixed inset-0 bg-black flex items-start justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-md w-full neon-border my-4">
-        <h1 className="text-3xl font-bold text-cyan-400 neon-glow mb-6 text-center">
-          NEX://VOID
+      <div className="bg-gray-900 border-2 rounded-lg p-6 max-w-md w-full neon-border my-4" style={{ borderColor: '#ff6b35' }}>
+        <h1 className="text-3xl font-bold text-orange-500 neon-glow mb-6 text-center" style={{ color: '#ff6b35' }}>
+          MARS://NEXUS
         </h1>
-        <h2 className="text-xl text-cyan-300 mb-4 text-center">Create Your Character</h2>
+        <h2 className="text-xl mb-4 text-center" style={{ color: '#ff8c42' }}>Create Your Character</h2>
 
         {/* Name Input */}
         <div className="mb-6">
-          <label htmlFor="character-name" className="block text-cyan-400 mb-2">Character Name</label>
+          <label htmlFor="character-name" className="block mb-2" style={{ color: '#ff6b35' }}>Character Name</label>
           <input
             id="character-name"
             name="character-name"
@@ -89,7 +98,8 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
               setError('')
             }}
             maxLength={20}
-            className="w-full bg-gray-800 border border-cyan-500 rounded px-4 py-2 text-cyan-300 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500"
+            className="w-full bg-gray-800 border rounded px-4 py-2 focus:outline-none focus:ring-2"
+            style={{ borderColor: '#ff6b35', color: '#ff8c42' }}
             placeholder="Enter your name"
           />
           {error && <p className="text-red-400 text-sm mt-1">{error}</p>}
@@ -97,7 +107,7 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
 
         {/* Race Selection */}
         <div className="mb-6">
-          <label className="block text-cyan-400 mb-3">Select Race</label>
+          <label className="block mb-3" style={{ color: '#ff6b35' }}>Select Race</label>
           <div className="grid grid-cols-2 gap-3">
             {RACE_LIST.map((race) => (
               <button
@@ -129,7 +139,7 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
 
         {/* Magic Tradition Selection */}
         <div className="mb-6">
-          <label className="block text-cyan-400 mb-3">Select Magic Tradition (Optional)</label>
+          <label className="block mb-3" style={{ color: '#ff6b35' }}>Select Magic Tradition (Optional)</label>
           <div className="grid grid-cols-2 gap-2">
             {getAllTraditions().map((tradition) => (
               <button
@@ -137,9 +147,10 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
                 onClick={() => setSelectedTradition(tradition.id)}
                 className={`p-3 border-2 rounded-lg transition-all text-sm ${
                   selectedTradition === tradition.id
-                    ? 'border-cyan-500 bg-gray-800'
+                    ? 'bg-gray-800'
                     : 'border-gray-700 bg-gray-900 hover:border-gray-600'
                 }`}
+                style={selectedTradition === tradition.id ? { borderColor: '#ff6b35' } : {}}
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-lg">{tradition.icon}</span>
@@ -154,13 +165,13 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
         </div>
 
         {/* Selected Race Info */}
-        <div className="mb-6 p-4 bg-gray-800 rounded border border-cyan-500">
+        <div className="mb-6 p-4 bg-gray-800 rounded border" style={{ borderColor: '#ff6b35' }}>
           <div className="flex items-center gap-2 mb-2">
             <div
               className="w-4 h-4 rounded-full"
               style={{ backgroundColor: selectedRaceData.color }}
             />
-            <span className="font-bold text-cyan-300">{selectedRaceData.name}</span>
+            <span className="font-bold" style={{ color: '#ff8c42' }}>{selectedRaceData.name}</span>
           </div>
           <p className="text-sm text-gray-400">{selectedRaceData.description}</p>
         </div>
@@ -169,7 +180,8 @@ export default function CharacterCreation({ firebaseUid, onComplete }: Character
         <button
           onClick={handleCreate}
           disabled={isCreating}
-          className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-6 rounded-lg transition-all neon-glow text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full text-white font-bold py-3 px-6 rounded-lg transition-all neon-glow text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ backgroundColor: '#ff6b35' }}
         >
           {isCreating ? 'Creating Character...' : 'Enter the Void'}
         </button>

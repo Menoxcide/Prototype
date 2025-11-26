@@ -20,6 +20,7 @@ export interface Player {
   guildTag?: string
   guildName?: string
   tradition?: 'hermetic' | 'shamanic' | 'technomancer' | 'adept' | 'none'
+  zone?: string
 }
 
 export interface Spell {

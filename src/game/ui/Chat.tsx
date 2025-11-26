@@ -160,13 +160,29 @@ export default function Chat() {
                 return msg.color || '#00ffff'
               }
 
+              const isCombatLog = msg.type === 'system' && msg.playerName.includes('[Combat]')
+              const isStatusLog = msg.type === 'system' && msg.playerName.includes('[Status]')
+
               return (
-                <div key={msg.id} className="text-sm">
+                <div 
+                  key={msg.id} 
+                  className={`text-sm ${
+                    isCombatLog ? 'bg-red-900/20 border-l-2 border-red-500 pl-2' : 
+                    isStatusLog ? 'bg-blue-900/20 border-l-2 border-blue-500 pl-2' : 
+                    ''
+                  }`}
+                >
                   {msg.type === 'whisper' && (
                     <span className="text-green-400 text-xs">[Whisper] </span>
                   )}
                   {msg.type === 'guild' && (
                     <span className="text-purple-400 text-xs">[Guild] </span>
+                  )}
+                  {isCombatLog && (
+                    <span className="text-red-400 text-xs">⚔️ </span>
+                  )}
+                  {isStatusLog && (
+                    <span className="text-blue-400 text-xs">ℹ️ </span>
                   )}
                   <span
                     className="font-bold"

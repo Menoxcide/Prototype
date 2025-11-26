@@ -8,8 +8,10 @@ import cors from 'cors'
 import { NexusRoom } from './rooms/NexusRoom'
 import { MonitoringServiceImpl } from './services/MonitoringService'
 import { createMonitoringRouter } from './routes/monitoring'
+import { createCharactersRouter } from './routes/characters'
 import { redisService } from './services/RedisService'
 import { initializeFirebaseAdmin } from './services/FirebaseAdmin'
+import { createDatabaseService } from './services/DatabaseService'
 
 const app = express()
 const defaultPort = Number(process.env.PORT || 2567)
@@ -32,7 +34,23 @@ const globalMonitoringService = new MonitoringServiceImpl()
 const server = createServer(app)
 const gameServer = new Server({
   transport: new WebSocketTransport({
-    server
+    server,
+    // Enable per-message deflate compression for WebSocket
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 7,
+        level: 3 // Compression level (0-9, 3 is balanced)
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024
+      },
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+      serverMaxWindowBits: 10,
+      concurrencyLimit: 10,
+      threshold: 1024 // Only compress messages larger than 1KB
+    }
   })
 })
 
@@ -41,9 +59,17 @@ gameServer.define('nexus', NexusRoom, {
   monitoringService: globalMonitoringService
 })
 
+// Initialize database service for character management
+const databaseService = createDatabaseService()
+databaseService.connect().catch(err => {
+  console.warn('Failed to connect to database:', err)
+  console.warn('Character management endpoints will not work without database')
+})
+
 // Register monitoring endpoints
 app.use('/colyseus', monitor())
 app.use('/api/monitoring', createMonitoringRouter(globalMonitoringService))
+app.use('/api/characters', createCharactersRouter(databaseService))
 
 // Initialize Redis connection (optional, only if REDIS_URL is set)
 if (process.env.REDIS_URL) {

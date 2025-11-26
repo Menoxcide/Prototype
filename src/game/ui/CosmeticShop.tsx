@@ -16,8 +16,22 @@ export default function CosmeticShop() {
     }
 
     if (cosmetic.premiumOnly) {
-      // TODO: Integrate with Stripe for premium purchases
-      alert('Premium cosmetics require payment. Stripe integration coming soon!')
+      // Premium cosmetics require Stripe payment integration
+      // 
+      // Backend Implementation Required:
+      // 1. Create a server endpoint (e.g., POST /api/create-checkout-session) to create Stripe Checkout sessions
+      // 2. Handle Stripe webhooks for payment confirmation (e.g., POST /api/stripe-webhook)
+      // 3. Update player's premium currency/items in database after successful payment
+      // 4. Send confirmation message to client via Colyseus room message
+      //
+      // Client Implementation:
+      // 1. Call backend endpoint to create checkout session
+      // 2. Redirect to Stripe Checkout or use Stripe Elements for embedded payment
+      // 3. Listen for payment confirmation from server
+      // 4. Update local state and show success message
+      //
+      // For now, show a message directing users to contact support
+      alert('Premium cosmetics require payment. Please contact support for premium purchases.\n\nStripe integration requires backend setup. See CosmeticShop.tsx for implementation details.')
       return
     }
 

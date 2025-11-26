@@ -9,16 +9,19 @@ import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { getQualitySettings } from '../utils/qualitySettings'
 
-export type WeatherType = 'none' | 'rain' | 'snow' | 'fog' | 'cyber-rain' | 'data-storm'
+export type WeatherType = 'none' | 'rain' | 'snow' | 'fog' | 'cyber-rain' | 'data-storm' | 'mars-dust'
+export type RainIntensity = 'light' | 'medium' | 'heavy'
 
 interface WeatherSystemProps {
   weatherType?: WeatherType
   intensity?: number
+  rainIntensity?: RainIntensity
 }
 
 export default function WeatherSystem({ 
   weatherType = 'none',
-  intensity = 1.0 
+  intensity = 1.0,
+  rainIntensity = 'medium'
 }: WeatherSystemProps) {
   const particlesRef = useRef<THREE.Points>(null)
   const { player } = useGameStore()
@@ -35,10 +38,14 @@ export default function WeatherSystem({
     }> = {
       none: { count: 0, speed: 0, size: 0, color: '#ffffff', gravity: 0, spread: 0 },
       rain: {
-        count: qualitySettings.preset === 'low' ? 500 : 2000,
-        speed: 20,
-        size: 0.1,
-        color: '#00aaff',
+        count: rainIntensity === 'light' 
+          ? (qualitySettings.preset === 'low' ? 300 : 1000)
+          : rainIntensity === 'medium'
+          ? (qualitySettings.preset === 'low' ? 500 : 2000)
+          : (qualitySettings.preset === 'low' ? 800 : 4000), // heavy
+        speed: rainIntensity === 'light' ? 15 : rainIntensity === 'medium' ? 20 : 30,
+        size: rainIntensity === 'light' ? 0.08 : rainIntensity === 'medium' ? 0.12 : 0.15,
+        color: '#88ccff',
         gravity: 9.8,
         spread: 50
       },
@@ -73,6 +80,14 @@ export default function WeatherSystem({
         color: '#00ff00',
         gravity: 0,
         spread: 40
+      },
+      'mars-dust': {
+        count: qualitySettings.preset === 'low' ? 800 : 3000,
+        speed: 8,
+        size: 0.4,
+        color: '#ff6b35', // Mars orange dust
+        gravity: 2, // Low gravity drift
+        spread: 60
       }
     }
     return configs[weatherType]
@@ -97,9 +112,11 @@ export default function WeatherSystem({
 
       // Velocity based on weather type
       if (weatherType === 'rain' || weatherType === 'cyber-rain') {
-        velocities[i3] = (Math.random() - 0.5) * 2
-        velocities[i3 + 1] = -config.speed * (0.8 + Math.random() * 0.4)
-        velocities[i3 + 2] = (Math.random() - 0.5) * 2
+        // More realistic rain - slight wind effect
+        const windStrength = rainIntensity === 'heavy' ? 3 : rainIntensity === 'medium' ? 2 : 1
+        velocities[i3] = (Math.random() - 0.5) * windStrength
+        velocities[i3 + 1] = -config.speed * (0.9 + Math.random() * 0.2) // More consistent speed
+        velocities[i3 + 2] = (Math.random() - 0.5) * windStrength
       } else if (weatherType === 'snow') {
         velocities[i3] = (Math.random() - 0.5) * 1
         velocities[i3 + 1] = -config.speed * (0.5 + Math.random() * 0.5)
@@ -112,6 +129,11 @@ export default function WeatherSystem({
         velocities[i3] = (Math.random() - 0.5) * config.speed
         velocities[i3 + 1] = (Math.random() - 0.5) * config.speed
         velocities[i3 + 2] = (Math.random() - 0.5) * config.speed
+      } else if (weatherType === 'mars-dust') {
+        // Mars dust drifts horizontally with slight vertical movement
+        velocities[i3] = (Math.random() - 0.5) * config.speed * 1.5
+        velocities[i3 + 1] = (Math.random() - 0.5) * config.speed * 0.3
+        velocities[i3 + 2] = (Math.random() - 0.5) * config.speed * 1.5
       }
 
       // Color
@@ -165,6 +187,19 @@ export default function WeatherSystem({
   }, [positions, colors, sizes])
 
   const material = useMemo(() => {
+    // Enhanced rain material - use lines for better rain effect
+    if (weatherType === 'rain' || weatherType === 'cyber-rain') {
+      return new THREE.PointsMaterial({
+        size: weatherConfig.size * (rainIntensity === 'heavy' ? 1.5 : rainIntensity === 'medium' ? 1.2 : 1.0),
+        vertexColors: true,
+        transparent: true,
+        opacity: rainIntensity === 'light' ? 0.6 : rainIntensity === 'medium' ? 0.8 : 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      })
+    }
+    
     return new THREE.PointsMaterial({
       size: weatherConfig.size,
       vertexColors: true,
@@ -173,7 +208,7 @@ export default function WeatherSystem({
       blending: weatherType === 'fog' ? THREE.NormalBlending : THREE.AdditiveBlending,
       depthWrite: false,
     })
-  }, [weatherConfig.size, weatherType])
+  }, [weatherConfig.size, weatherType, rainIntensity])
 
   // Position relative to player
   const position: [number, number, number] = player ? [player.position.x, 0, player.position.z] : [0, 0, 0]
@@ -184,7 +219,10 @@ export default function WeatherSystem({
       position={position}
       geometry={geometry}
       material={material}
+      frustumCulled={false}
+      renderOrder={-100} // Render before other objects
     />
   )
 }
+
 

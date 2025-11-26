@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { DungeonPortal as DungeonPortalType } from '../systems/dungeonSystem'
 import { useGameStore } from '../store/useGameStore'
@@ -26,12 +27,13 @@ export default function DungeonPortal({ portal }: DungeonPortalProps) {
   })
 
   const canEnter = player && player.level >= portal.requiredLevel
+  
+  // Calculate distance to portal for proximity-based UI prompts
   const distance = player ? Math.sqrt(
     Math.pow(player.position.x - portal.position.x, 2) +
     Math.pow(player.position.z - portal.position.z, 2)
   ) : Infinity
-
-  const isClose = distance < 3
+  const isClose = distance < 3 // Within 3 units to show "Enter" prompt
 
   return (
     <group>
@@ -70,28 +72,13 @@ export default function DungeonPortal({ portal }: DungeonPortalProps) {
         />
       )}
 
-      {/* Name tag */}
-      <mesh position={[portal.position.x, portal.position.y + 2, portal.position.z]}>
-        <planeGeometry args={[3, 0.6]} />
-        <meshBasicMaterial
-          color="#000000"
-          transparent
-          opacity={0.8}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-
-      {/* Enter prompt */}
-      {canEnter && isClose && (
-        <mesh position={[portal.position.x, portal.position.y + 2.5, portal.position.z + 0.01]}>
-          <planeGeometry args={[2.5, 0.4]} />
-          <meshBasicMaterial
-            color="#00ff00"
-            transparent
-            opacity={0.9}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+      {/* Proximity-based enter prompt */}
+      {isClose && canEnter && (
+        <Html position={[portal.position.x, portal.position.y + 2, portal.position.z]} center>
+          <div className="bg-black/80 text-cyan-400 px-3 py-1 rounded text-sm font-bold border border-cyan-500">
+            Press E to Enter
+          </div>
+        </Html>
       )}
     </group>
   )

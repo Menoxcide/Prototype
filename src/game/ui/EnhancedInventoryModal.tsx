@@ -1,11 +1,17 @@
+import { useState, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import EnhancedModal from './components/EnhancedModal'
 import EnhancedCard from './components/EnhancedCard'
 import EnhancedBadge from './components/EnhancedBadge'
 import { getItemIcon } from '../assets'
+import type { InventoryItem } from '../types'
 
 export default function EnhancedInventoryModal() {
   const { isInventoryOpen, toggleInventory, inventory } = useGameStore()
+  const [sortBy, setSortBy] = useState<'name' | 'rarity' | 'type' | 'none'>('none')
+  const [filterBy, setFilterBy] = useState<string>('all')
+  const [draggedItem, setDraggedItem] = useState<{ index: number; item: InventoryItem } | null>(null)
+  const dragOverIndex = useRef<number | null>(null)
 
   return (
     <EnhancedModal
@@ -22,15 +28,148 @@ export default function EnhancedInventoryModal() {
         </div>
       ) : (
         <>
+          {/* Sort and Filter Controls */}
+          <div className="flex gap-2 mb-4">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
+            >
+              <option value="none">No Sort</option>
+              <option value="name">Sort by Name</option>
+              <option value="rarity">Sort by Rarity</option>
+              <option value="type">Sort by Type</option>
+            </select>
+            <select
+              value={filterBy}
+              onChange={(e) => setFilterBy(e.target.value)}
+              className="bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
+            >
+              <option value="all">All Items</option>
+              <option value="weapon">Weapons</option>
+              <option value="armor">Armor</option>
+              <option value="consumable">Consumables</option>
+              <option value="resource">Resources</option>
+            </select>
+            <button
+              onClick={() => {
+                // Quick stack - stack similar items together
+                // const _sorted = [...inventory].sort((a, b) => {
+                //   if (a.item.id === b.item.id) return 0
+                //   return a.item.id.localeCompare(b.item.id)
+                // })
+                // This would need a reorder function in the store
+                console.log('Quick stack clicked')
+              }}
+              className="bg-gray-800 hover:bg-gray-700 border border-cyan-500 rounded px-3 py-2 text-cyan-400 text-sm"
+            >
+              Quick Stack
+            </button>
+          </div>
+
+          {/* Processed inventory with sorting and filtering */}
+          {(() => {
+            let processed = [...inventory]
+            
+            // Filter
+            if (filterBy !== 'all') {
+              processed = processed.filter(item => item.item.type === filterBy)
+            }
+            
+            // Sort
+            if (sortBy !== 'none') {
+              processed.sort((a, b) => {
+                switch (sortBy) {
+                  case 'name':
+                    return a.item.name.localeCompare(b.item.name)
+                  case 'rarity':
+                    const rarityOrder: Record<string, number> = {
+                      common: 1,
+                      uncommon: 2,
+                      rare: 3,
+                      epic: 4,
+                      legendary: 5
+                    }
+                    return (rarityOrder[b.item.rarity] || 0) - (rarityOrder[a.item.rarity] || 0)
+                  case 'type':
+                    return a.item.type.localeCompare(b.item.type)
+                  default:
+                    return 0
+                }
+              })
+            }
+            
+            return processed
+          })()}
+
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 mb-4">
-            {inventory.map((invItem, index) => {
+            {(() => {
+              let processed = [...inventory]
+              
+              // Filter
+              if (filterBy !== 'all') {
+                processed = processed.filter(item => item.item.type === filterBy)
+              }
+              
+              // Sort
+              if (sortBy !== 'none') {
+                processed.sort((a, b) => {
+                  switch (sortBy) {
+                    case 'name':
+                      return a.item.name.localeCompare(b.item.name)
+                    case 'rarity':
+                      const rarityOrder: Record<string, number> = {
+                        common: 1,
+                        uncommon: 2,
+                        rare: 3,
+                        epic: 4,
+                        legendary: 5
+                      }
+                      return (rarityOrder[b.item.rarity] || 0) - (rarityOrder[a.item.rarity] || 0)
+                    case 'type':
+                      return a.item.type.localeCompare(b.item.type)
+                    default:
+                      return 0
+                  }
+                })
+              }
+              
+              return processed
+            })().map((invItem, index) => {
+              const originalIndex = inventory.findIndex(item => 
+                item.item.id === invItem.item.id && item.quantity === invItem.quantity
+              )
               const IconComponent = getItemIcon(invItem.item.id)
               
               return (
-                <EnhancedCard
-                  key={`${invItem.item.id}-${index}`}
-                  className="relative group"
+                <div
+                  key={`${invItem.item.id}-${originalIndex >= 0 ? originalIndex : index}`}
+                  className="relative group cursor-move"
+                  draggable
+                  onDragStart={(e: React.DragEvent) => {
+                    setDraggedItem({ index: originalIndex >= 0 ? originalIndex : index, item: invItem })
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onDragOver={(e: React.DragEvent) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    dragOverIndex.current = originalIndex >= 0 ? originalIndex : index
+                  }}
+                  onDrop={(e: React.DragEvent) => {
+                    e.preventDefault()
+                    if (draggedItem && dragOverIndex.current !== null) {
+                      // Reorder items - would need a reorder function in store
+                      console.log('Drop item', draggedItem.index, 'to', dragOverIndex.current)
+                      setDraggedItem(null)
+                      dragOverIndex.current = null
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedItem(null)
+                    dragOverIndex.current = null
+                  }}
                 >
+                  <EnhancedCard className="relative group">
                   <div className="flex flex-col items-center">
                     {/* Item Icon */}
                     <div className="text-4xl mb-2 relative">
@@ -80,7 +219,8 @@ export default function EnhancedInventoryModal() {
                       {invItem.item.description}
                     </div>
                   </div>
-                </EnhancedCard>
+                  </EnhancedCard>
+                </div>
               )
             })}
           </div>

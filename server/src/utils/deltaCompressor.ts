@@ -5,13 +5,14 @@
 
 export interface DeltaUpdate {
   path: string
-  value: any
+  value: unknown
   operation: 'set' | 'delete' | 'add' | 'remove'
 }
 
 export interface DeltaCompressor {
-  compress(current: any, previous: any): DeltaUpdate[]
-  decompress(base: any, deltas: DeltaUpdate[]): any
+  compress(current: Record<string, unknown>, previous: Record<string, unknown> | null, threshold?: number): DeltaUpdate[]
+  decompress(base: Record<string, unknown>, deltas: DeltaUpdate[]): Record<string, unknown>
+  shouldSendDelta(deltas: DeltaUpdate[], threshold?: number): boolean
 }
 
 export function createDeltaCompressor(): DeltaCompressor {
@@ -82,12 +83,46 @@ export function createDeltaCompressor(): DeltaCompressor {
     return deltas
   }
 
+  /**
+   * Calculate change magnitude for a delta
+   */
+  function calculateChangeMagnitude(delta: DeltaUpdate): number {
+    if (delta.operation === 'delete') return 1.0
+    if (delta.operation === 'set') {
+      // For numeric values, calculate relative change
+      if (typeof delta.value === 'number') {
+        return Math.abs(delta.value)
+      }
+      // For objects/arrays, use size as magnitude
+      if (typeof delta.value === 'object') {
+        return JSON.stringify(delta.value).length
+      }
+      return 1.0
+    }
+    return 0.5
+  }
+
   return {
-    compress(current: any, previous: any): DeltaUpdate[] {
-      return compressRecursive(current, previous)
+    compress(current: any, previous: any, threshold: number = 0): DeltaUpdate[] {
+      const deltas = compressRecursive(current, previous)
+      
+      // If threshold is set, filter out small changes
+      if (threshold > 0) {
+        return deltas.filter(delta => calculateChangeMagnitude(delta) >= threshold)
+      }
+      
+      return deltas
+    },
+    
+    shouldSendDelta(deltas: DeltaUpdate[], threshold: number = 0): boolean {
+      if (deltas.length === 0) return false
+      if (threshold === 0) return true
+      
+      // Check if any delta exceeds threshold
+      return deltas.some(delta => calculateChangeMagnitude(delta) >= threshold)
     },
 
-    decompress(base: any, deltas: DeltaUpdate[]): any {
+    decompress(base: Record<string, unknown>, deltas: DeltaUpdate[]): Record<string, unknown> {
       if (!base) {
         base = {}
       }
@@ -96,7 +131,7 @@ export function createDeltaCompressor(): DeltaCompressor {
 
       for (const delta of deltas) {
         const pathParts = delta.path.split(/[\.\[\]]/).filter(p => p !== '')
-        let target: any = result
+        let target: Record<string, unknown> = result
 
         // Navigate to the target location
         for (let i = 0; i < pathParts.length - 1; i++) {
