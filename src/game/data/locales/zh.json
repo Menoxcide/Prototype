@@ -29,7 +29,6 @@
     "mana": "法力",
     "stamina": "耐力",
     "all": "全部",
-    "info": "信息",
     "details": "详情",
     "have": "拥有",
     "need": "需要",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "已击败实体：{{defeated}} / {{total}}",
     "requiredLevel": "所需等级：{{level}}"
   },
-  "errors": {
-    "networkError": "网络错误。请检查您的连接。",
-    "serverError": "服务器错误。请稍后再试。",
-    "invalidInput": "无效输入。请检查您的值。",
-    "notEnoughCredits": "积分不足。",
-    "notEnoughItems": "物品不足。",
-    "itemNotFound": "未找到物品。",
-    "questNotFound": "未找到任务。",
-    "dungeonNotFound": "未找到地下城。",
-    "failedToEnterDungeon": "进入地下城失败"
-  },
   "auth": {
     "signInWithGoogle": "使用 Google 登录",
     "signingIn": "登录中...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "创建角色中...",
     "enterTheVoid": "进入虚空",
     "failedToCreate": "创建角色失败。请重试。"
+  },
+  "errors": {
+    "networkError": "网络错误。请检查您的连接。",
+    "serverError": "服务器错误。请稍后再试。",
+    "invalidInput": "无效输入。请检查您的值。",
+    "notEnoughCredits": "积分不足。",
+    "notEnoughItems": "物品不足。",
+    "itemNotFound": "未找到物品。",
+    "questNotFound": "未找到任务。",
+    "dungeonNotFound": "未找到地下城。",
+    "failedToEnterDungeon": "进入地下城失败"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "选择角色",
+    "loadingCharacters": "正在加载角色...",
+    "serverUnavailable": "⚠️ 服务器不可用",
+    "serverUnavailableMessage": "服务器不可用。您仍然可以创建新角色。",
+    "serverUnavailableSubtext": "您仍然可以创建新角色。服务器可用时将保存。",
+    "characters": "角色",
+    "noCharactersFound": "未找到角色。创建您的第一个角色开始游戏！",
+    "refresh": "刷新",
+    "createNewCharacter": "创建新角色",
+    "characterLimitReached": "已达到角色上限（{{max}}个角色）",
+    "lastPlayed": "最后游玩:",
+    "created": "创建时间:",
+    "levelShort": "等级",
+    "failedToLoadCharacters": "加载角色失败。请重试。",
+    "failedToLoadCharacter": "加载角色失败。请重试。"
+  },
+  "npc": {
+    "next": "下一步",
+    "continue": "继续",
+    "availableQuests": "可用任务",
+    "noQuestsAvailable": "没有可用任务。",
+    "shop": "商店",
+    "noItemsForSale": "没有商品出售。",
+    "services": "服务",
+    "noServicesAvailable": "没有可用服务。",
+    "serviceHeal": "完全恢复生命值",
+    "serviceRepair": "完全恢复法力值",
+    "serviceTeleport": "传送到另一个位置",
+    "serviceEnchant": "附魔您的物品",
+    "buy": "购买",
+    "credits": "积分"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "选择要私聊的玩家",
+    "selectPlayer": "选择玩家...",
+    "global": "全局",
+    "guild": "公会",
+    "whisper": "私聊",
+    "noMessagesYet": "还没有消息。开始聊天吧！",
+    "whisperTag": "[私聊]",
+    "guildTag": "[公会]",
+    "typeMessage": "输入消息...",
+    "send": "发送",
+    "systemInfo": "系统信息",
+    "connection": "连接:",
+    "online": "在线",
+    "offline": "离线",
+    "latency": "延迟:",
+    "packetLoss": "丢包率:",
+    "serverStatus": "服务器状态:",
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "gameInfo": "游戏信息",
+    "zone": "区域:",
+    "unknown": "未知",
+    "active": "活跃",
+    "serverState": "服务器状态:",
+    "playerInfo": "玩家信息",
+    "name": "名称:",
+    "race": "种族:",
+    "tradition": "传统:"
+  },
+  "victoryDefeat": {
+    "victory": "胜利！",
+    "defeat": "失败",
+    "rewards": "奖励",
+    "items": "物品:",
+    "continue": "继续"
+  },
+  "system": {
+    "loading": "加载中..."
+  },
+  "battlePass": {
+    "premium": "✓ 高级",
+    "upgrade": "升级",
+    "premiumPass": "高级通行证"
+  },
+  "cosmeticShop": {
+    "title": "装饰品商店",
+    "notEnoughCredits": "积分不足！",
+    "premiumRequiresPayment": "高级装饰品需要付费。请联系客服购买高级物品。\n\nStripe集成需要后端设置。有关实现详情，请参阅CosmeticShop.tsx。",
+    "purchased": "已购买{{name}}！"
+  },
+  "guild": {
+    "nameLengthError": "公会名称必须为3-20个字符",
+    "tagLengthError": "公会标签必须为2-4个字符",
+    "enterGuildId": "请输入公会ID",
+    "leaveGuildConfirm": "您确定要离开您的公会吗？"
+  },
+  "social": {
+    "partySystem": "队伍系统",
+    "guildTag": "公会标签:",
+    "guildSystem": "公会系统",
+    "removeFriendConfirm": "删除此好友？",
+    "blockPlayerConfirm": "屏蔽此玩家？他们将无法向您发送消息或好友请求。",
+    "reportPlayerPrompt": "请描述{{playerId}}的问题:",
+    "addNotePrompt": "为此好友添加备注:"
   }
 }
-

@@ -1,6 +1,6 @@
 # Game Systems Documentation
 
-This document provides detailed documentation for all game systems in NEX://VOID.
+This document provides detailed documentation for all game systems in MARS://NEXUS.
 
 ## Table of Contents
 

@@ -31,6 +31,8 @@ dist-ssr
 # Firebase service account (contains sensitive credentials)
 firebase-service-account.json
 server/firebase-service-account.json
+*-firebase-adminsdk-*.json
+mars-nexus-firebase-adminsdk-*.json
 
 # Firebase Emulator data
 .firebase/

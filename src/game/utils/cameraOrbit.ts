@@ -1,6 +1,6 @@
 /**
  * Shared orbit angles for third-person camera
- * This allows MinecraftControls and PlayerCamera to share orbit state
+ * This allows PlayerControls and PlayerCamera to share orbit state
  * without conflicts
  */
 

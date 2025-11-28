@@ -13,6 +13,184 @@ export function isMobileDevice(): boolean {
 }
 
 /**
+ * Device capability information
+ */
+export interface DeviceCapabilities {
+  webglVersion: 'webgl' | 'webgl2' | null
+  gpuTier: 'low' | 'medium' | 'high' | 'unknown'
+  maxTextureSize: number
+  maxVertexAttributes: number
+  maxVertexUniformVectors: number
+  maxFragmentUniformVectors: number
+  maxTextureImageUnits: number
+  renderer: string
+  vendor: string
+  score: number // 0-100 device capability score
+}
+
+/**
+ * Detect WebGL version
+ */
+function detectWebGLVersion(): 'webgl' | 'webgl2' | null {
+  const canvas = document.createElement('canvas')
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+  
+  if (!gl) return null
+  
+  return gl instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl'
+}
+
+/**
+ * Get GPU tier based on WebGL renderer info
+ */
+function getGPUTier(gl: WebGLRenderingContext | WebGL2RenderingContext): 'low' | 'medium' | 'high' | 'unknown' {
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+  if (!debugInfo) return 'unknown'
+  
+  const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL).toLowerCase()
+  
+  // High-end GPUs
+  if (
+    renderer.includes('adreno 6') ||
+    renderer.includes('adreno 7') ||
+    renderer.includes('mali-g7') ||
+    renderer.includes('mali-g78') ||
+    renderer.includes('apple a') ||
+    renderer.includes('apple m') ||
+    renderer.includes('nvidia') ||
+    renderer.includes('amd') ||
+    renderer.includes('intel iris')
+  ) {
+    return 'high'
+  }
+  
+  // Medium GPUs
+  if (
+    renderer.includes('adreno 5') ||
+    renderer.includes('adreno 4') ||
+    renderer.includes('mali-g5') ||
+    renderer.includes('mali-g6') ||
+    renderer.includes('powervr')
+  ) {
+    return 'medium'
+  }
+  
+  // Low-end GPUs (default)
+  return 'low'
+}
+
+/**
+ * Calculate device capability score (0-100)
+ */
+function calculateDeviceScore(capabilities: DeviceCapabilities): number {
+  let score = 50 // Base score
+  
+  // WebGL version bonus
+  if (capabilities.webglVersion === 'webgl2') score += 20
+  else if (capabilities.webglVersion === 'webgl') score += 10
+  
+  // GPU tier bonus
+  if (capabilities.gpuTier === 'high') score += 30
+  else if (capabilities.gpuTier === 'medium') score += 15
+  else if (capabilities.gpuTier === 'low') score += 0
+  
+  // Texture size bonus (normalize to 0-10 points)
+  const maxTextureSize = Math.min(capabilities.maxTextureSize, 8192)
+  score += (maxTextureSize / 8192) * 10
+  
+  // Cap at 100
+  return Math.min(100, Math.max(0, score))
+}
+
+/**
+ * Detect device capabilities
+ */
+export function detectDeviceCapabilities(): DeviceCapabilities {
+  const canvas = document.createElement('canvas')
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') as WebGLRenderingContext | WebGL2RenderingContext | null
+  
+  if (!gl) {
+    return {
+      webglVersion: null,
+      gpuTier: 'unknown',
+      maxTextureSize: 0,
+      maxVertexAttributes: 0,
+      maxVertexUniformVectors: 0,
+      maxFragmentUniformVectors: 0,
+      maxTextureImageUnits: 0,
+      renderer: 'unknown',
+      vendor: 'unknown',
+      score: 0
+    }
+  }
+  
+  const webglVersion = detectWebGLVersion()
+  const gpuTier = getGPUTier(gl)
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+  
+  const capabilities: DeviceCapabilities = {
+    webglVersion,
+    gpuTier,
+    maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+    maxVertexAttributes: gl.getParameter(gl.MAX_VERTEX_ATTRIBS),
+    maxVertexUniformVectors: gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS),
+    maxFragmentUniformVectors: gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS),
+    maxTextureImageUnits: gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS),
+    renderer: debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown',
+    vendor: debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'unknown',
+    score: 0
+  }
+  
+  capabilities.score = calculateDeviceScore(capabilities)
+  
+  return capabilities
+}
+
+// Cache device capabilities
+let cachedCapabilities: DeviceCapabilities | null = null
+
+/**
+ * Get device capabilities (cached)
+ */
+export function getDeviceCapabilities(): DeviceCapabilities {
+  if (cachedCapabilities) {
+    return cachedCapabilities
+  }
+  
+  cachedCapabilities = detectDeviceCapabilities()
+  
+  // Store in localStorage for future sessions
+  try {
+    localStorage.setItem('deviceCapabilities', JSON.stringify(cachedCapabilities))
+  } catch (e) {
+    // Ignore localStorage errors
+  }
+  
+  return cachedCapabilities
+}
+
+/**
+ * Load device capabilities from cache
+ */
+export function loadCachedDeviceCapabilities(): DeviceCapabilities | null {
+  if (cachedCapabilities) {
+    return cachedCapabilities
+  }
+  
+  try {
+    const cached = localStorage.getItem('deviceCapabilities')
+    if (cached) {
+      cachedCapabilities = JSON.parse(cached)
+      return cachedCapabilities
+    }
+  } catch (e) {
+    // Ignore localStorage errors
+  }
+  
+  return null
+}
+
+/**
  * Mobile optimization flags
  */
 export interface MobileOptimizationFlags {
@@ -28,6 +206,7 @@ export interface MobileOptimizationFlags {
   renderDistanceMultiplier: number
   batteryOptimized: boolean
   networkOptimized: boolean
+  deviceCapabilities?: DeviceCapabilities
 }
 
 /**
@@ -67,12 +246,24 @@ export function getMobileOptimizationFlags(): MobileOptimizationFlags {
                           effectiveType === '2g' ||
                           effectiveType === '3g'
 
+  // Get device capabilities
+  const deviceCapabilities = getDeviceCapabilities()
+  
   // Determine target FPS based on device capabilities
   // High-end mobile can handle 60fps, low-end should use 30fps
   const screenWidth = window.innerWidth
   const screenHeight = window.innerHeight
   const pixelCount = screenWidth * screenHeight
-  const targetFPS: 30 | 60 = (pixelCount < 2000000 && !batteryOptimized) ? 60 : 30
+  
+  // Use device capability score to determine FPS
+  let targetFPS: 30 | 60 = 30
+  if (!batteryOptimized) {
+    if (deviceCapabilities.score >= 70 || (deviceCapabilities.gpuTier === 'high' && pixelCount < 2000000)) {
+      targetFPS = 60
+    } else if (deviceCapabilities.score >= 50 && pixelCount < 1500000) {
+      targetFPS = 60
+    }
+  }
 
   // Apply battery and network optimizations
   const lodMultiplier = batteryOptimized || networkOptimized ? 0.5 : 0.7
@@ -93,7 +284,8 @@ export function getMobileOptimizationFlags(): MobileOptimizationFlags {
     particleLimit,
     renderDistanceMultiplier,
     batteryOptimized,
-    networkOptimized
+    networkOptimized,
+    deviceCapabilities
   }
 }
 
@@ -106,10 +298,27 @@ export function applyMobileOptimizations(): void {
   const flags = getMobileOptimizationFlags()
   const qualityManager = getQualityManager()
   const currentSettings = qualityManager.getSettings()
+  const deviceCapabilities = flags.deviceCapabilities || getDeviceCapabilities()
 
-  // Auto-set quality preset to 'low' on mobile if not already set
-  if (currentSettings.preset !== 'low') {
-    setQualityPreset('low')
+  // Auto-set quality preset based on device capabilities
+  let targetPreset: 'low' | 'medium' | 'high' = 'low'
+  
+  if (deviceCapabilities.score >= 70 && deviceCapabilities.gpuTier === 'high') {
+    targetPreset = 'medium'
+  } else if (deviceCapabilities.score >= 50 && deviceCapabilities.gpuTier === 'medium') {
+    targetPreset = 'low'
+  } else {
+    targetPreset = 'low'
+  }
+  
+  // Override to low if battery optimized
+  if (flags.batteryOptimized) {
+    targetPreset = 'low'
+  }
+  
+  // Apply preset if different from current
+  if (currentSettings.preset !== targetPreset) {
+    setQualityPreset(targetPreset)
   }
 
   // Apply mobile-specific overrides
@@ -129,8 +338,16 @@ export function applyMobileOptimizations(): void {
 
 // Auto-apply mobile optimizations on module load if on mobile
 if (isMobileDevice()) {
+  // Load cached device capabilities first
+  loadCachedDeviceCapabilities()
+  
   // Apply optimizations after a short delay to ensure quality manager is initialized
   setTimeout(() => {
+    // Detect device capabilities if not cached
+    if (!cachedCapabilities) {
+      getDeviceCapabilities()
+    }
+    
     applyMobileOptimizations()
     
     // Monitor battery and network changes

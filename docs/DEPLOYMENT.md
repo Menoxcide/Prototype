@@ -1,6 +1,6 @@
 # Deployment Documentation
 
-This document describes the deployment process, environment configuration, and scaling strategies for NEX://VOID.
+This document describes the deployment process, environment configuration, and scaling strategies for MARS://NEXUS.
 
 ## Table of Contents
 
@@ -60,16 +60,99 @@ npm run build
 firebase deploy --only hosting
 ```
 
-#### Server Deployment
+#### Server Deployment to Google Cloud Run
+
+The server must be deployed to a Node.js hosting platform. Since you're using Firebase, **Google Cloud Run** is the recommended option (it integrates seamlessly with Firebase projects).
+
+**Prerequisites:**
+- Google Cloud SDK CLI installed (⚠️ NOT the `gcloud` npm package - install the official SDK from https://cloud.google.com/sdk/docs/install)
+- Docker installed (for local testing)
+- Firebase project with billing enabled
+
+**Option 1: Deploy using Cloud Build (Recommended)**
 
 ```bash
-# Build server
-cd server
-npm run build
+# From the project root
+gcloud builds submit --config server/cloudbuild.yaml
 
-# Deploy to server
-# (Deployment method depends on hosting provider)
+# Or specify your project
+gcloud builds submit --config server/cloudbuild.yaml --project mars-nexus
 ```
+
+**Option 2: Deploy using gcloud directly**
+
+```bash
+# Build and push Docker image
+cd server
+gcloud builds submit --tag gcr.io/mars-nexus/mars-nexus-server
+
+# Deploy to Cloud Run
+gcloud run deploy mars-nexus-server \
+  --image gcr.io/mars-nexus/mars-nexus-server \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 2Gi \
+  --cpu 2 \
+  --min-instances 1 \
+  --max-instances 10 \
+  --set-env-vars NODE_ENV=production \
+  --set-env-vars PORT=8080 \
+  --set-env-vars FIREBASE_PROJECT_ID=mars-nexus \
+  --set-secrets DATABASE_URL=DATABASE_URL:latest \
+  --set-secrets REDIS_URL=REDIS_URL:latest \
+  --set-secrets FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest \
+  --set-secrets FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest \
+  --project mars-nexus
+```
+
+**Option 3: Deploy using Docker locally**
+
+```bash
+# Build Docker image
+cd server
+docker build -t mars-nexus-server .
+
+# Test locally
+docker run -p 8080:8080 \
+  -e PORT=8080 \
+  -e NODE_ENV=production \
+  -e FIREBASE_PROJECT_ID=mars-nexus \
+  mars-nexus-server
+
+# Push to Google Container Registry
+docker tag mars-nexus-server gcr.io/mars-nexus/mars-nexus-server
+docker push gcr.io/mars-nexus/mars-nexus-server
+
+# Deploy to Cloud Run
+gcloud run deploy mars-nexus-server \
+  --image gcr.io/mars-nexus/mars-nexus-server \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8080 \
+  --project mars-nexus
+```
+
+**After deployment, get the service URL:**
+```bash
+gcloud run services describe mars-nexus-server \
+  --platform managed \
+  --region us-central1 \
+  --format 'value(status.url)' \
+  --project mars-nexus
+```
+
+**Update client configuration:**
+Set `VITE_SERVER_URL` to the Cloud Run service URL (e.g., `https://mars-nexus-server-xxxxx-uc.a.run.app`)
+
+**Alternative Hosting Options:**
+- **Railway**: Simple Node.js deployment
+- **Render**: Free tier available
+- **Heroku**: Traditional PaaS
+- **DigitalOcean App Platform**: Simple deployment
+- **AWS Elastic Beanstalk**: For AWS users
 
 ### Deployment Checklist
 
@@ -109,9 +192,42 @@ FIREBASE_CLIENT_EMAIL=...
 
 1. Create Firebase project
 2. Enable Authentication
-3. Enable Hosting
-4. Configure security rules
-5. Set up environment variables
+3. **Enable Google Sign-In Provider** (Required for authentication):
+   - Go to Firebase Console → Authentication → Sign-in method
+   - Click on "Google" provider
+   - Toggle "Enable" to ON
+   - Enter your project's support email
+   - Click "Save"
+4. Enable Hosting
+5. Configure security rules
+6. Set up environment variables
+
+#### Troubleshooting: "auth/configuration-not-found" Error
+
+If you encounter the error `Firebase: Error (auth/configuration-not-found)` when trying to sign in with Google:
+
+1. **Verify Google Sign-In is enabled**:
+   - Open [Firebase Console](https://console.firebase.google.com/)
+   - Select your project (e.g., `mars-nexus`)
+   - Go to **Authentication** → **Sign-in method**
+   - Find **Google** in the list
+   - If it shows "Not enabled", click on it and toggle "Enable" to ON
+   - Save the changes
+
+2. **Verify OAuth consent screen** (if using Google Cloud Console):
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Select your Firebase project
+   - Go to **APIs & Services** → **OAuth consent screen**
+   - Ensure the consent screen is configured and published (if required)
+
+3. **Verify API key and project ID match**:
+   - Check that the `apiKey` in your config matches the one in Firebase Console
+   - Go to **Project Settings** → **General** → **Your apps**
+   - Verify the API key matches your configuration
+
+4. **Check authorized domains**:
+   - In Firebase Console → Authentication → Settings → Authorized domains
+   - Ensure your domain is listed (localhost is included by default for development)
 
 ## Database Migrations
 

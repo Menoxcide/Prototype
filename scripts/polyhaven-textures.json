@@ -1,0 +1,35 @@
+{
+  "sci-fi": [
+    "sci_fi_panel_01",
+    "sci_fi_panel_02",
+    "metal_plate_01",
+    "metal_plate_02",
+    "metal_grate_01"
+  ],
+  "cyberpunk": [
+    "neon_sign_01",
+    "metal_rusty_01",
+    "metal_rusty_02",
+    "concrete_damaged_01"
+  ],
+  "industrial": [
+    "metal_plate_01",
+    "metal_grate_01",
+    "concrete_floor_01",
+    "metal_rusty_01"
+  ],
+  "nature": [
+    "grass_01",
+    "dirt_01",
+    "rock_01",
+    "bark_01"
+  ],
+  "desert": [
+    "sand_01",
+    "rock_desert_01",
+    "dirt_dry_01"
+  ],
+  "resolution": "2k",
+  "note": "Texture IDs may need to be verified against Poly Haven API. Use https://api.polyhaven.com/files/{id} to check availability."
+}
+

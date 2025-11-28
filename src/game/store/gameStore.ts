@@ -34,11 +34,16 @@
  */
 
 import { create } from 'zustand'
-import { Player, InventoryItem, Spell, ChatMessage, Enemy, ResourceNode, LootDrop, PlayerSkill } from '../types'
+import { Player, InventoryItem, Spell, ChatMessage, Enemy, ResourceNode, LootDrop, PlayerSkill, NPC } from '../types'
+import { PowerUpEntity, ActivePowerUp } from '../../../shared/src/types/powerUps'
 import { getItem } from '../data/items'
 import { getSpell } from '../data/spells'
 import type { QualitySettings } from '../utils/qualitySettings'
 import { getQualityManager } from '../utils/qualitySettings'
+import type { Dungeon, DungeonProgress } from '../../../shared/src/types/dungeons'
+import { createHealingNumber, createDamageNumber, createManaNumber, createXPNumber, createLevelUpNumber } from '../utils/floatingNumbers'
+import { getCooldownManager } from '../systems/cooldownSystem'
+import { disposeEnemyResources, disposeLootDropResources, disposeNPCResources } from '../utils/entityResourceDisposal'
 // batchUpdate is available but not used in this file
 
 /**
@@ -83,6 +88,24 @@ interface GameState {
   lootDrops: Map<string, LootDrop>
   addLootDrop: (loot: LootDrop) => void
   removeLootDrop: (id: string) => void
+  
+  // Power-ups
+  powerUps: Map<string, PowerUpEntity>
+  addPowerUp: (powerUp: PowerUpEntity) => void
+  removePowerUp: (id: string) => void
+  updatePowerUp: (id: string, updates: Partial<PowerUpEntity>) => void
+  activePowerUps: Map<string, ActivePowerUp>
+  applyPowerUp: (powerUp: ActivePowerUp) => void
+  removeActivePowerUp: (id: string) => void
+  updateActivePowerUp: (id: string, updates: Partial<ActivePowerUp>) => void
+  
+  // NPCs
+  npcs: Map<string, NPC>
+  addNPC: (npc: NPC) => void
+  removeNPC: (id: string) => void
+  updateNPC: (id: string, updates: Partial<NPC>) => void
+  interactingWithNPC: string | null
+  setInteractingWithNPC: (npcId: string | null) => void
   
   // Other players (multiplayer)
   otherPlayers: Map<string, Player>
@@ -223,6 +246,14 @@ interface GameState {
   setIsPlayerMoving: (moving: boolean) => void
   isClimbingBuilding: boolean
   setIsClimbingBuilding: (climbing: boolean) => void
+  isJumping: boolean
+  setIsJumping: (jumping: boolean) => void
+  isRunning: boolean
+  setIsRunning: (running: boolean) => void
+  isCrouching: boolean
+  setIsCrouching: (crouching: boolean) => void
+  isWallRunning: boolean
+  setIsWallRunning: (wallRunning: boolean) => void
   
   // Stamina system
   stamina: number
@@ -236,6 +267,26 @@ interface GameState {
   setCanGrapple: (canGrapple: boolean) => void
   grappledBuilding: { id: string | null, position: { x: number, y: number, z: number } } | null
   setGrappledBuilding: (building: { id: string | null, position: { x: number, y: number, z: number } } | null) => void
+  grapplePullVelocity: { x: number; y: number; z: number } | null
+  setGrapplePullVelocity: (velocity: { x: number; y: number; z: number } | null) => void
+  
+  // Cooldown system
+  startCooldown: (actionId: string, duration: number) => void
+  isOnCooldown: (actionId: string) => boolean
+  getRemainingCooldown: (actionId: string) => number
+  getCooldownProgress: (actionId: string, totalDuration: number) => number
+  momentumOnRelease: { x: number; y: number; z: number } | null
+  setMomentumOnRelease: (momentum: { x: number; y: number; z: number } | null) => void
+  
+  // Wall-run chain system
+  wallRunChain: number
+  setWallRunChain: (chain: number) => void
+  
+  // Air dash system
+  airDashCooldown: number
+  setAirDashCooldown: (cooldown: number) => void
+  canAirDash: boolean
+  setCanAirDash: (canDash: boolean) => void
 
   // Settings
   qualitySettings: QualitySettings
@@ -282,6 +333,9 @@ interface GameState {
     yOffset: number
   }>) => void
   
+  // Active power-ups - add missing method
+  addActivePowerUp: (powerUp: ActivePowerUp) => void
+  
   // World Boss System
   activeBosses: Map<string, {
     id: string
@@ -318,10 +372,10 @@ interface GameState {
   // Dungeon System
   isDungeonMapOpen: boolean
   toggleDungeonMap: () => void
-  currentDungeon: import('../../shared/src/types/dungeons').Dungeon | null
-  setCurrentDungeon: (dungeon: import('../../shared/src/types/dungeons').Dungeon | null) => void
-  dungeonProgress: Map<string, import('../../shared/src/types/dungeons').DungeonProgress>
-  setDungeonProgress: (dungeonId: string, progress: import('../../shared/src/types/dungeons').DungeonProgress) => void
+  currentDungeon: Dungeon | null
+  setCurrentDungeon: (dungeon: Dungeon | null) => void
+  dungeonProgress: Map<string, DungeonProgress>
+  setDungeonProgress: (dungeonId: string, progress: DungeonProgress) => void
   
   // Floating numbers (enhanced system for all types)
   floatingNumbers: Map<string, {
@@ -401,25 +455,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Show floating numbers and combat log for health changes
       if (healthChange !== 0 && player.position) {
-        import('../utils/floatingNumbers').then(({ createHealingNumber, createDamageNumber }) => {
-          import('../utils/combatLog').then(({ logHealing, logDamageTaken }) => {
-            if (healthChange > 0) {
-              // Healing
-              createHealingNumber(
-                healthChange,
-                { x: player.position.x, y: player.position.y + 1.5, z: player.position.z }
-              )
-              logHealing(healthChange)
-            } else if (healthChange < 0) {
-              // Damage taken
-              createDamageNumber(
-                Math.abs(healthChange),
-                { x: player.position.x, y: player.position.y + 1.5, z: player.position.z },
-                false
-              )
-              logDamageTaken(Math.abs(healthChange), 'Unknown')
-            }
-          })
+        import('../utils/combatLog').then(({ logHealing, logDamageTaken }) => {
+          if (healthChange > 0) {
+            // Healing
+            createHealingNumber(
+              healthChange,
+              { x: player.position.x, y: player.position.y + 1.5, z: player.position.z }
+            )
+            logHealing(healthChange)
+          } else if (healthChange < 0) {
+            // Damage taken
+            createDamageNumber(
+              Math.abs(healthChange),
+              { x: player.position.x, y: player.position.y + 1.5, z: player.position.z },
+              false
+            )
+            logDamageTaken(Math.abs(healthChange), 'Unknown')
+          }
         })
       }
     }
@@ -436,13 +488,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Show floating numbers for significant mana changes
       if (Math.abs(manaChange) > 5 && player.position) {
-        import('../utils/floatingNumbers').then(({ createManaNumber }) => {
-          createManaNumber(
-            Math.abs(manaChange),
-            { x: player.position.x, y: player.position.y + 1.2, z: player.position.z },
-            manaChange > 0
-          )
-        })
+        createManaNumber(
+          Math.abs(manaChange),
+          { x: player.position.x, y: player.position.y + 1.2, z: player.position.z },
+          manaChange > 0
+        )
       }
     }
   },
@@ -474,24 +524,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     
     // Show floating numbers and combat log
     if (player.position) {
-      import('../utils/floatingNumbers').then(({ createXPNumber, createLevelUpNumber }) => {
-        import('../utils/combatLog').then(({ logXP, logLevelUp }) => {
-          // Show XP gain
-          createXPNumber(
-            amount,
-            { x: player.position.x, y: player.position.y + 1.8, z: player.position.z }
+      import('../utils/combatLog').then(({ logXP, logLevelUp }) => {
+        // Show XP gain
+        createXPNumber(
+          amount,
+          { x: player.position.x, y: player.position.y + 1.8, z: player.position.z }
+        )
+        logXP(amount)
+        
+        // Show level up if applicable
+        if (leveledUp) {
+          createLevelUpNumber(
+            newLevel,
+            { x: player.position.x, y: player.position.y + 2.5, z: player.position.z }
           )
-          logXP(amount)
-          
-          // Show level up if applicable
-          if (leveledUp) {
-            createLevelUpNumber(
-              newLevel,
-              { x: player.position.x, y: player.position.y + 2.5, z: player.position.z }
-            )
-            logLevelUp(newLevel)
-          }
-        })
+          logLevelUp(newLevel)
+        }
       })
     }
   },
@@ -609,6 +657,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { enemies } = get()
     const newEnemies = new Map(enemies)
     newEnemies.delete(id)
+    
+    // Dispose of enemy's Three.js resources
+    disposeEnemyResources(id)
+    
     set({ enemies: newEnemies })
   },
   
@@ -651,8 +703,106 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { lootDrops } = get()
     const newDrops = new Map(lootDrops)
     newDrops.delete(id)
+    
+    // Dispose of loot drop's Three.js resources
+    disposeLootDropResources(id)
+    
     set({ lootDrops: newDrops })
   },
+  
+  // Power-ups
+  powerUps: new Map(),
+  
+  addPowerUp: (powerUp) => {
+    const { powerUps } = get()
+    const newPowerUps = new Map(powerUps)
+    newPowerUps.set(powerUp.id, powerUp)
+    set({ powerUps: newPowerUps })
+  },
+  
+  removePowerUp: (id) => {
+    const { powerUps } = get()
+    const newPowerUps = new Map(powerUps)
+    newPowerUps.delete(id)
+    set({ powerUps: newPowerUps })
+  },
+  
+  updatePowerUp: (id, updates) => {
+    const { powerUps } = get()
+    const powerUp = powerUps.get(id)
+    if (powerUp) {
+      const newPowerUps = new Map(powerUps)
+      newPowerUps.set(id, { ...powerUp, ...updates })
+      set({ powerUps: newPowerUps })
+    }
+  },
+  
+  activePowerUps: new Map(),
+  
+  applyPowerUp: (powerUp) => {
+    const { activePowerUps } = get()
+    const newActivePowerUps = new Map(activePowerUps)
+    newActivePowerUps.set(powerUp.id, powerUp)
+    set({ activePowerUps: newActivePowerUps })
+  },
+  
+  addActivePowerUp: (powerUp) => {
+    const { activePowerUps } = get()
+    const newActivePowerUps = new Map(activePowerUps)
+    newActivePowerUps.set(powerUp.id, powerUp)
+    set({ activePowerUps: newActivePowerUps })
+  },
+  
+  removeActivePowerUp: (id) => {
+    const { activePowerUps } = get()
+    const newActivePowerUps = new Map(activePowerUps)
+    newActivePowerUps.delete(id)
+    set({ activePowerUps: newActivePowerUps })
+  },
+  
+  updateActivePowerUp: (id, updates) => {
+    const { activePowerUps } = get()
+    const powerUp = activePowerUps.get(id)
+    if (powerUp) {
+      const newActivePowerUps = new Map(activePowerUps)
+      newActivePowerUps.set(id, { ...powerUp, ...updates })
+      set({ activePowerUps: newActivePowerUps })
+    }
+  },
+  
+  // NPCs
+  npcs: new Map(),
+  
+  addNPC: (npc) => {
+    const { npcs } = get()
+    const newNPCs = new Map(npcs)
+    newNPCs.set(npc.id, npc)
+    set({ npcs: newNPCs })
+  },
+  
+  removeNPC: (id) => {
+    const { npcs } = get()
+    const newNPCs = new Map(npcs)
+    newNPCs.delete(id)
+    
+    // Dispose of NPC's Three.js resources
+    disposeNPCResources(id)
+    
+    set({ npcs: newNPCs })
+  },
+  
+  updateNPC: (id, updates) => {
+    const { npcs } = get()
+    const npc = npcs.get(id)
+    if (npc) {
+      const newNPCs = new Map(npcs)
+      newNPCs.set(id, { ...npc, ...updates })
+      set({ npcs: newNPCs })
+    }
+  },
+  
+  interactingWithNPC: null,
+  setInteractingWithNPC: (npcId) => set({ interactingWithNPC: npcId }),
   
   // Other players
   otherPlayers: new Map(),
@@ -960,6 +1110,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   setIsPlayerMoving: (moving) => set({ isPlayerMoving: moving }),
   isClimbingBuilding: false,
   setIsClimbingBuilding: (climbing) => set({ isClimbingBuilding: climbing }),
+  isJumping: false,
+  setIsJumping: (jumping) => set({ isJumping: jumping }),
+  isRunning: false,
+  setIsRunning: (running) => set({ isRunning: running }),
+  isCrouching: false,
+  setIsCrouching: (crouching) => set({ isCrouching: crouching }),
+  isWallRunning: false,
+  setIsWallRunning: (wallRunning) => set({ isWallRunning: wallRunning }),
   
   // Stamina system
   stamina: 100,
@@ -980,6 +1138,34 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCanGrapple: (canGrapple) => set({ canGrapple }),
   grappledBuilding: null,
   setGrappledBuilding: (building) => set({ grappledBuilding: building }),
+  grapplePullVelocity: null,
+  setGrapplePullVelocity: (velocity) => set({ grapplePullVelocity: velocity }),
+  
+  // Cooldown system
+  startCooldown: (actionId: string, duration: number) => {
+    getCooldownManager().startCooldown(actionId, duration)
+  },
+  isOnCooldown: (actionId: string) => {
+    return getCooldownManager().isOnCooldown(actionId)
+  },
+  getRemainingCooldown: (actionId: string) => {
+    return getCooldownManager().getRemainingCooldown(actionId)
+  },
+  getCooldownProgress: (actionId: string, totalDuration: number) => {
+    return getCooldownManager().getCooldownProgress(actionId, totalDuration)
+  },
+  momentumOnRelease: null,
+  setMomentumOnRelease: (momentum) => set({ momentumOnRelease: momentum }),
+  
+  // Wall-run chain system
+  wallRunChain: 0,
+  setWallRunChain: (chain) => set({ wallRunChain: chain }),
+  
+  // Air dash system
+  airDashCooldown: 0,
+  setAirDashCooldown: (cooldown) => set({ airDashCooldown: cooldown }),
+  canAirDash: true,
+  setCanAirDash: (canDash) => set({ canAirDash: canDash }),
 
   // Settings
   qualitySettings: getQualityManager().getSettings(),
@@ -1000,33 +1186,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Housing
   housing: null,
   setHousing: (housing) => set({ housing }),
-  
-  // Damage numbers
-  damageNumbers: new Map(),
-  
-  addDamageNumber: (damageNumber) => {
-    const { damageNumbers } = get()
-    const newNumbers = new Map(damageNumbers)
-    newNumbers.set(damageNumber.id, damageNumber)
-    set({ damageNumbers: newNumbers })
-  },
-  
-  removeDamageNumber: (id) => {
-    const { damageNumbers } = get()
-    const newNumbers = new Map(damageNumbers)
-    newNumbers.delete(id)
-    set({ damageNumbers: newNumbers })
-  },
-  
-  updateDamageNumber: (id, updates) => {
-    const { damageNumbers } = get()
-    const damageNumber = damageNumbers.get(id)
-    if (damageNumber) {
-      const newNumbers = new Map(damageNumbers)
-      newNumbers.set(id, { ...damageNumber, ...updates })
-      set({ damageNumbers: newNumbers })
-    }
-  },
   
   // Floating numbers (enhanced system)
   floatingNumbers: new Map(),
@@ -1052,6 +1211,33 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newNumbers = new Map(floatingNumbers)
       newNumbers.set(id, { ...floatingNumber, ...updates })
       set({ floatingNumbers: newNumbers })
+    }
+  },
+  
+  // Damage numbers (legacy - kept for backward compatibility)
+  damageNumbers: new Map(),
+  
+  addDamageNumber: (damageNumber) => {
+    const { damageNumbers } = get()
+    const newNumbers = new Map(damageNumbers)
+    newNumbers.set(damageNumber.id, damageNumber)
+    set({ damageNumbers: newNumbers })
+  },
+  
+  removeDamageNumber: (id) => {
+    const { damageNumbers } = get()
+    const newNumbers = new Map(damageNumbers)
+    newNumbers.delete(id)
+    set({ damageNumbers: newNumbers })
+  },
+  
+  updateDamageNumber: (id, updates) => {
+    const { damageNumbers } = get()
+    const damageNumber = damageNumbers.get(id)
+    if (damageNumber) {
+      const newNumbers = new Map(damageNumbers)
+      newNumbers.set(id, { ...damageNumber, ...updates })
+      set({ damageNumbers: newNumbers })
     }
   }
 }))

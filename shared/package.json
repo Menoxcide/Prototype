@@ -1,5 +1,5 @@
 {
-  "name": "@nex-void/shared",
+  "name": "@mars-nexus/shared",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,7 +9,8 @@
     "dev": "tsc --watch"
   },
   "devDependencies": {
-    "typescript": "^5.2.2"
+    "typescript": "^5.2.2",
+    "@types/node": "^20.0.0"
   }
 }
 

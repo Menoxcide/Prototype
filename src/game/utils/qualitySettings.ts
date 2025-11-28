@@ -171,15 +171,40 @@ class QualitySettingsManager {
 
   /**
    * Automatically adjust quality based on performance
+   * More aggressive reduction for very low FPS
    */
   adjustQualityBasedOnPerformance(fps: number): void {
-    if (fps < 30 && this.currentSettings.preset !== 'low') {
+    // Very low FPS (< 20): Force to low preset immediately
+    if (fps < 20 && this.currentSettings.preset !== 'low') {
       this.setPreset('low')
-    } else if (fps < 45 && this.currentSettings.preset === 'ultra') {
-      this.setPreset('high')
-    } else if (fps < 50 && this.currentSettings.preset === 'high') {
+      if (import.meta.env.DEV) {
+        console.warn(`[Quality] Auto-reduced to 'low' due to FPS: ${fps}`)
+      }
+    }
+    // Low FPS (< 30): Reduce to low or medium
+    else if (fps < 30) {
+      if (this.currentSettings.preset === 'ultra' || this.currentSettings.preset === 'high') {
+        this.setPreset('medium')
+        if (import.meta.env.DEV) {
+          console.warn(`[Quality] Auto-reduced to 'medium' due to FPS: ${fps}`)
+        }
+      } else if (this.currentSettings.preset === 'medium') {
+        this.setPreset('low')
+        if (import.meta.env.DEV) {
+          console.warn(`[Quality] Auto-reduced to 'low' due to FPS: ${fps}`)
+        }
+      }
+    }
+    // Medium FPS (< 45): Reduce from ultra/high
+    else if (fps < 45 && (this.currentSettings.preset === 'ultra' || this.currentSettings.preset === 'high')) {
       this.setPreset('medium')
-    } else if (fps >= 60 && this.currentSettings.preset === 'low') {
+    }
+    // Medium-high FPS (< 50): Reduce from high
+    else if (fps < 50 && this.currentSettings.preset === 'high') {
+      this.setPreset('medium')
+    }
+    // Good FPS (>= 60): Can increase from low
+    else if (fps >= 60 && this.currentSettings.preset === 'low') {
       this.setPreset('medium')
     }
   }

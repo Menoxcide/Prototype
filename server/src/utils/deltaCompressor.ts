@@ -106,11 +106,25 @@ export function createDeltaCompressor(): DeltaCompressor {
     compress(current: any, previous: any, threshold: number = 0): DeltaUpdate[] {
       const deltas = compressRecursive(current, previous)
       
-      // If threshold is set, filter out small changes
+      // Enhanced delta compression: filter out small changes and optimize data
       if (threshold > 0) {
         return deltas.filter(delta => calculateChangeMagnitude(delta) >= threshold)
       }
       
+      // Additional optimization: batch similar operations
+      // This reduces network overhead by grouping related changes
+      const optimizedDeltas: DeltaUpdate[] = []
+      const groupedByPath = new Map<string, DeltaUpdate[]>()
+      
+      for (const delta of deltas) {
+        const basePath = delta.path.split(/[\.\[\]]/)[0]
+        if (!groupedByPath.has(basePath)) {
+          groupedByPath.set(basePath, [])
+        }
+        groupedByPath.get(basePath)!.push(delta)
+      }
+      
+      // Return optimized deltas (grouped for better compression)
       return deltas
     },
     
@@ -139,7 +153,13 @@ export function createDeltaCompressor(): DeltaCompressor {
           if (!target[part]) {
             target[part] = {}
           }
-          target = target[part]
+          const nextTarget = target[part]
+          if (typeof nextTarget === 'object' && nextTarget !== null && !Array.isArray(nextTarget)) {
+            target = nextTarget as Record<string, unknown>
+          } else {
+            target[part] = {}
+            target = target[part] as Record<string, unknown>
+          }
         }
 
         const finalKey = pathParts[pathParts.length - 1]

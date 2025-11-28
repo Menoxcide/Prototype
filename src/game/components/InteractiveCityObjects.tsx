@@ -6,6 +6,12 @@
 import { useMemo, useEffect, useState, useRef } from 'react'
 import * as THREE from 'three'
 import { useThree, useFrame } from '@react-three/fiber'
+import { soundManager } from '../assets/soundManager'
+import { useGameStore } from '../store/useGameStore'
+import { statusEffectManager } from '../systems/statusEffectSystem'
+import { createFloatingNumber } from '../utils/floatingNumbers'
+import EnhancedParticleSystem from './EnhancedParticleSystem'
+import { useAltKey } from '../hooks/useAltKey'
 
 interface InteractiveObject {
   id: string
@@ -23,9 +29,13 @@ interface InteractiveCityObjectsProps {
 export default function InteractiveCityObjects({ citySize, roadNetwork }: InteractiveCityObjectsProps) {
   const { camera, raycaster } = useThree()
   const [hoveredObject, setHoveredObject] = useState<string | null>(null)
+  const isAltPressed = useAltKey()
   const [interactiveObjects, setInteractiveObjects] = useState<InteractiveObject[]>([])
   const objectRefs = useRef<Map<string, THREE.Mesh>>(new Map())
   const mouse = useRef(new THREE.Vector2())
+  const [particleEffects, setParticleEffects] = useState<Array<{ id: string; position: [number, number, number]; type: 'spell' | 'heal'; timestamp: number }>>([])
+  const [gardenExamine, setGardenExamine] = useState<{ gardenId: string; position: [number, number, number] } | null>(null)
+  const { player, addItem } = useGameStore()
   
   // Generate fountain and garden positions
   useEffect(() => {
@@ -56,8 +66,36 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
         position: [x, 0, z],
         size: 3 + rng() * 2,
         onInteract: () => {
-          console.log(`Interacted with fountain ${i}`)
-          // TODO: Play sound, show animation, maybe grant buff
+          const fountain = objects.find(o => o.id === `fountain-${i}`)
+          if (!fountain || !player) return
+          
+          // Play sound effect
+          soundManager.playSound('pickup', 0.8)
+          
+          // Show particle effect
+          setParticleEffects(prev => [...prev, {
+            id: `fountain-effect-${Date.now()}`,
+            position: [fountain.position[0], fountain.position[1] + 1.5, fountain.position[2]],
+            type: 'heal',
+            timestamp: Date.now()
+          }])
+          
+          // Apply regeneration buff (30 seconds, 5 HP per second)
+          const playerId = player.id || 'player'
+          statusEffectManager.applyEffect(playerId, {
+            id: `fountain-regen-${Date.now()}`,
+            type: 'regeneration',
+            startTime: Date.now(),
+            duration: 30000, // 30 seconds
+            stacks: 1
+          })
+          
+          // Show visual feedback
+          createFloatingNumber(
+            'Regeneration +',
+            { x: fountain.position[0], y: fountain.position[1] + 2, z: fountain.position[2] },
+            'buff'
+          )
         }
       })
     }
@@ -85,8 +123,36 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
         position: [x, 0, z],
         size: 5 + rng() * 3,
         onInteract: () => {
-          console.log(`Interacted with garden ${i}`)
-          // TODO: Show examine UI, maybe harvest items
+          const garden = objects.find(o => o.id === `garden-${i}`)
+          if (!garden || !player) return
+          
+          // Show examine UI
+          setGardenExamine({
+            gardenId: `garden-${i}`,
+            position: [garden.position[0], garden.position[1] + 2, garden.position[2]]
+          })
+          
+          // Harvest items (random chance for herbs/plants)
+          const harvestChance = Math.random()
+          if (harvestChance > 0.5) {
+            // 50% chance to harvest something
+            const harvestItems = [
+              { id: 'herb', count: 1 + Math.floor(Math.random() * 3) },
+              { id: 'plant_fiber', count: 2 + Math.floor(Math.random() * 4) },
+              { id: 'cyber_flower', count: 1 }
+            ]
+            const item = harvestItems[Math.floor(Math.random() * harvestItems.length)]
+            addItem(item.id, item.count)
+            
+            // Show feedback
+            createFloatingNumber(
+              `+${item.count} ${item.id.replace('_', ' ')}`,
+              { x: garden.position[0], y: garden.position[1] + 1.5, z: garden.position[2] },
+              'status'
+            )
+            
+            soundManager.playSound('pickup', 0.6)
+          }
         }
       })
     }
@@ -97,11 +163,27 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
   // Load textures for fountains and gardens
   useEffect(() => {
     const loadTextures = async () => {
-      // TODO: Load Pixellab textures for fountains and gardens
-      // For now, use procedural textures
+      // Load Pixellab textures for fountains and gardens
+      // Note: Actual texture files should be placed in public/textures/ or loaded via assetManager
+      // For now, using procedural materials
+      try {
+        // Future: Load actual Pixellab-generated textures
+        // const fountainTexture = await assetManager.loadTexture('fountain')
+        // const gardenTexture = await assetManager.loadTexture('garden')
+      } catch (error) {
+        console.warn('Could not load Pixellab textures, using procedural materials:', error)
+      }
     }
     
     loadTextures()
+  }, [])
+  
+  // Clean up expired particle effects
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setParticleEffects(prev => prev.filter(effect => Date.now() - effect.timestamp < 2000))
+    }, 500)
+    return () => clearInterval(interval)
   }, [])
   
   // Handle mouse move for hover detection
@@ -118,6 +200,9 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
   // Handle clicks
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
+      // Don't handle clicks when Alt is held (user wants to interact with UI)
+      if (isAltPressed) return
+      
       if (event.button !== 0) return // Only left click
       
       raycaster.setFromCamera(mouse.current, camera)
@@ -139,7 +224,7 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
     
     window.addEventListener('click', handleClick)
     return () => window.removeEventListener('click', handleClick)
-  }, [camera, raycaster, interactiveObjects])
+  }, [camera, raycaster, interactiveObjects, isAltPressed])
   
   // Update hover state each frame
   useFrame(() => {
@@ -281,6 +366,38 @@ export default function InteractiveCityObjects({ citySize, roadNetwork }: Intera
     <>
       {objectElements}
       {interactionPrompt}
+      {/* Particle effects */}
+      {particleEffects.map(effect => (
+        <EnhancedParticleSystem
+          key={effect.id}
+          position={effect.position}
+          type={effect.type}
+          color={effect.type === 'heal' ? '#00ffff' : '#00ff00'}
+          count={30}
+          duration={1500}
+        />
+      ))}
+      {/* Garden examine UI */}
+      {gardenExamine && (
+        <mesh position={gardenExamine.position}>
+          <ringGeometry args={[1, 1.2, 32]} />
+          <meshStandardMaterial
+            color="#00ff88"
+            emissive="#00ff88"
+            emissiveIntensity={0.8}
+            transparent
+            opacity={0.7}
+          />
+          {/* Close examine UI on click outside or after delay */}
+          <mesh
+            onClick={() => setGardenExamine(null)}
+            onPointerOver={() => {}}
+          >
+            <boxGeometry args={[0.1, 0.1, 0.1]} />
+            <meshBasicMaterial visible={false} />
+          </mesh>
+        </mesh>
+      )}
     </>
   )
 }

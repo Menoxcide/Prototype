@@ -3,7 +3,52 @@
  * Handles HTTP requests to the character management endpoints
  */
 
-const API_BASE_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:2567'
+import { getIdToken } from '../../firebase/auth'
+import { getServerUrl } from './serverConfig'
+
+// Cache the API base URL to avoid fetching config on every request
+let cachedApiBaseUrl: string | null = null
+
+/**
+ * Normalize URL to HTTPS if the page is served over HTTPS
+ * Prevents mixed content errors
+ */
+function normalizeToHttps(url: string): string {
+  // If we're running on HTTPS, ensure all URLs use HTTPS
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    url = url.replace(/^http:\/\//, 'https://')
+  }
+  return url
+}
+
+/**
+ * Get the API base URL, fetching from server config if needed
+ */
+async function getApiBaseUrl(): Promise<string> {
+  if (cachedApiBaseUrl) {
+    return cachedApiBaseUrl
+  }
+  
+  try {
+    const serverUrl = await getServerUrl()
+    // Normalize to HTTPS if needed
+    const normalizedUrl = normalizeToHttps(serverUrl)
+    cachedApiBaseUrl = normalizedUrl
+    return normalizedUrl
+  } catch (error) {
+    console.warn('Failed to fetch server URL, using fallback:', error)
+    // In development, always use localhost, even if VITE_SERVER_URL is set to production
+    let fallbackUrl: string
+    if (import.meta.env.DEV) {
+      fallbackUrl = 'http://localhost:2567'
+    } else {
+      fallbackUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:2567'
+    }
+    const normalizedFallback = normalizeToHttps(fallbackUrl)
+    cachedApiBaseUrl = normalizedFallback
+    return normalizedFallback
+  }
+}
 
 export interface CharacterSummary {
   id: string
@@ -31,7 +76,6 @@ export interface CharactersResponse {
  */
 async function getAuthToken(): Promise<string | null> {
   try {
-    const { getIdToken } = await import('../../firebase/auth')
     return await getIdToken()
   } catch (error) {
     console.error('Failed to get auth token:', error)
@@ -49,7 +93,8 @@ export async function listCharacters(): Promise<CharacterSummary[]> {
       throw new Error('Not authenticated')
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/characters`, {
+    const apiBaseUrl = await getApiBaseUrl()
+    const response = await fetch(`${apiBaseUrl}/api/characters`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -92,7 +137,8 @@ export async function loadCharacter(characterId: string): Promise<CharacterSumma
       throw new Error('Not authenticated')
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/characters/${characterId}`, {
+    const apiBaseUrl = await getApiBaseUrl()
+    const response = await fetch(`${apiBaseUrl}/api/characters/${characterId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -142,7 +188,8 @@ export async function getCharacterCount(): Promise<CharacterCountResponse> {
       throw new Error('Not authenticated')
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/characters/count`, {
+    const apiBaseUrl = await getApiBaseUrl()
+    const response = await fetch(`${apiBaseUrl}/api/characters/count`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,

@@ -4,6 +4,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { useThree } from '@react-three/fiber'
+import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 
 interface PerformanceMetrics {
@@ -13,10 +15,15 @@ interface PerformanceMetrics {
   drawCalls: number
   triangles: number
   entities: number
+  geometries?: number
+  textures?: number
 }
 
 export default function PerformanceProfiler() {
   const { fps: _fps, setFPS } = useGameStore()
+  const enemies = useGameStore((s) => s.enemies)
+  const npcs = useGameStore((s) => s.npcs)
+  const lootDrops = useGameStore((s) => s.lootDrops)
   const [isOpen, setIsOpen] = useState(false)
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     fps: 0,
@@ -28,6 +35,13 @@ export default function PerformanceProfiler() {
   })
   const frameCountRef = useRef(0)
   const lastTimeRef = useRef(performance.now())
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+
+  // Get renderer from Three.js context
+  const { gl } = useThree()
+  useEffect(() => {
+    rendererRef.current = gl
+  }, [gl])
 
   // Toggle with F3 key
   useEffect(() => {
@@ -54,11 +68,34 @@ export default function PerformanceProfiler() {
         const currentFPS = Math.round((frameCountRef.current * 1000) / delta)
         const frameTime = delta / frameCountRef.current
 
+        // Get renderer info (draw calls, triangles, etc.)
+        const renderer = rendererRef.current
+        let drawCalls = 0
+        let triangles = 0
+        let geometries = 0
+        let textures = 0
+        
+        if (renderer && renderer.info) {
+          const info = renderer.info
+          drawCalls = info.render.calls || 0
+          triangles = info.render.triangles || 0
+          geometries = info.memory.geometries || 0
+          textures = info.memory.textures || 0
+        }
+
+        // Count entities
+        const entityCount = enemies.size + npcs.size + lootDrops.size
+
         setMetrics(prev => ({
           ...prev,
           fps: currentFPS,
           frameTime: Math.round(frameTime * 100) / 100,
-          memoryUsage: (performance as any).memory ? Math.round((performance as any).memory.usedJSHeapSize / 1048576) : 0
+          memoryUsage: (performance as any).memory ? Math.round((performance as any).memory.usedJSHeapSize / 1048576) : 0,
+          drawCalls,
+          triangles,
+          entities: entityCount,
+          geometries,
+          textures
         }))
 
         setFPS(currentFPS)
@@ -94,10 +131,18 @@ export default function PerformanceProfiler() {
           </div>
         )}
         <div>
-          Draw Calls: <span className="text-cyan-300">{metrics.drawCalls}</span>
+          Draw Calls: <span className={metrics.drawCalls > 100 ? 'text-red-400' : 'text-cyan-300'}>{metrics.drawCalls}</span>
+          {metrics.drawCalls > 100 && <span className="text-red-400 text-xs ml-1">⚠</span>}
         </div>
         <div>
-          Triangles: <span className="text-cyan-300">{metrics.triangles.toLocaleString()}</span>
+          Triangles: <span className={metrics.triangles > 50000 ? 'text-red-400' : 'text-cyan-300'}>{metrics.triangles.toLocaleString()}</span>
+          {metrics.triangles > 50000 && <span className="text-red-400 text-xs ml-1">⚠</span>}
+        </div>
+        <div>
+          Geometries: <span className="text-cyan-300">{metrics.geometries || 0}</span>
+        </div>
+        <div>
+          Textures: <span className="text-cyan-300">{metrics.textures || 0}</span>
         </div>
         <div>
           Entities: <span className="text-cyan-300">{metrics.entities}</span>

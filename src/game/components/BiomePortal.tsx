@@ -9,6 +9,7 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { Biome } from '../data/biomes'
 import { useGameStore } from '../store/useGameStore'
+import { COOLDOWN_PORTAL } from '../data/cooldowns'
 
 interface BiomePortalProps {
   biome: Biome
@@ -21,10 +22,9 @@ export default function BiomePortal({ biome, position, onEnter }: BiomePortalPro
   const rotationRef = useRef(0)
   const innerRingRef = useRef<THREE.Mesh>(null)
   const particlesRef = useRef<THREE.Points>(null)
-  const { player } = useGameStore()
+  const { player, isOnCooldown, startCooldown } = useGameStore()
   const hasEnteredRef = useRef(false) // Prevent spam - only trigger once per entry
-  const lastActivationTime = useRef<number>(0) // Track last activation time
-  const PORTAL_COOLDOWN = 2500 // 2.5 seconds cooldown between activations
+  const actionId = `portal:${biome.id}`
 
   // Create particle system for portal effect
   const particles = useRef<THREE.BufferGeometry | null>(null)
@@ -109,14 +109,12 @@ export default function BiomePortal({ biome, position, onEnter }: BiomePortalPro
       const dx = player.position.x - position[0]
       const dz = player.position.z - position[2]
       const distance = Math.sqrt(dx * dx + dz * dz)
-      const currentTime = Date.now()
-      const timeSinceLastActivation = currentTime - lastActivationTime.current
       
       if (distance < 2.5) {
         // Check cooldown and if player hasn't already entered
-        if (!hasEnteredRef.current && timeSinceLastActivation >= PORTAL_COOLDOWN) {
+        if (!hasEnteredRef.current && !isOnCooldown(actionId)) {
           hasEnteredRef.current = true
-          lastActivationTime.current = currentTime
+          startCooldown(actionId, COOLDOWN_PORTAL * 1000)
           onEnter()
         }
       } else {

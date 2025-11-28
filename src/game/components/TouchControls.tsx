@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { isMobile } from '../data/config'
-import { triggerHapticPattern, HAPTIC_PATTERNS } from '../utils/haptics'
+import { hapticManager } from '../utils/haptics'
 import { calculateResponsiveScale, hapticFeedback } from '../utils/mobileOptimizations'
 import { createGestureRecognizer, SwipeDirection } from '../utils/gestureRecognition'
 
 export default function TouchControls() {
-  const { player, getEquippedSpell, updatePlayerPosition, updatePlayerRotation, updatePlayerMana } = useGameStore()
+  const { player, getEquippedSpell, updatePlayerPosition, updatePlayerRotation, updatePlayerMana, grappledBuilding, isOnCooldown, startCooldown, getRemainingCooldown, getCooldownProgress } = useGameStore()
   const joystickRef = useRef<HTMLDivElement>(null)
   const spellWheelRef = useRef<HTMLDivElement>(null)
   const gestureAreaRef = useRef<HTMLDivElement>(null)
   const [_joystick, setJoystick] = useState<any>(null)
-  const [spellCooldowns, setSpellCooldowns] = useState<Map<number, number>>(new Map())
   const moveDirectionRef = useRef({ x: 0, y: 0 })
   const gestureRecognizerRef = useRef<ReturnType<typeof createGestureRecognizer> | null>(null)
   
@@ -157,24 +156,58 @@ export default function TouchControls() {
     return () => clearInterval(interval)
   }, [player, updatePlayerPosition, updatePlayerRotation])
 
-  // Spell cooldown updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSpellCooldowns(prev => {
-        const newCooldowns = new Map(prev)
-        newCooldowns.forEach((time, slot) => {
-          if (time > 0) {
-            newCooldowns.set(slot, time - 100)
-          } else {
-            newCooldowns.delete(slot)
-          }
-        })
-        return newCooldowns
-      })
-    }, 100)
 
-    return () => clearInterval(interval)
-  }, [])
+  const handleJump = () => {
+    if (!player) return
+    
+    // If grappling, release grapple first (Space releases grapple)
+    if (grappledBuilding) {
+      // Dispatch Space key event to trigger grapple release in BuildingGrappleSystem
+      const spaceEvent = new KeyboardEvent('keydown', {
+        code: 'Space',
+        key: ' ',
+        bubbles: true,
+        cancelable: true
+      })
+      window.dispatchEvent(spaceEvent)
+      
+      // Also trigger keyup after a short delay
+      setTimeout(() => {
+        const spaceUpEvent = new KeyboardEvent('keyup', {
+          code: 'Space',
+          key: ' ',
+          bubbles: true,
+          cancelable: true
+        })
+        window.dispatchEvent(spaceUpEvent)
+      }, 50)
+      
+      hapticFeedback.medium()
+      return
+    }
+    
+    // Otherwise, trigger jump (Space key for jump)
+    const spaceEvent = new KeyboardEvent('keydown', {
+      code: 'Space',
+      key: ' ',
+      bubbles: true,
+      cancelable: true
+    })
+    window.dispatchEvent(spaceEvent)
+    
+    // Trigger keyup after a short delay
+    setTimeout(() => {
+      const spaceUpEvent = new KeyboardEvent('keyup', {
+        code: 'Space',
+        key: ' ',
+        bubbles: true,
+        cancelable: true
+      })
+      window.dispatchEvent(spaceUpEvent)
+    }, 50)
+    
+    hapticFeedback.light()
+  }
 
   const handleSpellCast = (slot: number) => {
     // Debounce spell casting to reduce input lag by 20ms
@@ -184,15 +217,17 @@ export default function TouchControls() {
     }
     lastSpellCastTime.current = now
 
-    if (spellCooldowns.get(slot) && spellCooldowns.get(slot)! > 0) {
-      // Haptic feedback for cooldown
-      hapticFeedback.warning()
-      return
-    }
-
     const spell = getEquippedSpell(slot)
     if (!spell || !player) {
       hapticFeedback.light()
+      return
+    }
+
+    // Check cooldown using centralized system
+    const actionId = `spell:${spell.id}`
+    if (isOnCooldown(actionId)) {
+      // Haptic feedback for cooldown
+      hapticFeedback.warning()
       return
     }
 
@@ -205,15 +240,11 @@ export default function TouchControls() {
     // Consume mana
     updatePlayerMana(player.mana - spell.manaCost)
 
-    // Set cooldown
-    setSpellCooldowns(prev => {
-      const newCooldowns = new Map(prev)
-      newCooldowns.set(slot, spell.cooldown)
-      return newCooldowns
-    })
+    // Start cooldown using centralized system
+    startCooldown(actionId, spell.cooldown)
 
     // Haptic feedback for successful spell cast
-    triggerHapticPattern(HAPTIC_PATTERNS.spellCast)
+    hapticManager.damage() // Use damage pattern for spell cast
     hapticFeedback.medium()
 
     // Queue spell cast for Game component to process (with debounce)
@@ -226,6 +257,11 @@ export default function TouchControls() {
 
   const uiScale = calculateResponsiveScale()
   const buttonSize = Math.max(uiScale.buttonSize, 44) // Ensure minimum 44px touch target
+  
+  // Calculate safe areas to avoid HUD overlap
+  // Action buttons bar is at bottom, so leave space
+  const actionBarHeight = 60 + 8 // height + padding
+  const bottomSafeArea = actionBarHeight
 
   return (
     <div className="fixed inset-0 pointer-events-none z-20">
@@ -239,31 +275,56 @@ export default function TouchControls() {
         }}
       />
       
-      {/* Left Joystick */}
+      {/* Left Joystick - positioned to avoid player stats panel */}
       <div
         ref={joystickRef}
-        className="absolute left-0 bottom-0 pointer-events-auto"
+        className="absolute pointer-events-auto"
         style={{ 
           touchAction: 'none',
+          left: '8px',
+          bottom: `${bottomSafeArea}px`,
           width: `${uiScale.buttonSize * 2.5}px`,
           height: `${uiScale.buttonSize * 2.5}px`,
           zIndex: 20
         }}
       />
 
-      {/* Right Side - Spell Wheel/Hotbar */}
+      {/* Right Side - Jump Button and Spell Wheel/Hotbar - positioned to avoid top-right buttons and action bar */}
       <div
         ref={spellWheelRef}
-        className="absolute right-4 bottom-4 pointer-events-auto"
+        className="absolute pointer-events-auto"
         style={{
-          gap: `${uiScale.spacing}px`
+          right: '8px',
+          bottom: `${bottomSafeArea}px`,
+          gap: `${uiScale.spacing}px`,
+          zIndex: 20
         }}
       >
+        {/* Jump Button */}
+        <button
+          onClick={handleJump}
+          className="relative rounded-lg border-2 font-bold text-xl transition-all bg-gray-800 border-cyan-500 hover:border-cyan-400 active:scale-95 mb-2"
+          style={{
+            touchAction: 'manipulation',
+            width: `${buttonSize}px`,
+            height: `${buttonSize}px`,
+            fontSize: `${uiScale.fontSize}px`,
+            minWidth: '44px',
+            minHeight: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <span className="text-cyan-400">↑</span>
+        </button>
+        
         <div className="flex flex-col" style={{ gap: `${uiScale.spacing}px` }}>
           {[0, 1, 2, 3, 4].map(slot => {
             const spell = getEquippedSpell(slot)
-            const cooldown = spellCooldowns.get(slot) || 0
-            const cooldownPercent = spell ? (cooldown / spell.cooldown) * 100 : 0
+            const actionId = spell ? `spell:${spell.id}` : ''
+            const cooldown = actionId ? getRemainingCooldown(actionId) : 0
+            const cooldownPercent = spell && actionId ? (1 - getCooldownProgress(actionId, spell.cooldown)) * 100 : 0
             const canCast = spell && player && player.mana >= spell.manaCost && cooldown === 0
 
             return (

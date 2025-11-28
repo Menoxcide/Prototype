@@ -1,28 +1,32 @@
 /**
  * Dodge System - Handles dodge mechanics and invincibility frames
+ * Uses centralized cooldown system for cooldown tracking
  */
+
+import { getCooldownManager } from './cooldownSystem'
+import { COOLDOWN_DODGE } from '../data/cooldowns'
 
 export interface DodgeState {
   isDodging: boolean
   dodgeStartTime: number
   dodgeDuration: number
   invincibilityEndTime: number
-  cooldownEndTime: number
+  // Note: cooldownEndTime removed - using centralized cooldown system
 }
 
 export interface DodgeConfig {
   dodgeDuration: number // How long the dodge animation lasts
   invincibilityDuration: number // How long invincibility lasts
-  cooldown: number // Cooldown between dodges
   distance: number // Distance to dodge
 }
 
 const DEFAULT_DODGE_CONFIG: DodgeConfig = {
   dodgeDuration: 300, // 300ms
   invincibilityDuration: 400, // 400ms
-  cooldown: 1000, // 1 second
   distance: 5 // 5 units
 }
+
+const DODGE_ACTION_ID = 'dodge'
 
 class DodgeManager {
   private dodgeStates: Map<string, DodgeState> = new Map()
@@ -39,8 +43,8 @@ class DodgeManager {
     const state = this.dodgeStates.get(entityId)
     const now = Date.now()
 
-    // Check cooldown
-    if (state && now < state.cooldownEndTime) {
+    // Check cooldown using centralized system
+    if (getCooldownManager().isOnCooldown(DODGE_ACTION_ID)) {
       return {
         success: false,
         reason: 'Dodge on cooldown'
@@ -60,11 +64,13 @@ class DodgeManager {
       isDodging: true,
       dodgeStartTime: now,
       dodgeDuration: this.config.dodgeDuration,
-      invincibilityEndTime: now + this.config.invincibilityDuration,
-      cooldownEndTime: now + this.config.cooldown
+      invincibilityEndTime: now + this.config.invincibilityDuration
     }
 
     this.dodgeStates.set(entityId, dodgeState)
+    
+    // Start cooldown using centralized system
+    getCooldownManager().startCooldown(DODGE_ACTION_ID, COOLDOWN_DODGE * 1000)
 
     // Calculate new position
     const normalizedDir = this.normalizeDirection(direction)
@@ -103,8 +109,8 @@ class DodgeManager {
 
     const isInvincible = now < state.invincibilityEndTime
 
-    // Clean up if dodge is completely done
-    if (!state.isDodging && !isInvincible && now >= state.cooldownEndTime) {
+    // Clean up if dodge is completely done (cooldown handled by centralized system)
+    if (!state.isDodging && !isInvincible) {
       this.dodgeStates.delete(entityId)
     }
 
@@ -128,18 +134,15 @@ class DodgeManager {
    */
   canDodge(entityId: string): boolean {
     const state = this.dodgeStates.get(entityId)
-    if (!state) return true
-    return Date.now() >= state.cooldownEndTime && !state.isDodging
+    if (!state) return !getCooldownManager().isOnCooldown(DODGE_ACTION_ID)
+    return !getCooldownManager().isOnCooldown(DODGE_ACTION_ID) && !state.isDodging
   }
 
   /**
    * Get dodge cooldown remaining
    */
-  getCooldownRemaining(entityId: string): number {
-    const state = this.dodgeStates.get(entityId)
-    if (!state) return 0
-    const remaining = state.cooldownEndTime - Date.now()
-    return Math.max(0, remaining)
+  getCooldownRemaining(_entityId: string): number {
+    return getCooldownManager().getRemainingCooldown(DODGE_ACTION_ID)
   }
 
   /**

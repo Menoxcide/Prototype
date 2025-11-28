@@ -1,8 +1,8 @@
-# NEX://VOID Architecture Documentation
+# MARS://NEXUS Architecture Documentation
 
 ## Overview
 
-NEX://VOID is a multiplayer cyberpunk MMORPG built with React, Three.js, and Colyseus. This document provides a comprehensive overview of the system architecture.
+MARS://NEXUS is a multiplayer cyberpunk MMORPG built with React, Three.js, and Colyseus. This document provides a comprehensive overview of the system architecture.
 
 ## System Architecture
 

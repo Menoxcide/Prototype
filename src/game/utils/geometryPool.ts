@@ -13,7 +13,7 @@ interface GeometryPoolEntry {
 
 class GeometryPool {
   private pool: Map<string, GeometryPoolEntry> = new Map()
-  private readonly MAX_POOL_SIZE = 50
+  private readonly MAX_POOL_SIZE = 100 // Increased for more mesh types
   private readonly UNUSED_TIMEOUT = 60000 // 60 seconds
 
   /**
@@ -135,5 +135,52 @@ export function getPooledGeometry(
  */
 export function releasePooledGeometry(key: string): void {
   geometryPool.release(key)
+}
+
+/**
+ * Common geometry types for pooling
+ */
+export const GEOMETRY_TYPES = {
+  BOX: 'box',
+  SPHERE: 'sphere',
+  CYLINDER: 'cylinder',
+  CAPSULE: 'capsule',
+  PLANE: 'plane',
+  ENEMY_BOX: 'enemy-box',
+  LOOT_CYLINDER: 'loot-cylinder',
+  PROJECTILE_SPHERE: 'projectile-sphere',
+  RESOURCE_NODE: 'resource-node'
+} as const
+
+/**
+ * Get common geometry with pooling
+ */
+export function getCommonGeometry(type: keyof typeof GEOMETRY_TYPES, ...args: number[]): THREE.BufferGeometry {
+  const key = GEOMETRY_TYPES[type]
+  
+  switch (type) {
+    case 'BOX':
+      return getPooledGeometry(`${key}-${args[0]}-${args[1]}-${args[2]}`, () => 
+        new THREE.BoxGeometry(args[0] || 1, args[1] || 1, args[2] || 1)
+      )
+    case 'SPHERE':
+      return getPooledGeometry(`${key}-${args[0]}-${args[1]}`, () => 
+        new THREE.SphereGeometry(args[0] || 1, args[1] || 16, args[2] || 16)
+      )
+    case 'CYLINDER':
+      return getPooledGeometry(`${key}-${args[0]}-${args[1]}-${args[2]}`, () => 
+        new THREE.CylinderGeometry(args[0] || 1, args[1] || 1, args[2] || 1, args[3] || 8)
+      )
+    case 'CAPSULE':
+      return getPooledGeometry(`${key}-${args[0]}-${args[1]}`, () => 
+        new THREE.CapsuleGeometry(args[0] || 1, args[1] || 1, args[2] || 4, args[3] || 8)
+      )
+    case 'PLANE':
+      return getPooledGeometry(`${key}-${args[0]}-${args[1]}`, () => 
+        new THREE.PlaneGeometry(args[0] || 1, args[1] || 1)
+      )
+    default:
+      return getPooledGeometry(key, () => new THREE.BoxGeometry(1, 1, 1))
+  }
 }
 

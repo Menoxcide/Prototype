@@ -2,6 +2,7 @@
 import { useGameStore } from '../store/useGameStore'
 import { joinRoom } from '../network/colyseus'
 import { startMovementSync } from '../network/syncSystem'
+import { getIdToken } from '../../firebase/auth'
 
 export function setupOfflineHandler() {
   const handleOnline = async () => {
@@ -16,7 +17,6 @@ export function setupOfflineHandler() {
     if (player && !isConnected) {
       try {
         // Get Firebase token for reconnection
-        const { getIdToken } = await import('../../firebase/auth')
         const firebaseToken = await getIdToken()
         
         await joinRoom(player.name, player.race, true, firebaseToken || undefined)

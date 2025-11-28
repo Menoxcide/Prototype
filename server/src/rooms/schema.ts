@@ -51,6 +51,17 @@ export class LootDropSchema extends Schema {
   @type('number') expiresAt: number = 0
 }
 
+export class PowerUpSchema extends Schema {
+  @type('string') id: string = ''
+  @type('string') powerUpId: string = ''
+  @type('string') type: string = ''
+  @type('number') x: number = 0
+  @type('number') y: number = 0
+  @type('number') z: number = 0
+  @type('number') spawnTime: number = 0
+  @type('number') expiresAt: number = 0
+}
+
 export class SpellProjectileSchema extends Schema {
   @type('string') id: string = ''
   @type('string') spellId: string = ''
@@ -79,6 +90,7 @@ export class NexusRoomState extends Schema {
   @type({ map: EnemySchema }) enemies = new MapSchema<EnemySchema>()
   @type({ map: ResourceNodeSchema }) resourceNodes = new MapSchema<ResourceNodeSchema>()
   @type({ map: LootDropSchema }) lootDrops = new MapSchema<LootDropSchema>()
+  @type({ map: PowerUpSchema }) powerUps = new MapSchema<PowerUpSchema>()
   @type({ map: SpellProjectileSchema }) spellProjectiles = new MapSchema<SpellProjectileSchema>()
   @type({ map: GuildSchema }) guilds = new MapSchema<GuildSchema>()
   @type('number') worldBossSpawnTime: number = 0

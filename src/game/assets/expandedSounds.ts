@@ -106,6 +106,18 @@ export const EnvironmentSounds = {
 }
 
 /**
+ * Movement sound effects (cyberpunk parkour)
+ */
+export const MovementSounds = {
+  grappleDeploy: 'movement-grapple-deploy',
+  grappleRetract: 'movement-grapple-retract',
+  wallRun: 'movement-wall-run',
+  landing: 'movement-landing',
+  airDash: 'movement-air-dash',
+  jump: 'movement-jump',
+}
+
+/**
  * Generate enemy sound
  */
 function generateEnemySound(id: string, type: 'spawn' | 'attack' | 'hit' | 'death'): void {
@@ -176,6 +188,14 @@ export function preloadExpandedSounds(): void {
   soundManager.generateSound(EnvironmentSounds.doorClose, 'ui')
   soundManager.generateSound(EnvironmentSounds.teleporter, 'spell')
   soundManager.generateSound(EnvironmentSounds.resourceHarvest, 'ui')
+
+  // Movement sounds (cyberpunk parkour)
+  soundManager.generateSound(MovementSounds.grappleDeploy, 'spell') // Whoosh sound
+  soundManager.generateSound(MovementSounds.grappleRetract, 'spell')
+  soundManager.generateSound(MovementSounds.wallRun, 'hit') // Friction sound
+  soundManager.generateSound(MovementSounds.landing, 'hit') // Impact sound
+  soundManager.generateSound(MovementSounds.airDash, 'spell') // Quick whoosh
+  soundManager.generateSound(MovementSounds.jump, 'ui') // Quick beep
 }
 
 /**
@@ -224,5 +244,12 @@ export function playCombatSound(soundId: keyof typeof CombatSounds, volume: numb
  */
 export function playEnvironmentSound(soundId: keyof typeof EnvironmentSounds, volume: number = 0.6): void {
   soundManager.playSound(EnvironmentSounds[soundId], volume)
+}
+
+/**
+ * Play movement sound
+ */
+export function playMovementSound(soundId: keyof typeof MovementSounds, volume: number = 0.7): void {
+  soundManager.playSound(MovementSounds[soundId], volume)
 }
 

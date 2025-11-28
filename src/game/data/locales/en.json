@@ -235,6 +235,109 @@
     "questNotFound": "Quest not found.",
     "dungeonNotFound": "Dungeon not found.",
     "failedToEnterDungeon": "Failed to enter dungeon"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "Select Character",
+    "loadingCharacters": "Loading characters...",
+    "serverUnavailable": "⚠️ Server Unavailable",
+    "serverUnavailableMessage": "Server is not available.",
+    "serverUnavailableSubtext": "You can still create a new character. It will be saved when the server is available.",
+    "characters": "Characters",
+    "noCharactersFound": "No characters found. Create your first character to begin!",
+    "refresh": "Refresh",
+    "createNewCharacter": "Create New Character",
+    "characterLimitReached": "Character limit reached ({{max}} characters)",
+    "lastPlayed": "Last played:",
+    "created": "Created:",
+    "levelShort": "Lv.",
+    "failedToLoadCharacters": "Failed to load characters. Please try again.",
+    "failedToLoadCharacter": "Failed to load character. Please try again."
+  },
+  "npc": {
+    "next": "Next",
+    "continue": "Continue",
+    "availableQuests": "Available Quests",
+    "noQuestsAvailable": "No quests available.",
+    "shop": "Shop",
+    "noItemsForSale": "No items for sale.",
+    "services": "Services",
+    "noServicesAvailable": "No services available.",
+    "serviceHeal": "Restore full health",
+    "serviceRepair": "Restore full mana",
+    "serviceTeleport": "Teleport to another location",
+    "serviceEnchant": "Enchant your items",
+    "buy": "Buy",
+    "credits": "credits"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "Select player to whisper",
+    "selectPlayer": "Select player...",
+    "global": "Global",
+    "guild": "Guild",
+    "whisper": "Whisper",
+    "noMessagesYet": "No messages yet. Start chatting!",
+    "whisperTag": "[Whisper]",
+    "guildTag": "[Guild]",
+    "typeMessage": "Type a message...",
+    "send": "Send",
+    "systemInfo": "System Info",
+    "connection": "Connection:",
+    "online": "Online",
+    "offline": "Offline",
+    "latency": "Latency:",
+    "packetLoss": "Packet Loss:",
+    "serverStatus": "Server Status:",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "gameInfo": "Game Info",
+    "zone": "Zone:",
+    "unknown": "Unknown",
+    "active": "Active",
+    "serverState": "Server State:",
+    "playerInfo": "Player Info",
+    "name": "Name:",
+    "race": "Race:",
+    "tradition": "Tradition:"
+  },
+  "victoryDefeat": {
+    "victory": "VICTORY!",
+    "defeat": "DEFEAT",
+    "rewards": "Rewards",
+    "items": "Items:",
+    "continue": "Continue"
+  },
+  "system": {
+    "loading": "Loading..."
+  },
+  "battlePass": {
+    "premium": "✓ Premium",
+    "upgrade": "Upgrade",
+    "premiumPass": "Premium Pass"
+  },
+  "cosmeticShop": {
+    "title": "Cosmetic Shop",
+    "notEnoughCredits": "Not enough credits!",
+    "premiumRequiresPayment": "Premium cosmetics require payment. Please contact support for premium purchases.\n\nStripe integration requires backend setup. See CosmeticShop.tsx for implementation details.",
+    "purchased": "Purchased {{name}}!"
+  },
+  "guild": {
+    "nameLengthError": "Guild name must be 3-20 characters",
+    "tagLengthError": "Guild tag must be 2-4 characters",
+    "enterGuildId": "Please enter a guild ID",
+    "leaveGuildConfirm": "Are you sure you want to leave your guild?"
+  },
+  "social": {
+    "partySystem": "Party System",
+    "guildTag": "Guild Tag:",
+    "guildSystem": "Guild System",
+    "removeFriendConfirm": "Remove this friend?",
+    "blockPlayerConfirm": "Block this player? They will not be able to send you messages or friend requests.",
+    "reportPlayerPrompt": "Please describe the issue with {{playerId}}:",
+    "addNotePrompt": "Add a note for this friend:"
   }
 }
 

@@ -1,5 +1,5 @@
 import { Room, type Client } from '@colyseus/core'
-import { NexusRoomState, PlayerSchema, EnemySchema, ResourceNodeSchema, LootDropSchema, SpellProjectileSchema, GuildSchema } from './schema'
+import { NexusRoomState, PlayerSchema, EnemySchema, ResourceNodeSchema, LootDropSchema, PowerUpSchema, SpellProjectileSchema, GuildSchema } from './schema'
 import { GAME_CONFIG } from '../../shared/config'
 import { createSpatialHashGrid, SpatialHashGrid } from '../utils/spatialHashGrid'
 import { createDeltaCompressor, DeltaCompressor } from '../utils/deltaCompressor'
@@ -8,6 +8,7 @@ import { PlayerDataRepository } from '../services/PlayerDataRepository'
 import { QuestSystemImpl, QuestSystem } from '../systems/QuestSystem'
 import { BattlePassSystemImpl, BattlePassSystem } from '../systems/BattlePassSystem'
 import { DungeonSystemImpl, DungeonSystem } from '../systems/DungeonSystem'
+import type { Dungeon } from '../../../shared/src/types/dungeons'
 import { DungeonGeneratorImpl } from '../systems/DungeonGenerator'
 import { TradingSystemImpl, TradingSystem } from '../systems/TradingSystem'
 import { AchievementSystemImpl, AchievementSystem } from '../systems/AchievementSystem'
@@ -20,6 +21,8 @@ import { SocialSystemImpl, SocialSystem } from '../systems/SocialSystem'
 import { DynamicEventSystem } from '../systems/DynamicEventSystem'
 import { createInterestManager, InterestManager } from '../../../shared/src/utils/interestManager'
 import { cacheService } from '../services/CacheService'
+import { MONSTERS, getMonster, type Monster } from '../../../shared/src/data/monsters'
+import { roomShardingManager } from '../utils/roomSharding'
 
 // Spell data lookup (synced with client-side spells.ts)
 // Note: damage values match client-side for consistency
@@ -40,6 +43,19 @@ function getSpellData(spellId: string): { manaCost: number; cooldown: number; da
   return SPELL_DATA[spellId] || null
 }
 
+/**
+ * Validates and sanitizes a numeric value to ensure it's a valid number (not NaN or Infinity)
+ * @param value The value to validate
+ * @param defaultValue The default value to use if the value is invalid
+ * @returns A valid number
+ */
+function validateNumber(value: number, defaultValue: number = 0): number {
+  if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) {
+    return defaultValue
+  }
+  return value
+}
+
 interface EnemyEntity {
   id: string
   position: { x: number; y: number; z: number }
@@ -56,6 +72,7 @@ type ClientMessage =
   | { type: 'castSpell'; spellId: string; position: { x: number; y: number; z: number }; rotation: number }
   | { type: 'chat'; text: string }
   | { type: 'pickupLoot'; lootId: string }
+  | { type: 'pickupPowerUp'; powerUpId: string }
   | { type: 'createGuild'; name: string; tag: string }
   | { type: 'joinGuild'; guildId: string }
   | { type: 'leaveGuild' }
@@ -101,14 +118,17 @@ type ClientMessage =
 export class NexusRoom extends Room<NexusRoomState> {
   maxClients = 1000
   enemySpawnTimer: NodeJS.Timeout | null = null
+  powerUpSpawnTimer: NodeJS.Timeout | null = null
   gameLoopTimer: NodeJS.Timeout | null = null
   worldBossTimer: NodeJS.Timeout | null = null
   enemySpawnPositions = new Map<string, { x: number; y: number; z: number }>()
   playerCombos = new Map<string, { kills: number; startTime: number; multiplier: number }>()
   
   // Spatial hash grids for optimized collision detection
-  enemySpatialGrid: SpatialHashGrid<EnemyEntity> = createSpatialHashGrid(10)
-  projectileSpatialGrid: SpatialHashGrid<ProjectileEntity> = createSpatialHashGrid(10)
+  // Optimized cell size: 5 units for better query performance (reduced from 10)
+  // Smaller cells = more precise queries, fewer false positives
+  enemySpatialGrid: SpatialHashGrid<EnemyEntity> = createSpatialHashGrid(5)
+  projectileSpatialGrid: SpatialHashGrid<ProjectileEntity> = createSpatialHashGrid(5)
   
   // Delta compression for state updates
   deltaCompressor: DeltaCompressor = createDeltaCompressor()
@@ -151,6 +171,9 @@ export class NexusRoom extends Room<NexusRoomState> {
   // Social system
   socialSystem: SocialSystem | null = null
   
+  // Dynamic event system
+  dynamicEventSystem: DynamicEventSystem | null = null
+  
   // Interest management for network optimization
   private interestManager: InterestManager | null = null
   private readonly RENDER_DISTANCE = 50 // Only send updates for entities within 50 units
@@ -169,6 +192,10 @@ export class NexusRoom extends Room<NexusRoomState> {
   // Adaptive tick rate
   private currentTickInterval: number = 16 // Default 60 FPS
   private lastPlayerCount: number = 0
+  // Tiered update system: track which tick we're on
+  private tickCounter: number = 0
+  private readonly CRITICAL_UPDATE_TICK = 1 // Critical updates every tick
+  private readonly NON_CRITICAL_UPDATE_TICK = 3 // Non-critical updates every 3 ticks
   
   // Track last positions for spatial grid optimization
   private lastEnemyPositions: Map<string, { x: number; y: number; z: number }> = new Map()
@@ -195,7 +222,9 @@ export class NexusRoom extends Room<NexusRoomState> {
     this.setState(new NexusRoomState())
     
     // Use provided monitoring service or create new one
-    this.monitoringService = options.monitoringService || new MonitoringServiceImpl()
+    this.monitoringService = (options.monitoringService && typeof options.monitoringService === 'object' && 'recordMetric' in options.monitoringService) 
+      ? (options.monitoringService as MonitoringService)
+      : new MonitoringServiceImpl()
     
     // Set up Redis pub/sub for cross-instance communication (if Redis is available)
     if (process.env.REDIS_URL) {
@@ -203,8 +232,8 @@ export class NexusRoom extends Room<NexusRoomState> {
     }
 
     // Initialize database service (if provided)
-    if (options.databaseService) {
-      this.databaseService = options.databaseService
+    if (options.databaseService && typeof options.databaseService === 'object' && 'savePlayerData' in options.databaseService) {
+      this.databaseService = options.databaseService as DatabaseService
       this.playerDataRepository = new PlayerDataRepository(this.databaseService!)
       
       // Initialize quest system
@@ -217,10 +246,11 @@ export class NexusRoom extends Room<NexusRoomState> {
       const dungeonGenerator = new DungeonGeneratorImpl()
       this.dungeonSystem = new DungeonSystemImpl(dungeonGenerator, this.databaseService, this.playerDataRepository)
       
-      // Start auto-save timer (every 60 seconds)
+      // Optimized auto-save timer (every 30 seconds instead of 60)
+      // Reduced frequency to 30s for better balance between performance and data safety
       this.autoSaveTimer = setInterval(() => {
         this.autoSavePlayerData()
-      }, 60000) // 60 seconds
+      }, 30000) // 30 seconds // 60 seconds
     } else {
       // Initialize quest system without database (in-memory only)
       this.questSystem = new QuestSystemImpl(null, null)
@@ -252,6 +282,16 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     // Spawn initial resource nodes
     this.spawnInitialResources()
+
+    // Spawn initial power-ups
+    this.spawnInitialPowerUps()
+
+    // Start power-up spawn timer
+    this.powerUpSpawnTimer = setInterval(() => {
+      if (this.clients.length > 0 && this.state.powerUps.size < 8) {
+        this.spawnPowerUp()
+      }
+    }, 30000 + Math.random() * 30000) // Every 30-60 seconds
 
     // Start enemy spawn timer (only spawn if there are players)
     this.enemySpawnTimer = setInterval(() => {
@@ -288,6 +328,16 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     // Initialize previous state snapshot for delta compression
     this.previousStateSnapshot = this.serializeState()
+    
+    // Register room with sharding manager
+    const roomId = this.roomId || `nexus-${Date.now()}`
+    const zone = (options.zone as string) || 'default'
+    roomShardingManager.registerShard(roomId, zone, this.maxClients)
+    
+    // Update player count periodically
+    setInterval(() => {
+      roomShardingManager.updatePlayerCount(roomId, this.clients.length)
+    }, 5000) // Every 5 seconds
 
     // Register message handlers using Colyseus standard pattern
     this.onMessage('move', (client, message: { x: number; y: number; z: number; rotation: number }) => {
@@ -324,11 +374,11 @@ export class NexusRoom extends Room<NexusRoomState> {
         return
       }
       
-      // Server-authoritative position update
-      player.x = message.x
-      player.y = message.y
-      player.z = message.z
-      player.rotation = message.rotation
+      // Server-authoritative position update with validation
+      player.x = validateNumber(message.x, player.x || 0)
+      player.y = validateNumber(message.y, player.y || 1)
+      player.z = validateNumber(message.z, player.z || 0)
+      player.rotation = validateNumber(message.rotation, player.rotation || 0)
       
       // Track property changes for incremental serialization
       this.trackPropertyChange(`player_${client.sessionId}`, 'x')
@@ -375,6 +425,10 @@ export class NexusRoom extends Room<NexusRoomState> {
 
     this.onMessage('pickupLoot', (client, message: { lootId: string }) => {
       this.handleLootPickup(client.sessionId, message.lootId)
+    })
+
+    this.onMessage('pickupPowerUp', (client, message: { powerUpId: string }) => {
+      this.handlePowerUpPickup(client.sessionId, message.powerUpId)
     })
 
     this.onMessage('createGuild', (client, message: { name: string; tag: string }) => {
@@ -652,13 +706,13 @@ export class NexusRoom extends Room<NexusRoomState> {
     console.log('NexusRoom created')
   }
 
-  async onJoin(client: Client, options: Record<string, unknown>) {
+    async onJoin(client: Client, options: Record<string, unknown>) {
     // Verify Firebase token if provided
     let firebaseUid: string | null = null
-    if (options.firebaseToken) {
+    if (options.firebaseToken && typeof options.firebaseToken === 'string') {
       const { verifyIdToken } = await import('../services/FirebaseAdmin')
       const verified = await verifyIdToken(options.firebaseToken)
-      if (verified) {
+      if (verified && typeof verified === 'object' && 'uid' in verified && typeof verified.uid === 'string') {
         firebaseUid = verified.uid
         console.log(`Firebase-authenticated user joined: ${verified.uid}`)
       } else {
@@ -735,13 +789,13 @@ export class NexusRoom extends Room<NexusRoomState> {
     player.id = playerId // Use Firebase UID instead of sessionId
     
     if (playerData) {
-      // Load from database
+      // Load from database with validation
       player.name = playerData.name
       player.race = playerData.race as 'human' | 'cyborg' | 'android' | 'voidborn' | 'quantum'
-      player.x = playerData.position.x
-      player.y = playerData.position.y
-      player.z = playerData.position.z
-      player.rotation = playerData.rotation
+      player.x = validateNumber(playerData.position?.x, 0)
+      player.y = validateNumber(playerData.position?.y, 1)
+      player.z = validateNumber(playerData.position?.z, 0)
+      player.rotation = validateNumber(playerData.rotation, 0)
       player.health = playerData.health
       player.maxHealth = playerData.maxHealth
       player.mana = playerData.mana
@@ -758,7 +812,7 @@ export class NexusRoom extends Room<NexusRoomState> {
       this.playerInventory.set(playerId, playerData.inventory || [])
     } else {
       // Create new player - check if name is already taken
-      const requestedName = options.name || `Player_${playerId.substring(0, 6)}`
+      const requestedName = (typeof options.name === 'string' ? options.name : null) || `Player_${playerId.substring(0, 6)}`
       
       // Validate name uniqueness
       if (this.playerDataRepository) {
@@ -771,10 +825,10 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
 
       player.name = requestedName
-      player.race = options.race || 'human'
-      player.x = (Math.random() - 0.5) * 10
+      player.race = (typeof options.race === 'string' ? options.race : null) || 'human'
+      player.x = validateNumber((Math.random() - 0.5) * 10, 0)
       player.y = 1 // Y=1 to stand on ground (ground is at Y=0)
-      player.z = (Math.random() - 0.5) * 10
+      player.z = validateNumber((Math.random() - 0.5) * 10, 0)
       player.rotation = 0
       player.health = 100
       player.maxHealth = 100
@@ -828,6 +882,10 @@ export class NexusRoom extends Room<NexusRoomState> {
     if (this.clients.length <= 10) {
       console.log(`Client ${client.sessionId} left (${this.clients.length - 1} remaining)`)
     }
+    
+    // Update sharding manager with new player count
+    const roomId = this.roomId || `nexus-${Date.now()}`
+    roomShardingManager.updatePlayerCount(roomId, this.clients.length - 1)
     
     // Get player to find their playerId (Firebase UID)
     const player = this.state.players.get(client.sessionId)
@@ -1067,6 +1125,49 @@ export class NexusRoom extends Room<NexusRoomState> {
     }
   }
 
+  async handlePowerUpPickup(playerId: string, powerUpId: string) {
+    const powerUp = this.state.powerUps.get(powerUpId)
+    if (!powerUp) return
+
+    // Check if player is close enough
+    const player = this.state.players.get(playerId)
+    if (!player) return
+
+    const distance = Math.sqrt(
+      Math.pow(player.x - powerUp.x, 2) +
+      Math.pow(player.y - powerUp.y, 2) +
+      Math.pow(player.z - powerUp.z, 2)
+    )
+
+    if (distance > 2.5) return // Too far
+
+    // Track power-up pickup
+    this.monitoringService.recordMetric('game.powerup_picked_up', 1, {
+      playerId,
+      powerUpId: powerUp.powerUpId,
+      type: powerUp.type
+    })
+
+    // Remove power-up immediately
+    this.state.powerUps.delete(powerUpId)
+
+    // Broadcast pickup
+    this.broadcast('powerUpPickedUp', {
+      powerUpId,
+      playerId,
+      type: powerUp.type
+    })
+
+    // Send confirmation to player
+    const client = this.getClientBySessionId(playerId)
+    if (client) {
+      client.send('powerUpPickupConfirmed', {
+        powerUpId,
+        type: powerUp.type
+      })
+    }
+  }
+
   spawnInitialEnemies() {
     // Spawn fewer initial enemies to prevent performance issues
     // More enemies will spawn as players join
@@ -1082,16 +1183,43 @@ export class NexusRoom extends Room<NexusRoomState> {
     const angle = Math.random() * Math.PI * 2
     const distance = 15 + Math.random() * 15
 
+    // Select random enemy type from MONSTERS data
+    // Filter for aggressive or neutral enemies (not passive)
+    const spawnableMonsters = MONSTERS.filter((m: Monster) => m.type === 'aggressive' || m.type === 'neutral')
+    
+    if (spawnableMonsters.length === 0) {
+      console.warn('No spawnable monsters found in MONSTERS data')
+      return
+    }
+    
+    // Weight selection by spawn rate (higher spawn rate = more likely)
+    const totalWeight = spawnableMonsters.reduce((sum: number, m: Monster) => sum + m.spawnRate, 0)
+    let random = Math.random() * totalWeight
+    let selectedMonster: Monster | null = null
+    
+    for (const monster of spawnableMonsters) {
+      random -= monster.spawnRate
+      if (random <= 0) {
+        selectedMonster = monster
+        break
+      }
+    }
+    
+    // Fallback to first monster if selection failed
+    if (!selectedMonster) {
+      selectedMonster = spawnableMonsters[0]
+    }
+
     const enemy = new EnemySchema()
-    enemy.id = `enemy_${Date.now()}_${Math.random()}`
-    enemy.type = 'cyber_drone'
+    enemy.id = `enemy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    enemy.type = selectedMonster.id
     enemy.x = Math.cos(angle) * distance
     enemy.y = 0
     enemy.z = Math.sin(angle) * distance
     enemy.rotation = 0
-    enemy.health = 100
-    enemy.maxHealth = 100
-    enemy.level = 1
+    enemy.health = selectedMonster.health
+    enemy.maxHealth = selectedMonster.maxHealth
+    enemy.level = selectedMonster.level
     enemy.ownerId = ''
 
     // Store spawn position for leash
@@ -1129,19 +1257,104 @@ export class NexusRoom extends Room<NexusRoomState> {
   }
 
   /**
+   * Spawn a random power-up in the world
+   */
+  spawnPowerUp(): void {
+    if (this.state.powerUps.size >= 8) return // Max power-ups
+
+    // Get a random player position to spawn near
+    const players = Array.from(this.state.players.values())
+    if (players.length === 0) return
+
+    // Find a player with valid position
+    let randomPlayer: PlayerSchema | null = null
+    for (let i = 0; i < players.length; i++) {
+      const candidate = players[Math.floor(Math.random() * players.length)] as PlayerSchema
+      if (candidate && !isNaN(candidate.x) && !isNaN(candidate.z) && isFinite(candidate.x) && isFinite(candidate.z)) {
+        randomPlayer = candidate
+        break
+      }
+    }
+    
+    // If no valid player found, skip spawning
+    if (!randomPlayer) {
+      console.warn('⚠️  Cannot spawn power-up: no players with valid positions')
+      return
+    }
+    
+    // Spawn 20-50 units away from player
+    const angle = Math.random() * Math.PI * 2
+    const distance = 20 + Math.random() * 30
+
+    // Random power-up types (weighted by spawn weight)
+    const powerUpTypes = [
+      { id: 'health_boost', weight: 30 },
+      { id: 'mana_boost', weight: 30 },
+      { id: 'speed_boost', weight: 20 },
+      { id: 'damage_boost', weight: 15 },
+      { id: 'xp_boost', weight: 10 },
+      { id: 'shield', weight: 15 },
+      { id: 'regeneration', weight: 15 },
+      { id: 'haste', weight: 10 },
+      { id: 'armor_boost', weight: 10 }
+    ]
+
+    const totalWeight = powerUpTypes.reduce((sum, p) => sum + p.weight, 0)
+    let random = Math.random() * totalWeight
+    let selectedType = powerUpTypes[0]
+
+    for (const type of powerUpTypes) {
+      random -= type.weight
+      if (random <= 0) {
+        selectedType = type
+        break
+      }
+    }
+
+    const now = Date.now()
+    const powerUp = new PowerUpSchema()
+    powerUp.id = `powerup_${now}_${Math.random().toString(36).substr(2, 9)}`
+    powerUp.powerUpId = selectedType.id
+    powerUp.type = selectedType.id
+    
+    // Validate and set position with fallback
+    const playerX = validateNumber(randomPlayer.x, 0)
+    const playerZ = validateNumber(randomPlayer.z, 0)
+    powerUp.x = validateNumber(playerX + Math.cos(angle) * distance, 0)
+    powerUp.y = 0.5 // Slightly above ground
+    powerUp.z = validateNumber(playerZ + Math.sin(angle) * distance, 0)
+    powerUp.spawnTime = now
+    powerUp.expiresAt = now + 60000 // Expires after 60 seconds if not picked up
+
+    this.state.powerUps.set(powerUp.id, powerUp)
+  }
+
+  /**
+   * Spawn initial power-ups
+   */
+  spawnInitialPowerUps(): void {
+    // Spawn 2-4 initial power-ups
+    const count = 2 + Math.floor(Math.random() * 3)
+    for (let i = 0; i < count; i++) {
+      this.spawnPowerUp()
+    }
+  }
+
+  /**
    * Start adaptive game loop
-   * Adjusts tick rate based on player count: 30 FPS (<10 players), 60 FPS (>=10 players)
+   * Optimized: 60 FPS (<20 players), 30 FPS (>=20 players)
+   * Implements tiered updates: critical (every tick), non-critical (every 3 ticks)
    */
   private startAdaptiveGameLoop(): void {
     const updateGameLoop = () => {
       const playerCount = this.clients.length
       
-      // Adjust tick rate based on player count
+      // Optimized tick rate: 60Hz for <20 players (better responsiveness)
       let targetInterval: number
-      if (playerCount < 10) {
-        targetInterval = 33 // ~30 FPS for low player count
+      if (playerCount < 20) {
+        targetInterval = 16 // ~60 FPS for low player count (optimized from 30 FPS)
       } else {
-        targetInterval = 16 // ~60 FPS for higher player count
+        targetInterval = 33 // ~30 FPS for higher player count
       }
       
       // Only restart if interval changed significantly
@@ -1155,10 +1368,14 @@ export class NexusRoom extends Room<NexusRoomState> {
         
         this.gameLoopTimer = setInterval(() => {
           this.gameLoop()
-          this.updateEnemyAI()
+          // NON-CRITICAL UPDATE: Enemy AI updates every 3 ticks for performance
+          // Only update if it's time for non-critical updates
+          if ((this.tickCounter % this.NON_CRITICAL_UPDATE_TICK) === 0) {
+            this.updateEnemyAI()
+          }
         }, this.currentTickInterval)
         
-        if (import.meta.env?.DEV) {
+        if (process.env.NODE_ENV !== 'production') {
           console.log(`[NexusRoom] Adjusted tick rate to ${Math.round(1000 / this.currentTickInterval)} FPS (${playerCount} players)`)
         }
       }
@@ -1176,6 +1393,16 @@ export class NexusRoom extends Room<NexusRoomState> {
   async gameLoop() {
     const loopStartTime = Date.now()
     const deltaTime = this.currentTickInterval // Use actual tick interval
+    
+    // Increment tick counter for tiered updates
+    this.tickCounter++
+    const isCriticalTick = (this.tickCounter % this.CRITICAL_UPDATE_TICK) === 0
+    const isNonCriticalTick = (this.tickCounter % this.NON_CRITICAL_UPDATE_TICK) === 0
+    
+    // Reset counter periodically to avoid overflow
+    if (this.tickCounter > 1000) {
+      this.tickCounter = 0
+    }
     
     // Track server tick time
     const tickTime = loopStartTime - this.lastTickTime
@@ -1199,13 +1426,14 @@ export class NexusRoom extends Room<NexusRoomState> {
       room: 'nexus'
     })
 
-    // Update spatial grids only when entities move significantly
+    // CRITICAL UPDATE: Update spatial grids for enemies (every tick for collision detection)
     // Track last positions to avoid unnecessary updates
     const MOVEMENT_THRESHOLD = 0.1 // Only update grid if moved >0.1 units
     if (!this.lastEnemyPositions) {
       this.lastEnemyPositions = new Map<string, { x: number; y: number; z: number }>()
     }
     
+    // Critical: Always update spatial grid for accurate collision detection
     this.state.enemies.forEach((enemy, enemyId) => {
       const lastPos = this.lastEnemyPositions.get(enemyId)
       const needsUpdate = !lastPos || 
@@ -1222,7 +1450,7 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
     })
 
-    // Update spell projectiles
+    // CRITICAL UPDATE: Update spell projectiles (every tick for smooth movement)
     for (const [id, projectile] of this.state.spellProjectiles) {
       const moveDistance = projectile.speed * (deltaTime / 1000)
       projectile.x += projectile.directionX * moveDistance
@@ -1408,7 +1636,7 @@ export class NexusRoom extends Room<NexusRoomState> {
             
             // Check if this is a dungeon entity
             const playerDungeon = this.dungeonSystem?.getPlayerDungeon(projectile.casterId)
-            if (playerDungeon) {
+            if (playerDungeon && this.dungeonSystem) {
               // Mark entity as defeated in dungeon system
               this.dungeonSystem.defeatEntity(playerDungeon.id, enemyId)
               
@@ -1457,15 +1685,18 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
     }
 
-    // Clean up expired loot (also handled by cleanupExpiredEntities, but keep for immediate cleanup)
-    this.state.lootDrops.forEach((loot, id) => {
-      if (Date.now() > loot.expiresAt) {
-        this.state.lootDrops.delete(id)
-      }
-    })
+    // NON-CRITICAL UPDATE: Clean up expired loot (every 3 ticks)
+    if (isNonCriticalTick) {
+      this.state.lootDrops.forEach((loot, id) => {
+        if (Date.now() > loot.expiresAt) {
+          this.state.lootDrops.delete(id)
+        }
+      })
+    }
     
-    // Broadcast state delta periodically (every 5 game loops = ~300ms)
-    if (Date.now() - this.lastBatchTime > 300) {
+    // CRITICAL UPDATE: Broadcast state delta more frequently for responsive updates
+    // Reduced from 300ms to 100ms for better responsiveness (every 6-7 ticks at 60Hz)
+    if (Date.now() - this.lastBatchTime > 100) {
       this.broadcastStateDelta()
     }
   }
@@ -1563,6 +1794,8 @@ export class NexusRoom extends Room<NexusRoomState> {
   }
 
   updateEnemyAI() {
+    // NON-CRITICAL UPDATE: Enemy AI runs every 3 ticks (at 60Hz = 20Hz AI updates)
+    // This reduces CPU load while maintaining responsive enemy behavior
     // Simple AI: enemies move towards nearest player
     // Use spatial grid for optimized player queries
     this.state.enemies.forEach((enemy, enemyId) => {
@@ -2128,6 +2361,13 @@ export class NexusRoom extends Room<NexusRoomState> {
       }
     })
 
+    // Clean up expired power-ups
+    this.state.powerUps.forEach((powerUp, id) => {
+      if (now > powerUp.expiresAt) {
+        this.state.powerUps.delete(id)
+      }
+    })
+
     // Clean up expired projectiles (should be handled in gameLoop, but double-check)
     this.state.spellProjectiles.forEach((projectile, id) => {
       if (projectile.lifetime <= 0) {
@@ -2267,7 +2507,7 @@ export class NexusRoom extends Room<NexusRoomState> {
         if (changed.has('maxMana')) playerData.maxMana = player.maxMana
       }
       
-      state.players.push(playerData)
+      (state.players as Array<Record<string, unknown>>).push(playerData)
     })
 
     // Serialize enemies - only include changed properties
@@ -2289,7 +2529,7 @@ export class NexusRoom extends Room<NexusRoomState> {
         if (changed.has('maxHealth')) enemyData.maxHealth = enemy.maxHealth
       }
       
-      state.enemies.push(enemyData)
+      (state.enemies as Array<Record<string, unknown>>).push(enemyData)
     })
 
     // Serialize loot drops - only include changed properties
@@ -2309,7 +2549,7 @@ export class NexusRoom extends Room<NexusRoomState> {
         if (changed.has('itemId')) lootData.itemId = loot.itemId
       }
       
-      state.lootDrops.push(lootData)
+      (state.lootDrops as Array<Record<string, unknown>>).push(lootData)
     })
 
     return state
@@ -2337,10 +2577,15 @@ export class NexusRoom extends Room<NexusRoomState> {
         
         // Filter deltas based on player's interest area
         const playerPos = { x: player.x, y: player.y, z: player.z }
-        const filteredDeltas = deltas.filter((delta: Record<string, unknown>) => {
+        const filteredDeltas = deltas.filter((delta) => {
           // Check if entity is within render distance
-          if (delta.type === 'enemy' || delta.type === 'loot' || delta.type === 'projectile') {
-            const entityPos = delta.position || { x: delta.x || 0, y: delta.y || 0, z: delta.z || 0 }
+          const deltaObj = delta as unknown as Record<string, unknown>
+          if (deltaObj.type === 'enemy' || deltaObj.type === 'loot' || deltaObj.type === 'projectile') {
+            const entityPos = (deltaObj.position as { x: number; y: number; z: number }) || { 
+              x: (deltaObj.x as number) || 0, 
+              y: (deltaObj.y as number) || 0, 
+              z: (deltaObj.z as number) || 0 
+            }
             const dx = entityPos.x - playerPos.x
             const dy = entityPos.y - playerPos.y
             const dz = entityPos.z - playerPos.z
@@ -2482,23 +2727,28 @@ export class NexusRoom extends Room<NexusRoomState> {
   /**
    * Spawn dungeon entities as enemies in the room
    */
-  private spawnDungeonEntities(dungeon: import('../../systems/DungeonSystem').Dungeon): void {
+  private spawnDungeonEntities(dungeon: Dungeon): void {
     if (!this.dungeonSystem) return
 
     for (const entity of dungeon.entities) {
       if (entity.spawned || entity.defeated) continue
       if (entity.type !== 'enemy' && entity.type !== 'boss') continue
 
+      // Get monster data from MONSTERS if enemyType is provided
+      const enemyTypeId = entity.data?.enemyType as string | undefined
+      const monsterData = enemyTypeId ? getMonster(enemyTypeId) : null
+      
       const enemy = new EnemySchema()
       enemy.id = entity.id
-      enemy.type = entity.data?.enemyType || 'cyber_drone'
+      enemy.type = enemyTypeId || (monsterData?.id) || 'meadow_sprite' // Default to a valid monster ID
       enemy.x = entity.position.x
       enemy.y = entity.position.y
       enemy.z = entity.position.z
       enemy.rotation = 0
-      enemy.health = entity.data?.health || 100
-      enemy.maxHealth = entity.data?.health || 100
-      enemy.level = entity.data?.level || 1
+      // Use monster data if available, otherwise use entity data or defaults
+      enemy.health = monsterData?.health || entity.data?.health || 100
+      enemy.maxHealth = monsterData?.maxHealth || entity.data?.health || 100
+      enemy.level = monsterData?.level || entity.data?.level || 1
       enemy.ownerId = '' // Dungeon enemies don't have owners
 
       this.state.enemies.set(entity.id, enemy)
@@ -2690,6 +2940,7 @@ export class NexusRoom extends Room<NexusRoomState> {
 
   onDispose() {
     if (this.enemySpawnTimer) clearInterval(this.enemySpawnTimer)
+    if (this.powerUpSpawnTimer) clearInterval(this.powerUpSpawnTimer)
     if (this.gameLoopTimer) clearInterval(this.gameLoopTimer)
     if (this.worldBossTimer) clearTimeout(this.worldBossTimer)
     if (this.updateBatchTimer) clearInterval(this.updateBatchTimer)

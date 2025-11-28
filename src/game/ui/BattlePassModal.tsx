@@ -3,8 +3,10 @@ import { useGameStore } from '../store/useGameStore'
 import { getItem } from '../data/items'
 import { getCosmetic } from '../data/cosmetics'
 import { claimBattlePassReward, unlockBattlePassPremium, requestBattlePassProgress } from '../network/battlePass'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function BattlePassModal() {
+  const { t } = useTranslation()
   const { isBattlePassOpen, toggleBattlePass, player, battlePassProgress, battlePassSeason } = useGameStore()
 
   useEffect(() => {
@@ -84,7 +86,7 @@ export default function BattlePassModal() {
         <div className="mb-6 p-4 bg-gray-800 rounded-lg">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-cyan-300 font-bold">Premium Pass</div>
+              <div className="text-cyan-300 font-bold">{t('battlePass.premiumPass')}</div>
               <div className="text-sm text-gray-400">
                 Unlock exclusive rewards and +25% XP bonus
               </div>
@@ -98,7 +100,7 @@ export default function BattlePassModal() {
                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
               }`}
             >
-              {progress.premiumUnlocked ? '✓ Premium' : 'Upgrade'}
+              {progress.premiumUnlocked ? t('battlePass.premium') : t('battlePass.upgrade')}
             </button>
           </div>
         </div>

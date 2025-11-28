@@ -10,6 +10,7 @@ export function useTranslation() {
 
   useEffect(() => {
     const unsubscribe = localizationManager.subscribe(() => {
+      // Force re-render when translations load or locale changes
       setLocaleState(localizationManager.getLocale())
     })
     return unsubscribe

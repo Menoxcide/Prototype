@@ -29,7 +29,6 @@
     "mana": "MP",
     "stamina": "スタミナ",
     "all": "すべて",
-    "info": "情報",
     "details": "詳細",
     "have": "所持",
     "need": "必要",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "倒したエンティティ: {{defeated}} / {{total}}",
     "requiredLevel": "必要レベル: {{level}}"
   },
-  "errors": {
-    "networkError": "ネットワークエラー。接続を確認してください。",
-    "serverError": "サーバーエラー。後でもう一度お試しください。",
-    "invalidInput": "無効な入力。値を確認してください。",
-    "notEnoughCredits": "クレジットが不足しています。",
-    "notEnoughItems": "アイテムが不足しています。",
-    "itemNotFound": "アイテムが見つかりません。",
-    "questNotFound": "クエストが見つかりません。",
-    "dungeonNotFound": "ダンジョンが見つかりません。",
-    "failedToEnterDungeon": "ダンジョンへの入場に失敗しました"
-  },
   "auth": {
     "signInWithGoogle": "Googleでサインイン",
     "signingIn": "サインイン中...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "キャラクター作成中...",
     "enterTheVoid": "虚空に入る",
     "failedToCreate": "キャラクターの作成に失敗しました。もう一度お試しください。"
+  },
+  "errors": {
+    "networkError": "ネットワークエラー。接続を確認してください。",
+    "serverError": "サーバーエラー。後でもう一度お試しください。",
+    "invalidInput": "無効な入力。値を確認してください。",
+    "notEnoughCredits": "クレジットが不足しています。",
+    "notEnoughItems": "アイテムが不足しています。",
+    "itemNotFound": "アイテムが見つかりません。",
+    "questNotFound": "クエストが見つかりません。",
+    "dungeonNotFound": "ダンジョンが見つかりません。",
+    "failedToEnterDungeon": "ダンジョンへの入場に失敗しました"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "キャラクターを選択",
+    "loadingCharacters": "キャラクターを読み込み中...",
+    "serverUnavailable": "⚠️ サーバー利用不可",
+    "serverUnavailableMessage": "サーバーは利用できません。新しいキャラクターを作成することはできます。",
+    "serverUnavailableSubtext": "新しいキャラクターを作成することはできます。サーバーが利用可能になったときに保存されます。",
+    "characters": "キャラクター",
+    "noCharactersFound": "キャラクターが見つかりません。最初のキャラクターを作成して始めましょう！",
+    "refresh": "更新",
+    "createNewCharacter": "新しいキャラクターを作成",
+    "characterLimitReached": "キャラクター制限に達しました（{{max}}キャラクター）",
+    "lastPlayed": "最後にプレイ:",
+    "created": "作成日:",
+    "levelShort": "Lv.",
+    "failedToLoadCharacters": "キャラクターの読み込みに失敗しました。もう一度お試しください。",
+    "failedToLoadCharacter": "キャラクターの読み込みに失敗しました。もう一度お試しください。"
+  },
+  "npc": {
+    "next": "次へ",
+    "continue": "続ける",
+    "availableQuests": "利用可能なクエスト",
+    "noQuestsAvailable": "利用可能なクエストがありません。",
+    "shop": "ショップ",
+    "noItemsForSale": "販売中のアイテムがありません。",
+    "services": "サービス",
+    "noServicesAvailable": "利用可能なサービスがありません。",
+    "serviceHeal": "体力を完全回復",
+    "serviceRepair": "マナを完全回復",
+    "serviceTeleport": "別の場所にテレポート",
+    "serviceEnchant": "アイテムをエンチャント",
+    "buy": "購入",
+    "credits": "クレジット"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "ささやくプレイヤーを選択",
+    "selectPlayer": "プレイヤーを選択...",
+    "global": "全体",
+    "guild": "ギルド",
+    "whisper": "ささやき",
+    "noMessagesYet": "まだメッセージがありません。チャットを始めましょう！",
+    "whisperTag": "[ささやき]",
+    "guildTag": "[ギルド]",
+    "typeMessage": "メッセージを入力...",
+    "send": "送信",
+    "systemInfo": "システム情報",
+    "connection": "接続:",
+    "online": "オンライン",
+    "offline": "オフライン",
+    "latency": "レイテンシ:",
+    "packetLoss": "パケット損失:",
+    "serverStatus": "サーバーステータス:",
+    "connected": "接続済み",
+    "disconnected": "切断済み",
+    "gameInfo": "ゲーム情報",
+    "zone": "ゾーン:",
+    "unknown": "不明",
+    "active": "アクティブ",
+    "serverState": "サーバー状態:",
+    "playerInfo": "プレイヤー情報",
+    "name": "名前:",
+    "race": "種族:",
+    "tradition": "伝統:"
+  },
+  "victoryDefeat": {
+    "victory": "勝利！",
+    "defeat": "敗北",
+    "rewards": "報酬",
+    "items": "アイテム:",
+    "continue": "続ける"
+  },
+  "system": {
+    "loading": "読み込み中..."
+  },
+  "battlePass": {
+    "premium": "✓ プレミアム",
+    "upgrade": "アップグレード",
+    "premiumPass": "プレミアムパス"
+  },
+  "cosmeticShop": {
+    "title": "コスメティックショップ",
+    "notEnoughCredits": "クレジットが不足しています！",
+    "premiumRequiresPayment": "プレミアムコスメティックには支払いが必要です。プレミアム購入についてはサポートにお問い合わせください。\n\nStripe統合にはバックエンドの設定が必要です。実装の詳細についてはCosmeticShop.tsxを参照してください。",
+    "purchased": "{{name}}を購入しました！"
+  },
+  "guild": {
+    "nameLengthError": "ギルド名は3〜20文字である必要があります",
+    "tagLengthError": "ギルドタグは2〜4文字である必要があります",
+    "enterGuildId": "ギルドIDを入力してください",
+    "leaveGuildConfirm": "ギルドを退会してもよろしいですか？"
+  },
+  "social": {
+    "partySystem": "パーティーシステム",
+    "guildTag": "ギルドタグ:",
+    "guildSystem": "ギルドシステム",
+    "removeFriendConfirm": "この友達を削除しますか？",
+    "blockPlayerConfirm": "このプレイヤーをブロックしますか？メッセージや友達リクエストを送信できなくなります。",
+    "reportPlayerPrompt": "{{playerId}}に関する問題を説明してください:",
+    "addNotePrompt": "この友達にメモを追加:"
   }
 }
-

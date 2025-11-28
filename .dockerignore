@@ -1,0 +1,68 @@
+# Exclude everything except what we need for the server build
+
+# Dependencies
+node_modules
+server/node_modules
+shared/node_modules
+
+# Build outputs
+dist
+server/dist
+shared/dist
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Git
+.git
+.gitignore
+
+# Documentation (keep server README if needed)
+docs/
+*.md
+!server/README.md
+
+# Test files
+__tests__
+*.test.ts
+*.test.js
+coverage
+
+# IDE
+.DS_Store
+.vscode
+.idea
+
+# Frontend (exclude entire src directory)
+src/
+
+# Frontend config files
+public/
+index.html
+vite.config.ts
+tailwind.config.ts
+postcss.config.js
+capacitor.config.ts
+
+# Firebase config
+firebase.json
+firebase.staging.json
+firestore.rules
+storage.rules
+database.rules.json
+*.firebaserc
+
+# Scripts
+scripts/
+
+# Temporary
+temp/
+*.tmp
+
+# Root package files (not needed, server has its own)
+package.json
+package-lock.json

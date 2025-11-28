@@ -29,7 +29,6 @@
     "mana": "PM",
     "stamina": "Resistencia",
     "all": "Todo",
-    "info": "Información",
     "details": "Detalles",
     "have": "Tener",
     "need": "Necesitar",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "Entidades Derrotadas: {{defeated}} / {{total}}",
     "requiredLevel": "Nivel Requerido: {{level}}"
   },
-  "errors": {
-    "networkError": "Error de red. Por favor, verifica tu conexión.",
-    "serverError": "Error del servidor. Por favor, inténtalo de nuevo más tarde.",
-    "invalidInput": "Entrada inválida. Por favor, verifica tus valores.",
-    "notEnoughCredits": "No hay suficientes créditos.",
-    "notEnoughItems": "No hay suficientes objetos.",
-    "itemNotFound": "Objeto no encontrado.",
-    "questNotFound": "Misión no encontrada.",
-    "dungeonNotFound": "Mazmorra no encontrada.",
-    "failedToEnterDungeon": "Error al entrar a la mazmorra"
-  },
   "auth": {
     "signInWithGoogle": "Iniciar sesión con Google",
     "signingIn": "Iniciando sesión...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "Creando Personaje...",
     "enterTheVoid": "Entrar al Vacío",
     "failedToCreate": "Error al crear personaje. Por favor intenta de nuevo."
+  },
+  "errors": {
+    "networkError": "Error de red. Por favor, verifica tu conexión.",
+    "serverError": "Error del servidor. Por favor, inténtalo de nuevo más tarde.",
+    "invalidInput": "Entrada inválida. Por favor, verifica tus valores.",
+    "notEnoughCredits": "No hay suficientes créditos.",
+    "notEnoughItems": "No hay suficientes objetos.",
+    "itemNotFound": "Objeto no encontrado.",
+    "questNotFound": "Misión no encontrada.",
+    "dungeonNotFound": "Mazmorra no encontrada.",
+    "failedToEnterDungeon": "Error al entrar a la mazmorra"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "Seleccionar Personaje",
+    "loadingCharacters": "Cargando personajes...",
+    "serverUnavailable": "⚠️ Servidor No Disponible",
+    "serverUnavailableMessage": "El servidor no está disponible. Aún puedes crear un nuevo personaje.",
+    "serverUnavailableSubtext": "Aún puedes crear un nuevo personaje. Se guardará cuando el servidor esté disponible.",
+    "characters": "Personajes",
+    "noCharactersFound": "No se encontraron personajes. ¡Crea tu primer personaje para comenzar!",
+    "refresh": "Actualizar",
+    "createNewCharacter": "Crear Nuevo Personaje",
+    "characterLimitReached": "Límite de personajes alcanzado ({{max}} personajes)",
+    "lastPlayed": "Última vez jugado:",
+    "created": "Creado:",
+    "levelShort": "Nv.",
+    "failedToLoadCharacters": "Error al cargar personajes. Por favor, inténtalo de nuevo.",
+    "failedToLoadCharacter": "Error al cargar personaje. Por favor, inténtalo de nuevo."
+  },
+  "npc": {
+    "next": "Siguiente",
+    "continue": "Continuar",
+    "availableQuests": "Misiones Disponibles",
+    "noQuestsAvailable": "No hay misiones disponibles.",
+    "shop": "Tienda",
+    "noItemsForSale": "No hay artículos a la venta.",
+    "services": "Servicios",
+    "noServicesAvailable": "No hay servicios disponibles.",
+    "serviceHeal": "Restaurar salud completa",
+    "serviceRepair": "Restaurar maná completo",
+    "serviceTeleport": "Teletransportarse a otra ubicación",
+    "serviceEnchant": "Encantar tus objetos",
+    "buy": "Comprar",
+    "credits": "créditos"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "Seleccionar jugador para susurrar",
+    "selectPlayer": "Seleccionar jugador...",
+    "global": "Global",
+    "guild": "Hermandad",
+    "whisper": "Susurro",
+    "noMessagesYet": "Aún no hay mensajes. ¡Empieza a chatear!",
+    "whisperTag": "[Susurro]",
+    "guildTag": "[Hermandad]",
+    "typeMessage": "Escribe un mensaje...",
+    "send": "Enviar",
+    "systemInfo": "Información del Sistema",
+    "connection": "Conexión:",
+    "online": "En línea",
+    "offline": "Desconectado",
+    "latency": "Latencia:",
+    "packetLoss": "Pérdida de Paquetes:",
+    "serverStatus": "Estado del Servidor:",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "gameInfo": "Información del Juego",
+    "zone": "Zona:",
+    "unknown": "Desconocido",
+    "active": "Activo",
+    "serverState": "Estado del Servidor:",
+    "playerInfo": "Información del Jugador",
+    "name": "Nombre:",
+    "race": "Raza:",
+    "tradition": "Tradición:"
+  },
+  "victoryDefeat": {
+    "victory": "¡VICTORIA!",
+    "defeat": "DERROTA",
+    "rewards": "Recompensas",
+    "items": "Objetos:",
+    "continue": "Continuar"
+  },
+  "system": {
+    "loading": "Cargando..."
+  },
+  "battlePass": {
+    "premium": "✓ Premium",
+    "upgrade": "Mejorar",
+    "premiumPass": "Pase Premium"
+  },
+  "cosmeticShop": {
+    "title": "Tienda de Cosméticos",
+    "notEnoughCredits": "¡No tienes suficientes créditos!",
+    "premiumRequiresPayment": "Los cosméticos premium requieren pago. Por favor, contacta con soporte para compras premium.\n\nLa integración de Stripe requiere configuración del backend. Ver CosmeticShop.tsx para detalles de implementación.",
+    "purchased": "¡{{name}} comprado!"
+  },
+  "guild": {
+    "nameLengthError": "El nombre de la hermandad debe tener entre 3 y 20 caracteres",
+    "tagLengthError": "La etiqueta de la hermandad debe tener entre 2 y 4 caracteres",
+    "enterGuildId": "Por favor, ingresa un ID de hermandad",
+    "leaveGuildConfirm": "¿Estás seguro de que quieres dejar tu hermandad?"
+  },
+  "social": {
+    "partySystem": "Sistema de Grupo",
+    "guildTag": "Etiqueta de Hermandad:",
+    "guildSystem": "Sistema de Hermandad",
+    "removeFriendConfirm": "¿Eliminar este amigo?",
+    "blockPlayerConfirm": "¿Bloquear este jugador? No podrá enviarte mensajes ni solicitudes de amistad.",
+    "reportPlayerPrompt": "Por favor, describe el problema con {{playerId}}:",
+    "addNotePrompt": "Agregar una nota para este amigo:"
   }
 }
-

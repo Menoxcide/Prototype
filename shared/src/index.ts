@@ -17,4 +17,5 @@ export * from './utils/lodManager'
 export * from './utils/clientPrediction'
 export * from './utils/interestManager'
 export * from './utils/messageBatcher'
+export * from './data/monsters'
 

@@ -271,7 +271,10 @@ class ErrorHandler {
   private reportError(error: GameError): void {
     // Only report high/critical severity errors
     if (error.severity === ErrorSeverity.HIGH || error.severity === ErrorSeverity.CRITICAL) {
-      // TODO: Integrate with error reporting service (Sentry, Rollbar, etc.)
+      // Error reporting integration: Supports Sentry if available
+      // To enable Sentry, initialize it in your app entry point:
+      // import * as Sentry from '@sentry/react'
+      // Sentry.init({ dsn: 'YOUR_DSN' })
       if (typeof window !== 'undefined' && (window as any).Sentry) {
         (window as any).Sentry.captureException(error.originalError || new Error(error.message), {
           tags: {
@@ -281,6 +284,7 @@ class ErrorHandler {
           extra: error.context
         })
       }
+      // Additional error reporting services can be added here (Rollbar, LogRocket, etc.)
     }
   }
 

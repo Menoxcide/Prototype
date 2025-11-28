@@ -22,6 +22,26 @@ export const CYBERPUNK_TERRAIN_TILESETS: Record<string, string> = {
   pavement: 'b4e2f611-9d12-44ea-8d62-a0519637b3c8'
 }
 
+// Biome-specific tilesets
+export const BIOME_TILESETS: Record<string, string> = {
+  // Starting biomes
+  sunflower_meadows: '6e6bbf1e-02e5-491f-9bd5-c22280bac46a',
+  crystal_forest: '41a31faf-818a-4f35-b4a8-ac3cce90d2df',
+  rainbow_hills: '9724bde1-b8fb-4510-8c3c-226088baec84',
+  // Mid-level biomes
+  candy_canyon: '8ed98795-2bf6-4346-975d-209f23f368db',
+  ocean_reef: '345e398d-01e3-4566-b0a2-57d328da77b5',
+  starlight_desert: '8fe47e9a-8b7d-4f80-825c-ae2622c6cf1e',
+  frosty_peaks: 'c4bf17d0-b169-4c06-93da-50c34b8e3077',
+  // Advanced biomes
+  volcano_islands: 'fd70fdbe-fe0d-4f44-a3d5-8acbd29d66c4',
+  cloud_kingdom: '5df2a8a8-301e-48df-986a-6b2364a897aa',
+  enchanted_grove: '9a6b1c23-8973-4586-8f37-4f4593bdc41a',
+  // Pending (rate limited)
+  neon_city: '', // Will be created when rate limit allows
+  cosmic_garden: '', // Will be created when rate limit allows
+}
+
 // Tileset image URLs
 const TILESET_IMAGE_URLS: Record<string, string> = {
   nexus_city: 'https://api.pixellab.ai/mcp/tilesets/40b8bc42-eb26-4b55-9265-5da20238c992/image',
@@ -32,7 +52,18 @@ const TILESET_IMAGE_URLS: Record<string, string> = {
   // CyberpunkCity terrain tilesets
   'cyberpunk-roads': 'https://api.pixellab.ai/mcp/tilesets/ff25a566-d0f0-4c30-bed8-61e8cba689f2/image',
   'cyberpunk-grass': 'https://api.pixellab.ai/mcp/tilesets/cf165ce0-165e-4a96-9aff-bc0e2f06010b/image',
-  'cyberpunk-pavement': 'https://api.pixellab.ai/mcp/tilesets/b4e2f611-9d12-44ea-8d62-a0519637b3c8/image'
+  'cyberpunk-pavement': 'https://api.pixellab.ai/mcp/tilesets/b4e2f611-9d12-44ea-8d62-a0519637b3c8/image',
+  // Biome tilesets
+  '6e6bbf1e-02e5-491f-9bd5-c22280bac46a': 'https://api.pixellab.ai/mcp/tilesets/6e6bbf1e-02e5-491f-9bd5-c22280bac46a/image',
+  '41a31faf-818a-4f35-b4a8-ac3cce90d2df': 'https://api.pixellab.ai/mcp/tilesets/41a31faf-818a-4f35-b4a8-ac3cce90d2df/image',
+  '9724bde1-b8fb-4510-8c3c-226088baec84': 'https://api.pixellab.ai/mcp/tilesets/9724bde1-b8fb-4510-8c3c-226088baec84/image',
+  '8ed98795-2bf6-4346-975d-209f23f368db': 'https://api.pixellab.ai/mcp/tilesets/8ed98795-2bf6-4346-975d-209f23f368db/image',
+  '345e398d-01e3-4566-b0a2-57d328da77b5': 'https://api.pixellab.ai/mcp/tilesets/345e398d-01e3-4566-b0a2-57d328da77b5/image',
+  '8fe47e9a-8b7d-4f80-825c-ae2622c6cf1e': 'https://api.pixellab.ai/mcp/tilesets/8fe47e9a-8b7d-4f80-825c-ae2622c6cf1e/image',
+  'c4bf17d0-b169-4c06-93da-50c34b8e3077': 'https://api.pixellab.ai/mcp/tilesets/c4bf17d0-b169-4c06-93da-50c34b8e3077/image',
+  'fd70fdbe-fe0d-4f44-a3d5-8acbd29d66c4': 'https://api.pixellab.ai/mcp/tilesets/fd70fdbe-fe0d-4f44-a3d5-8acbd29d66c4/image',
+  '5df2a8a8-301e-48df-986a-6b2364a897aa': 'https://api.pixellab.ai/mcp/tilesets/5df2a8a8-301e-48df-986a-6b2364a897aa/image',
+  '9a6b1c23-8973-4586-8f37-4f4593bdc41a': 'https://api.pixellab.ai/mcp/tilesets/9a6b1c23-8973-4586-8f37-4f4593bdc41a/image',
 }
 
 /**
@@ -75,10 +106,26 @@ class TilesetLoader {
   private loadingPromises: Map<string, Promise<THREE.Texture>> = new Map()
 
   /**
+   * Load a biome tileset
+   */
+  async loadBiomeTileset(biomeId: string): Promise<THREE.Texture> {
+    const tilesetId = BIOME_TILESETS[biomeId]
+    if (tilesetId) {
+      return this.loadZoneTileset(tilesetId)
+    }
+    // Fallback to zone mapping
+    return this.loadZoneTileset(biomeId)
+  }
+
+  /**
    * Load a tileset texture for a zone or biome
    * Automatically maps biomes to appropriate zone tilesets
    */
   async loadZoneTileset(zoneId: string): Promise<THREE.Texture> {
+    // Check if it's a biome tileset first
+    if (BIOME_TILESETS[zoneId]) {
+      zoneId = BIOME_TILESETS[zoneId]
+    }
     // Map biome to zone if needed
     const mappedZoneId = mapBiomeToZone(zoneId)
     

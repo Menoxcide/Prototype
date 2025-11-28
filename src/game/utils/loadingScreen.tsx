@@ -28,7 +28,7 @@ export default function LoadingScreen({ onComplete }: LoadingScreenProps) {
     <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
       <div className="text-center">
         <h1 className="text-4xl font-bold text-cyan-400 neon-glow mb-8">
-          NEX://VOID
+          MARS://NEXUS
         </h1>
         <div className="w-64 bg-gray-800 rounded-full h-2 mb-4">
           <div

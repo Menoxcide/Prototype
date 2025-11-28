@@ -24,11 +24,24 @@ class LoadingPhaseManager {
     ['phase2', 0],
     ['phase3', 0]
   ])
+  private displayedProgress: Map<LoadingPhase, number> = new Map([
+    ['phase1', 0],
+    ['phase2', 0],
+    ['phase3', 0]
+  ])
   private phaseCallbacks: Set<PhaseCallback> = new Set()
   private phaseCompleteCallbacks: Map<LoadingPhase, Set<() => void>> = new Map([
     ['phase1', new Set()],
     ['phase2', new Set()],
     ['phase3', new Set()]
+  ])
+  private progressAnimationFrame: number | null = null
+  private lastProgressUpdate: number = 0
+  private phaseStartTimes: Map<LoadingPhase, number> = new Map()
+  private minPhaseTimes: Map<LoadingPhase, number> = new Map([
+    ['phase1', 3000], // Minimum 3 seconds for Phase 1
+    ['phase2', 5000], // Minimum 5 seconds for Phase 2
+    ['phase3', 2000]  // Minimum 2 seconds for Phase 3
   ])
 
   /**
@@ -42,7 +55,7 @@ class LoadingPhaseManager {
    * Get current phase status
    */
   getStatus(): PhaseStatus {
-    const phaseProgress = this.phaseProgress.get(this.currentPhase) || 0
+    const phaseProgress = this.displayedProgress.get(this.currentPhase) || 0
     const overallProgress = this.calculateOverallProgress()
     
     return {
@@ -56,11 +69,12 @@ class LoadingPhaseManager {
   /**
    * Calculate overall progress across all phases
    * Phase 1: 0-50%, Phase 2: 50-85%, Phase 3: 85-100%
+   * Uses displayed progress for smooth animation
    */
   private calculateOverallProgress(): number {
-    const phase1Progress = this.phaseProgress.get('phase1') || 0
-    const phase2Progress = this.phaseProgress.get('phase2') || 0
-    const phase3Progress = this.phaseProgress.get('phase3') || 0
+    const phase1Progress = this.displayedProgress.get('phase1') || 0
+    const phase2Progress = this.displayedProgress.get('phase2') || 0
+    const phase3Progress = this.displayedProgress.get('phase3') || 0
 
     // Weighted progress: Phase 1 = 50%, Phase 2 = 35%, Phase 3 = 15%
     return Math.min(100, 
@@ -72,19 +86,92 @@ class LoadingPhaseManager {
 
   /**
    * Update progress for a specific phase
+   * Progress is smoothly interpolated to prevent jumps
    */
   updatePhaseProgress(phase: LoadingPhase, progress: number): void {
     if (phase === 'complete') return
     
+    // Track phase start time if not already tracked
+    if (!this.phaseStartTimes.has(phase)) {
+      this.phaseStartTimes.set(phase, Date.now())
+    }
+    
     const clampedProgress = Math.max(0, Math.min(100, progress))
     this.phaseProgress.set(phase, clampedProgress)
     
-    // If current phase reaches 100%, transition to next phase
-    if (phase === this.currentPhase && clampedProgress >= 100) {
-      this.transitionToNextPhase()
+    // Start smooth progress animation if not already running
+    if (this.progressAnimationFrame === null) {
+      this.animateProgress()
     }
     
-    this.notifyCallbacks()
+    // If current phase reaches 100%, check minimum time before transitioning
+    if (phase === this.currentPhase && clampedProgress >= 100) {
+      const phaseStartTime = this.phaseStartTimes.get(phase) || Date.now()
+      const minTime = this.minPhaseTimes.get(phase) || 0
+      const elapsed = Date.now() - phaseStartTime
+      
+      // Only transition if minimum time has elapsed
+      if (elapsed >= minTime) {
+        this.transitionToNextPhase()
+      } else {
+        // Schedule transition after minimum time
+        const remainingTime = minTime - elapsed
+        setTimeout(() => {
+          // Double-check phase is still at 100% before transitioning
+          const currentProgress = this.phaseProgress.get(phase) || 0
+          if (currentProgress >= 100 && phase === this.currentPhase) {
+            this.transitionToNextPhase()
+          }
+        }, remainingTime)
+      }
+    }
+  }
+  
+  /**
+   * Animate progress smoothly to prevent jumps
+   */
+  private animateProgress(): void {
+    const now = Date.now()
+    Math.min(now - this.lastProgressUpdate, 50) // Cap delta at 50ms
+    this.lastProgressUpdate = now
+    
+    let hasChanges = false
+    
+    // Smoothly interpolate each phase's displayed progress toward target progress
+    for (const phase of ['phase1', 'phase2', 'phase3'] as LoadingPhase[]) {
+      const target = this.phaseProgress.get(phase) || 0
+      const current = this.displayedProgress.get(phase) || 0
+      
+      if (Math.abs(target - current) > 0.1) {
+        // Interpolate toward target (smooth animation)
+        // Use faster speed for larger gaps to prevent getting stuck
+        const gap = Math.abs(target - current)
+        const speed = gap > 50 ? 0.3 : gap > 20 ? 0.25 : 0.2 // Faster for larger gaps
+        const newProgress = current + (target - current) * speed
+        this.displayedProgress.set(phase, newProgress)
+        hasChanges = true
+      } else if (current !== target) {
+        // Close enough, snap to target
+        this.displayedProgress.set(phase, target)
+        hasChanges = true
+      }
+    }
+    
+    if (hasChanges) {
+      this.notifyCallbacks()
+    }
+    
+    // Continue animation if there are pending changes
+    const stillAnimating = Array.from(this.displayedProgress.entries()).some(([phase, displayed]) => {
+      const target = this.phaseProgress.get(phase) || 0
+      return Math.abs(target - displayed) > 0.1
+    })
+    
+    if (stillAnimating) {
+      this.progressAnimationFrame = requestAnimationFrame(() => this.animateProgress())
+    } else {
+      this.progressAnimationFrame = null
+    }
   }
 
   /**
@@ -93,18 +180,42 @@ class LoadingPhaseManager {
   transitionToNextPhase(): void {
     const oldPhase = this.currentPhase
     
+    // Check minimum time requirement before transitioning
+    const phaseStartTime = this.phaseStartTimes.get(oldPhase) || Date.now()
+    const minTime = this.minPhaseTimes.get(oldPhase) || 0
+    const elapsed = Date.now() - phaseStartTime
+    
+    if (elapsed < minTime && oldPhase !== 'phase1') {
+      // Don't transition yet, wait for minimum time
+      const remainingTime = minTime - elapsed
+      setTimeout(() => {
+        // Re-check if we should transition
+        if (this.currentPhase === oldPhase) {
+          this.transitionToNextPhase()
+        }
+      }, remainingTime)
+      return
+    }
+    
     switch (this.currentPhase) {
       case 'phase1':
         this.currentPhase = 'phase2'
         this.phaseProgress.set('phase1', 100)
+        this.displayedProgress.set('phase1', 100)
+        // Track start time for next phase
+        this.phaseStartTimes.set('phase2', Date.now())
         break
       case 'phase2':
         this.currentPhase = 'phase3'
         this.phaseProgress.set('phase2', 100)
+        this.displayedProgress.set('phase2', 100)
+        // Track start time for next phase
+        this.phaseStartTimes.set('phase3', Date.now())
         break
       case 'phase3':
         this.currentPhase = 'complete'
         this.phaseProgress.set('phase3', 100)
+        this.displayedProgress.set('phase3', 100)
         break
       case 'complete':
         return // Already complete
@@ -211,6 +322,11 @@ class LoadingPhaseManager {
     this.phaseProgress.set('phase1', 0)
     this.phaseProgress.set('phase2', 0)
     this.phaseProgress.set('phase3', 0)
+    this.displayedProgress.set('phase1', 0)
+    this.displayedProgress.set('phase2', 0)
+    this.displayedProgress.set('phase3', 0)
+    this.phaseStartTimes.clear()
+    this.phaseStartTimes.set('phase1', Date.now()) // Track start of Phase 1
     this.notifyCallbacks()
   }
 }

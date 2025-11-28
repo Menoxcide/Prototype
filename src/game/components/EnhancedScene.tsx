@@ -1,39 +1,58 @@
 // src/game/components/EnhancedScene.tsx — WORKING WORLD VERSION
-import { useMemo, Suspense } from 'react'
+import { useMemo, Suspense, useState, useEffect, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
-import MinecraftControls from './MinecraftControls'
+import * as THREE from 'three'
+// Critical components - load eagerly (Phase 1)
+import PlayerControls from './PlayerControls'
 import PlayerCamera from './PlayerCamera'
 import Player from './Player'
 import BuildingGrappleSystem from './BuildingGrappleSystem'
+import { GrappleIndicatorLogic } from './GrappleIndicator'
+import LandingFeedback from './LandingFeedback'
+import GrappleTrail from './GrappleTrail'
 import EnhancedTerrain from './EnhancedTerrain'
-import CyberpunkCity from './CyberpunkCity'
-import WeatherSystem from './WeatherSystem'
-import DayNightCycleComponent from './DayNightCycleComponent'
-import PostProcessingSimple from './PostProcessingSimple'
 import SpaceSkybox from './SpaceSkybox'
 import { useGameStore } from '../store/useGameStore'
-import { getQualitySettings } from '../utils/qualitySettings'
+import { getQualitySettings, getQualityManager } from '../utils/qualitySettings'
 import { getDungeonPortals } from '../systems/dungeonSystem'
-import Enemy from './Enemy'
-import InstancedEnemies from './InstancedEnemies'
-import InstancedLootDrops from './InstancedLootDrops'
-import InstancedResourceNodes from './InstancedResourceNodes'
-import InstancedProjectiles from './InstancedProjectiles'
-import EnhancedSpellProjectile from './EnhancedSpellProjectile'
-import LootDrop from './LootDrop'
-import DungeonPortal from './DungeonPortal'
-import ResourceNode from './ResourceNode'
-import PortalZone from './PortalZone'
-import ShadowOptimizer from './ShadowOptimizer'
-import { teleportToBiome } from '../systems/biomeTeleportSystem'
-import BiomeEnvironment from './BiomeEnvironment'
-import FPSTracker from './FPSTracker'
-import QuestObjectiveMarker from './QuestObjectiveMarker'
 import { useLoadingPhase } from '../hooks/useLoadingPhase'
-import DungeonMap from '../ui/DungeonMap'
-import { useGameStore } from '../store/useGameStore'
-
+import { loadingOrchestrator } from '../utils/loadingOrchestrator'
+import { renderingTracker } from '../utils/renderingTracker'
+import { lazyWithErrorHandling } from '../utils/lazyWithErrorHandling'
 import { SpellProjectile } from '../systems/spellSystem'
+import { getGPUFrustumCuller } from '../utils/gpuFrustumCulling'
+import { isFeatureEnabled } from '../utils/featureFlags'
+
+// Phase 2 components - lazy load
+const CyberpunkCity = lazyWithErrorHandling(() => import('./CyberpunkCity'), 'CyberpunkCity')
+const DayNightCycleComponent = lazyWithErrorHandling(() => import('./DayNightCycleComponent'), 'DayNightCycleComponent')
+const PortalZone = lazyWithErrorHandling(() => import('./PortalZone'), 'PortalZone')
+const ShadowOptimizer = lazyWithErrorHandling(() => import('./ShadowOptimizer'), 'ShadowOptimizer')
+// Instanced rendering components (always used for optimal performance)
+const InstancedEnemies = lazyWithErrorHandling(() => import('./InstancedEnemies'), 'InstancedEnemies')
+const InstancedLootDrops = lazyWithErrorHandling(() => import('./InstancedLootDrops'), 'InstancedLootDrops')
+const InstancedResourceNodes = lazyWithErrorHandling(() => import('./InstancedResourceNodes'), 'InstancedResourceNodes')
+const InstancedProjectiles = lazyWithErrorHandling(() => import('./InstancedProjectiles'), 'InstancedProjectiles')
+const PowerUp = lazyWithErrorHandling(() => import('./PowerUp'), 'PowerUp')
+const NPC = lazyWithErrorHandling(() => import('./NPC'), 'NPC')
+const DungeonPortal = lazyWithErrorHandling(() => import('./DungeonPortal'), 'DungeonPortal')
+const QuestObjectiveMarker = lazyWithErrorHandling(() => import('./QuestObjectiveMarker'), 'QuestObjectiveMarker')
+const DungeonMap = lazyWithErrorHandling(() => import('../ui/DungeonMap'), 'DungeonMap')
+
+// Phase 3 components - lazy load
+const WeatherSystem = lazyWithErrorHandling(() => import('./WeatherSystem'), 'WeatherSystem')
+const PuddleReflections = lazyWithErrorHandling(() => import('./PuddleReflections'), 'PuddleReflections')
+const OcclusionCuller = lazyWithErrorHandling(() => import('./OcclusionCuller'), 'OcclusionCuller')
+const PostProcessingSimple = lazyWithErrorHandling(() => import('./PostProcessingSimple'), 'PostProcessingSimple')
+const BiomeEnvironment = lazyWithErrorHandling(() => import('./BiomeEnvironment'), 'BiomeEnvironment')
+
+// Dev/debug components - lazy load
+const FPSTracker = lazyWithErrorHandling(() => import('./FPSTracker'), 'FPSTracker')
+const PerformanceProfiler = lazyWithErrorHandling(() => import('./PerformanceProfiler'), 'PerformanceProfiler')
+const MovementDebugTracker = lazyWithErrorHandling(() => import('./MovementDebugTracker'), 'MovementDebugTracker')
+
+// Helper for teleportToBiome (needs to be imported)
+import { teleportToBiome } from '../systems/biomeTeleportSystem'
 
 interface EnhancedSceneProps {
   spellProjectiles?: SpellProjectile[]
@@ -48,6 +67,8 @@ function SceneContent({ spellProjectiles = [] }: EnhancedSceneProps) {
   const dungeonProgress = useGameStore((state) => state.dungeonProgress)
   const resourceNodes = useGameStore((state) => state.resourceNodes)
   const lootDrops = useGameStore((state) => state.lootDrops)
+  const powerUps = useGameStore((state) => state.powerUps)
+  const npcs = useGameStore((state) => state.npcs)
   const activeQuests = useGameStore((state) => state.activeQuests)
   const qualitySettings = useMemo(() => getQualitySettings(), [])
   
@@ -72,47 +93,33 @@ function SceneContent({ spellProjectiles = [] }: EnhancedSceneProps) {
   }, [lootDrops, qualitySettings.maxLootDrops])
 
   return (
-    <>
-      {/* Enemies - Use instanced rendering if enabled, otherwise individual */}
-      {qualitySettings.instancedRendering ? (
-        <InstancedEnemies enemies={filteredEnemies} />
-      ) : (
-        Array.from(filteredEnemies.values()).map(enemy => (
-          <Enemy key={enemy.id} enemy={enemy} />
-        ))
-      )}
+    <Suspense fallback={null}>
+      {/* Enemies - ALWAYS use instanced rendering for optimal performance (force enabled) */}
+      <InstancedEnemies enemies={filteredEnemies} />
 
-      {/* Resource Nodes - Use instanced rendering if enabled and count > 10 */}
-      {qualitySettings.instancedRendering && resourceNodes.size > 10 ? (
-        <InstancedResourceNodes resourceNodes={resourceNodes} />
-      ) : (
-        Array.from(resourceNodes.values()).map(node => (
-          <ResourceNode key={node.id} node={node} />
-        ))
-      )}
+      {/* Resource Nodes - ALWAYS use instanced rendering (force enabled, no count threshold) */}
+      <InstancedResourceNodes resourceNodes={resourceNodes} />
 
-      {/* Loot Drops - Use instanced rendering if enabled, otherwise individual */}
-      {qualitySettings.instancedRendering ? (
-        <InstancedLootDrops lootDrops={filteredLootDrops} />
-      ) : (
-        Array.from(filteredLootDrops.values()).map(loot => (
-          <LootDrop key={loot.id} loot={loot} />
-        ))
-      )}
+      {/* Loot Drops - ALWAYS use instanced rendering for optimal performance (force enabled) */}
+      <InstancedLootDrops lootDrops={filteredLootDrops} />
+
+      {/* Power-ups */}
+      {Array.from(powerUps.values()).map(powerUp => (
+        <PowerUp key={powerUp.id} powerUp={powerUp} />
+      ))}
+
+      {/* NPCs */}
+      {Array.from(npcs.values()).map((npc) => (
+        <NPC key={npc.id} npc={npc} />
+      ))}
 
       {/* Dungeon Portals */}
       {getDungeonPortals().map(portal => (
         <DungeonPortal key={portal.id} portal={portal} />
       ))}
 
-      {/* Spell Projectiles - Use instanced rendering if count > 10 */}
-      {qualitySettings.instancedRendering && spellProjectilesMap.size > 10 ? (
-        <InstancedProjectiles projectiles={spellProjectilesMap} />
-      ) : (
-        spellProjectiles.map(proj => (
-          <EnhancedSpellProjectile key={proj.id} projectile={proj} />
-        ))
-      )}
+      {/* Spell Projectiles - ALWAYS use instanced rendering for optimal performance (force enabled) */}
+      <InstancedProjectiles projectiles={spellProjectilesMap} />
 
       {/* Quest Objective Markers */}
       {activeQuests.map(quest => 
@@ -133,24 +140,299 @@ function SceneContent({ spellProjectiles = [] }: EnhancedSceneProps) {
       {currentDungeon && isDungeonMapOpen && (
         <DungeonMap dungeon={currentDungeon} progress={dungeonProgress.get(currentDungeon.id)} />
       )}
-    </>
+    </Suspense>
   )
 }
 
 export default function EnhancedScene({ spellProjectiles = [] }: EnhancedSceneProps) {
   const { phase } = useLoadingPhase()
+  const [_canvasReady, setCanvasReady] = useState(false)
+  
+  // Track context loss count and recovery attempts
+  const contextLossCountRef = useRef(0)
+  const lastContextLossTimeRef = useRef(0)
+  const recoveryAttemptCountRef = useRef(0)
   
   // Determine which components to render based on loading phase
   const showPhase1 = phase === 'phase1' || phase === 'phase2' || phase === 'phase3' || phase === 'complete'
   const showPhase2 = phase === 'phase2' || phase === 'phase3' || phase === 'complete'
   const showPhase3 = phase === 'phase3' || phase === 'complete'
+  
+  // Always render canvas immediately for better LCP (even with minimal content)
+  // Canvas will show skybox and basic terrain right away, then enhance progressively
+  
+  // Mark lighting as loaded when lights are rendered
+  useEffect(() => {
+    if (showPhase1) {
+      loadingOrchestrator.markFeatureLoaded('Lighting')
+    }
+  }, [showPhase1])
+  
+  // Mark shadows as loaded when shadows are enabled
+  useEffect(() => {
+    if (showPhase2 && getQualitySettings().shadows) {
+      loadingOrchestrator.markFeatureLoaded('Shadows')
+    }
+  }, [showPhase2])
+  
+  // Mark weather as loaded when weather system is rendered
+  useEffect(() => {
+    if (showPhase3) {
+      loadingOrchestrator.markFeatureLoaded('Weather')
+    }
+  }, [showPhase3])
+  
+  // Mark post-processing as loaded when enabled
+  useEffect(() => {
+    if (showPhase3 && getQualitySettings().postProcessing) {
+      loadingOrchestrator.markFeatureLoaded('Post Processing')
+    }
+  }, [showPhase3])
+  
+  // Keep 'always' mode for smooth continuous rendering (required for games)
+  // The adaptive DPR and other optimizations will handle performance
+  const fps = useGameStore((state) => state.fps)
+  const frameloopMode = 'always' as const
+  
+  // Adaptive DPR based on FPS and phase
+  const adaptiveDPR = useMemo(() => {
+    if (phase !== 'complete') {
+      // During loading, use reduced DPR
+      return phase === 'phase1' ? 0.5 : 0.75
+    }
+    // After loading, adapt DPR based on FPS
+    if (fps > 0 && fps < 30) {
+      // Low FPS: reduce DPR to 1.0 (no pixel ratio scaling)
+      return 1.0
+    } else if (fps > 0 && fps < 45) {
+      // Medium FPS: use 1.5x DPR
+      return 1.5
+    }
+    // High FPS: use device pixel ratio (default, can be 2-3x on high-DPI)
+    return undefined
+  }, [phase, fps])
+
+  // Handle WebGL context lost/restored events with improved recovery
+  const handleContextLost = useMemo(() => (event: Event) => {
+    event.preventDefault()
+    
+    const now = Date.now()
+    contextLossCountRef.current += 1
+    lastContextLossTimeRef.current = now
+    
+    // Warn if multiple context losses detected
+    if (contextLossCountRef.current > 1) {
+      console.warn(`⚠️ WebGL context lost (${contextLossCountRef.current} times). This may indicate memory or performance issues.`)
+    } else {
+      console.warn('⚠️ WebGL context lost. Attempting to recover...')
+    }
+    
+    // Reset rendering tracker since context is lost
+    import('../utils/renderingTracker').then(({ renderingTracker }) => {
+      renderingTracker.reset()
+    }).catch(() => {
+      // Ignore errors if rendering tracker isn't available
+    })
+    
+    // Immediately reduce quality settings to prevent further context loss
+    const qualityManager = getQualityManager()
+    const currentPreset = qualityManager.getSettings().preset
+    
+    // Always force to low on context loss - this is critical
+    if (currentPreset !== 'low') {
+      qualityManager.setPreset('low')
+      console.warn('⚠️ Quality forced to "low" due to context loss')
+    }
+    
+    // Trigger emergency memory cleanup immediately
+    import('../utils/memoryManager').then(({ memoryManager }) => {
+      // Force emergency cleanup to free as much memory as possible
+      memoryManager.forceCleanup()
+      
+      // Also clear Three.js cache
+      import('three').then(({ Cache }) => {
+        Cache.clear()
+      })
+    })
+    
+    // Pause rendering to reduce load immediately
+    setCanvasReady(false)
+    
+    // Reset recovery attempt count for exponential backoff
+    recoveryAttemptCountRef.current = 0
+    
+    // If multiple context losses, warn user about potential issues
+    if (contextLossCountRef.current >= 3) {
+      console.error('⚠️ Multiple WebGL context losses detected. This may indicate:')
+      console.error('   - GPU memory exhaustion')
+      console.error('   - Too many resources loaded')
+      console.error('   - Browser/device limitations')
+      console.error('   - Consider closing other tabs or reducing game quality')
+    }
+  }, [])
+
+  const handleContextRestored = useMemo(() => () => {
+    console.log('✅ WebGL context restored')
+    
+    // Exponential backoff: wait longer after each recovery attempt
+    // Base delay: 500ms, increases with each attempt (max 5 seconds)
+    recoveryAttemptCountRef.current += 1
+    const baseDelay = 500
+    const backoffMultiplier = Math.min(recoveryAttemptCountRef.current, 10) // Cap at 10x
+    const delay = baseDelay * backoffMultiplier
+    
+    if (import.meta.env.DEV && recoveryAttemptCountRef.current > 1) {
+      console.log(`⏳ Waiting ${delay}ms before resuming (attempt ${recoveryAttemptCountRef.current})`)
+    }
+    
+    // Perform aggressive cleanup before attempting recovery
+    import('../utils/memoryManager').then(({ memoryManager }) => {
+      memoryManager.forceCleanup()
+      
+      // Wait for cleanup to complete, then restore
+      setTimeout(() => {
+        setCanvasReady(true)
+        
+        // Re-initialize rendering tracker with new context
+        // This will be done in onCreated, but we can also do it here if needed
+        import('../utils/renderingTracker').then(({ renderingTracker }) => {
+          // Tracker will be re-initialized in onCreated callback
+          // Just reset it here to clear any stale state
+          renderingTracker.reset()
+        }).catch(() => {
+          // Ignore errors if rendering tracker isn't available
+        })
+        
+        // Force a re-render to restore the scene
+        window.dispatchEvent(new Event('webgl-context-restored'))
+        
+        // Log recovery success
+        if (import.meta.env.DEV) {
+          console.log(`✅ WebGL context recovery complete - rendering resumed (delay: ${delay}ms)`)
+        }
+      }, delay)
+    })
+  }, [])
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000' }}>
-      <Canvas shadows>
-        {/* Phase 1: Critical components - always render once phase system is active */}
+      <Canvas 
+        shadows
+        frameloop={frameloopMode}
+        dpr={adaptiveDPR} // Adaptive DPR based on FPS and loading phase
+        onCreated={({ gl, scene }) => {
+          // Initialize frame time monitoring
+          import('../utils/frameTimeMonitor').then(({ frameTimeMonitor }) => {
+            frameTimeMonitor.startMonitoring()
+          }).catch(() => {
+            // Ignore if frame time monitor not available
+          })
+          
+          // Initialize rendering tracker
+          renderingTracker.initialize(scene, gl)
+          
+          // Initialize GPU frustum culling if supported (for large entity counts)
+          if (import.meta.env.DEV) {
+            try {
+              const gpuCuller = getGPUFrustumCuller()
+              const isSupported = gpuCuller.initialize(gl)
+              if (isSupported) {
+                console.log('[EnhancedScene] GPU frustum culling enabled')
+              }
+            } catch (error) {
+              console.warn('[EnhancedScene] GPU culling not available:', error)
+            }
+          }
+          
+          // Mark Canvas as ready after a brief delay to ensure context is fully initialized
+          setTimeout(() => {
+            setCanvasReady(true)
+          }, 0)
+          
+          // Set up WebGL context lost/restored handlers
+          const canvas = gl.domElement
+          
+          // Store cleanup function for proper removal
+          const contextLostHandler = (event: Event) => {
+            handleContextLost(event)
+          }
+          const contextRestoredHandler = () => {
+            handleContextRestored()
+          }
+          
+          // Add event listeners with proper options
+          canvas.addEventListener('webglcontextlost', contextLostHandler, false)
+          canvas.addEventListener('webglcontextrestored', contextRestoredHandler, false)
+          
+          // Store cleanup on gl object for proper disposal
+          ;(gl as any).__contextLostHandler = contextLostHandler
+          ;(gl as any).__contextRestoredHandler = contextRestoredHandler
+          
+          // Check if context is already lost (defensive check)
+          const context = gl.getContext() as WebGLRenderingContext | WebGL2RenderingContext | null
+          if (context && context.isContextLost && context.isContextLost()) {
+            console.warn('WebGL context was already lost on initialization')
+            setCanvasReady(false)
+          }
+          
+          // Log WebGL info for debugging
+          if (import.meta.env.DEV && context && !context.isContextLost()) {
+            console.log('WebGL Renderer initialized:', {
+              vendor: context.getParameter(context.VENDOR),
+              renderer: context.getParameter(context.RENDERER),
+              version: context.getParameter(context.VERSION),
+              maxTextureSize: context.getParameter(context.MAX_TEXTURE_SIZE),
+            })
+          }
+          
+          // Return cleanup function
+          return () => {
+            // Remove event listeners
+            canvas.removeEventListener('webglcontextlost', contextLostHandler, false)
+            canvas.removeEventListener('webglcontextrestored', contextRestoredHandler, false)
+            
+            // Clean up stored references
+            delete (gl as any).__contextLostHandler
+            delete (gl as any).__contextRestoredHandler
+            
+            // Dispose of WebGL resources to prevent memory leaks
+            try {
+              // Dispose of geometries, materials, and textures in the scene
+              scene.traverse((object) => {
+                if (object instanceof THREE.Mesh) {
+                  const mesh = object as THREE.Mesh
+                  if (mesh.geometry) {
+                    mesh.geometry.dispose()
+                  }
+                  if (mesh.material) {
+                    if (Array.isArray(mesh.material)) {
+                      mesh.material.forEach((mat: THREE.Material) => {
+                        if (mat instanceof THREE.Material) {
+                          mat.dispose()
+                        }
+                      })
+                    } else if (mesh.material instanceof THREE.Material) {
+                      mesh.material.dispose()
+                    }
+                  }
+                }
+              })
+              
+              // Dispose of renderer resources
+              gl.dispose()
+            } catch (error) {
+              // Ignore disposal errors during cleanup
+              if (import.meta.env.DEV) {
+                console.warn('Error during WebGL cleanup:', error)
+              }
+            }
+          }
+        }}
+      >
+        {/* Render immediately for LCP - canvas ready check happens in onCreated */}
+        {/* Phase 1: Critical components - render immediately (skybox + terrain for LCP) */}
         {showPhase1 && (
-          <>
+              <>
             {/* Mars Sky & Atmosphere */}
             <Suspense fallback={null}>
               <SpaceSkybox />
@@ -160,7 +442,7 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
             <ambientLight intensity={0.25} />
             
             {/* Basic directional light (no shadows in Phase 1 to reduce load) */}
-            {showPhase2 && getQualitySettings().shadows && (
+            {showPhase2 && getQualitySettings().shadows && isFeatureEnabled('shadowsEnabled') && (
               <directionalLight
                 castShadow
                 position={[50, 100, 50]}
@@ -179,7 +461,11 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
             )}
             
             {/* Shadow optimizer - only in Phase 2+ */}
-            {showPhase2 && <ShadowOptimizer />}
+            {showPhase2 && isFeatureEnabled('shadowsEnabled') && (
+              <Suspense fallback={null}>
+                <ShadowOptimizer />
+              </Suspense>
+            )}
             
             {/* Enhanced Cyberpunk Terrain (ground) - Phase 1 */}
             <Suspense fallback={null}>
@@ -189,8 +475,11 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
             {/* Player & Controls - Phase 1 (critical for entering world) */}
             <PlayerCamera />
             <Player />
-            <MinecraftControls />
+            <PlayerControls />
             <BuildingGrappleSystem />
+            <GrappleIndicatorLogic />
+            <LandingFeedback />
+            <GrappleTrail visible={true} />
           </>
         )}
 
@@ -224,19 +513,23 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
             </Suspense>
             
             {/* Portal Zone - Biome Portals */}
-            <PortalZone 
-              centerPosition={[0, 0, 0]}
-              radius={30}
-              onBiomeEnter={(biomeId) => {
-                teleportToBiome(biomeId)
-              }}
-            />
+            <Suspense fallback={null}>
+              <PortalZone 
+                centerPosition={[0, 0, 0]}
+                radius={30}
+                onBiomeEnter={(biomeId) => {
+                  teleportToBiome(biomeId)
+                }}
+              />
+            </Suspense>
 
             {/* Basic fog - Phase 2 */}
             <fogExp2 attach="fog" args={['#1a1a2a', 0.025]} />
 
             {/* Mars Day/Night Cycle - Phase 2 */}
-            <DayNightCycleComponent enabled={true} cycleDuration={300} />
+            <Suspense fallback={null}>
+              <DayNightCycleComponent enabled={true} cycleDuration={300} />
+            </Suspense>
           </>
         )}
 
@@ -248,13 +541,19 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
               <BiomeEnvironment />
             </Suspense>
             
-            {/* Enhanced Weather System - Rain with intensity levels */}
-            <Suspense fallback={null}>
-              <WeatherSystem weatherType="rain" intensity={1.0} rainIntensity="medium" />
-            </Suspense>
+            {/* Enhanced Weather System - Neon rain with cyberpunk aesthetic */}
+            {isFeatureEnabled('weatherEnabled') && (
+              <Suspense fallback={null}>
+                <WeatherSystem weatherType="cyber-rain" intensity={1.0} rainIntensity="medium" />
+                <PuddleReflections />
+              </Suspense>
+            )}
+            
+            {/* Occlusion Culling for Mars horizon */}
+            <OcclusionCuller />
 
-            {/* Post-Processing Effects for Mars atmosphere - conditional based on quality */}
-            {getQualitySettings().postProcessing && (
+            {/* Post-Processing Effects for Mars atmosphere - conditional based on quality and feature flag */}
+            {getQualitySettings().postProcessing && isFeatureEnabled('postProcessingEnabled') && (
               <Suspense fallback={null}>
                 <PostProcessingSimple enabled={true} />
               </Suspense>
@@ -267,8 +566,26 @@ export default function EnhancedScene({ spellProjectiles = [] }: EnhancedScenePr
           <SceneContent spellProjectiles={spellProjectiles} />
         )}
         
-        {/* FPS Tracker - Optional based on quality settings or dev mode */}
-        {(import.meta.env.DEV || getQualitySettings().preset === 'ultra') && <FPSTracker />}
+            {/* FPS Tracker - Optional based on quality settings or dev mode */}
+            {(import.meta.env.DEV || getQualitySettings().preset === 'ultra') && (
+              <Suspense fallback={null}>
+                <FPSTracker />
+              </Suspense>
+            )}
+            
+            {/* Performance Profiler - Only in dev mode, must be inside Canvas for R3F hooks */}
+            {import.meta.env.DEV && (
+              <Suspense fallback={null}>
+                <PerformanceProfiler />
+              </Suspense>
+            )}
+            
+            {/* Movement Debug Tracker - Only in dev mode, must be inside Canvas for useFrame */}
+            {import.meta.env.DEV && (
+              <Suspense fallback={null}>
+                <MovementDebugTracker />
+              </Suspense>
+            )}
       </Canvas>
     </div>
   )

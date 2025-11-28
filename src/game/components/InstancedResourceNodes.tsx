@@ -7,7 +7,8 @@ import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { ResourceNode } from '../types'
-import { trackGeometry } from '../utils/geometryDisposalTracker'
+import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
+import { materialPool } from '../utils/materialBatching'
 
 interface InstancedResourceNodesProps {
   resourceNodes: Map<string, ResourceNode>
@@ -15,26 +16,40 @@ interface InstancedResourceNodesProps {
 
 export default function InstancedResourceNodes({ resourceNodes }: InstancedResourceNodesProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
+  const geometryTrackedRef = useRef<boolean>(false)
 
   // Create geometry and material once
   const geometry = useMemo(() => {
-    const geom = new THREE.CylinderGeometry(0.5, 0.5, 1, 8)
-    // Track geometry for disposal monitoring
-    trackGeometry(geom, `instanced-resource-nodes-geometry`, 'InstancedResourceNodes')
-    return geom
+    return new THREE.CylinderGeometry(0.5, 0.5, 1, 8)
   }, [])
   
-  const material = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#00ff00',
-    emissive: '#00ff00',
-    emissiveIntensity: 0.4
-  }), [])
+  // Track geometry for disposal monitoring (only once, using useEffect to prevent re-tracking on re-renders)
+  useEffect(() => {
+    if (!geometryTrackedRef.current && geometry) {
+      trackGeometry(geometry, `instanced-resource-nodes-geometry`, 'InstancedResourceNodes')
+      geometryTrackedRef.current = true
+    }
+  }, [geometry])
+  
+  // Use material pool for efficient material reuse
+  const material = useMemo(() => {
+    return materialPool.getMaterial('resource-node-default', () => new THREE.MeshStandardMaterial({
+      color: '#00ff00',
+      emissive: '#00ff00',
+      emissiveIntensity: 0.4
+    }))
+  }, [])
   
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Mark geometry as disposed in tracker before disposing
+      const tracker = getGeometryDisposalTracker()
+      tracker.markDisposed('instanced-resource-nodes-geometry')
       geometry.dispose()
-      material.dispose()
+      // Release material reference (pool handles disposal)
+      materialPool.releaseMaterial('resource-node-default')
+      geometryTrackedRef.current = false
     }
   }, [geometry, material])
 
@@ -45,11 +60,7 @@ export default function InstancedResourceNodes({ resourceNodes }: InstancedResou
     const nodeArray = Array.from(resourceNodes.values())
     const instanceCount = nodeArray.length
 
-    // Only use instancing if count > 10
-    if (instanceCount <= 10) {
-      return null
-    }
-
+    // ALWAYS use instancing (no count threshold) for optimal performance
     // Resize instance matrix if needed
     if (meshRef.current.count !== instanceCount) {
       meshRef.current.count = instanceCount
@@ -76,12 +87,13 @@ export default function InstancedResourceNodes({ resourceNodes }: InstancedResou
     meshRef.current.instanceMatrix.needsUpdate = true
   })
 
-  if (resourceNodes.size === 0 || resourceNodes.size <= 10) return null
+  // ALWAYS render with instancing (no count threshold)
+  if (resourceNodes.size === 0) return null
 
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, material, resourceNodes.size]}
+      args={[geometry, material, Math.max(resourceNodes.size, 1)]}
       frustumCulled={true}
     />
   )

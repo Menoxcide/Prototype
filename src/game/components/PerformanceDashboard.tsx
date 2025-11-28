@@ -6,6 +6,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { performanceProfiler } from '../utils/performanceProfiler'
+import DraggableResizable from './DraggableResizable'
+import { isMobileDevice } from '../utils/mobileOptimizations'
 
 interface PerformanceMetrics {
   fps: number
@@ -17,6 +19,14 @@ interface PerformanceMetrics {
   memory: number
   networkLatency?: number
   packetLoss?: number
+  // Frame time breakdown
+  renderingTime?: number
+  physicsTime?: number
+  networkTime?: number
+  scriptTime?: number
+  // GPU memory and asset cache
+  gpuMemory?: number
+  assetCacheSize?: number
 }
 
 interface MetricHistory {
@@ -80,7 +90,15 @@ export default function PerformanceDashboard() {
         textures: profilerStats.textures,
         memory: memoryInfo ? Math.round(memoryInfo.usedJSHeapSize / 1048576) : 0,
         networkLatency,
-        packetLoss
+        packetLoss,
+        // Frame time breakdown
+        renderingTime: profilerStats.renderingTime,
+        physicsTime: profilerStats.physicsTime,
+        networkTime: profilerStats.networkTime,
+        scriptTime: profilerStats.scriptTime,
+        // GPU memory and asset cache
+        gpuMemory: profilerStats.gpuMemory,
+        assetCacheSize: profilerStats.assetCacheSize
       }
 
       setMetrics(newMetrics)
@@ -133,6 +151,15 @@ export default function PerformanceDashboard() {
 
   if (!isVisible) return null
 
+  const isMobile = isMobileDevice()
+  const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920
+  const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080
+  const dashboardWidth = isMobile ? Math.min(screenWidth * 0.95, screenWidth - 16) : 500
+  const dashboardHeight = isMobile ? Math.min(screenHeight * 0.8, 600) : 600
+  const dashboardPosition = isMobile
+    ? { x: (screenWidth - dashboardWidth) / 2, y: (screenHeight - dashboardHeight) / 2 }
+    : { x: screenWidth - dashboardWidth - 16, y: 16 }
+
   const getFPSColor = (fps: number) => {
     if (fps >= 55) return 'text-green-400'
     if (fps >= 30) return 'text-yellow-400'
@@ -184,19 +211,35 @@ export default function PerformanceDashboard() {
   const memoryMax = Math.max(500, ...history.memory.map(h => h.value), 1)
   const latencyMax = Math.max(200, ...history.latency.map(h => h.value), 1)
 
-  return (
-    <div className="fixed top-4 right-4 bg-black/95 border border-cyan-500 rounded-lg p-4 font-mono text-xs z-50 min-w-[400px] max-w-[600px] max-h-[90vh] overflow-y-auto">
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-cyan-400 font-bold text-sm">Performance Dashboard</h3>
-        <button
-          onClick={() => setIsVisible(false)}
-          className="text-gray-400 hover:text-white text-lg"
-        >
-          ×
-        </button>
-      </div>
+  const dashboardHeader = (
+    <div className="flex justify-between items-center mb-3">
+      <h3 className="text-cyan-400 font-bold text-sm">Performance Dashboard</h3>
+      <button
+        onClick={() => setIsVisible(false)}
+        className="text-gray-400 hover:text-white text-lg"
+      >
+        ×
+      </button>
+    </div>
+  )
 
-      {/* Tabs */}
+  return (
+    <DraggableResizable
+      id="performance-dashboard"
+      storageKey="performanceDashboard"
+      defaultPosition={dashboardPosition}
+      defaultSize={{ width: dashboardWidth, height: dashboardHeight }}
+      minWidth={isMobile ? 300 : 400}
+      minHeight={isMobile ? 400 : 500}
+      maxWidth={isMobile ? screenWidth - 16 : 800}
+      maxHeight={isMobile ? screenHeight - 16 : screenHeight - 32}
+      resizable={true}
+      draggable={true}
+      className="pointer-events-auto z-50"
+      header={dashboardHeader}
+    >
+      <div className="font-mono text-xs overflow-y-auto h-full">
+        {/* Tabs */}
       <div className="flex gap-2 mb-3 border-b border-gray-700">
         {(['overview', 'graphs', 'network', 'rendering'] as const).map(tab => (
           <button
@@ -266,6 +309,62 @@ export default function PerformanceDashboard() {
               </div>
             </div>
           </div>
+
+          {/* Frame Time Breakdown */}
+          {(metrics.renderingTime !== undefined || metrics.physicsTime !== undefined || metrics.networkTime !== undefined || metrics.scriptTime !== undefined) && (
+            <div className="border-t border-gray-700 pt-2">
+              <div className="text-gray-400 text-xs mb-2">Frame Time Breakdown</div>
+              <div className="space-y-1 text-xs">
+                {metrics.renderingTime !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Rendering:</span>
+                    <span className="text-white">{metrics.renderingTime.toFixed(2)}ms</span>
+                  </div>
+                )}
+                {metrics.physicsTime !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Physics:</span>
+                    <span className="text-white">{metrics.physicsTime.toFixed(2)}ms</span>
+                  </div>
+                )}
+                {metrics.networkTime !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Network:</span>
+                    <span className="text-white">{metrics.networkTime.toFixed(2)}ms</span>
+                  </div>
+                )}
+                {metrics.scriptTime !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Scripts:</span>
+                    <span className="text-white">{metrics.scriptTime.toFixed(2)}ms</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Memory Details */}
+          <div className="border-t border-gray-700 pt-2">
+            <div className="text-gray-400 text-xs mb-2">Memory Details</div>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Heap:</span>
+                <span className="text-white">{metrics.memory}MB</span>
+              </div>
+              {metrics.gpuMemory !== undefined && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">GPU (est):</span>
+                  <span className="text-white">{metrics.gpuMemory}MB</span>
+                </div>
+              )}
+              {metrics.assetCacheSize !== undefined && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Asset Cache:</span>
+                  <span className="text-white">{metrics.assetCacheSize}MB</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -310,12 +409,14 @@ export default function PerformanceDashboard() {
                       {metrics.networkLatency}ms
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Packet Loss:</span>
-                    <span className={metrics.packetLoss > 5 ? 'text-red-400' : 'text-white'}>
-                      {metrics.packetLoss.toFixed(1)}%
-                    </span>
-                  </div>
+                  {metrics.packetLoss !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Packet Loss:</span>
+                      <span className={metrics.packetLoss > 5 ? 'text-red-400' : 'text-white'}>
+                        {metrics.packetLoss.toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
               {history.latency.length > 0 && (
@@ -357,9 +458,10 @@ export default function PerformanceDashboard() {
         </div>
       )}
       
-      <div className="mt-3 pt-2 border-t border-gray-700">
-        <p className="text-gray-500 text-xs">Press F3 to toggle</p>
+        <div className="mt-3 pt-2 border-t border-gray-700">
+          <p className="text-gray-500 text-xs">Press F3 to toggle</p>
+        </div>
       </div>
-    </div>
+    </DraggableResizable>
   )
 }

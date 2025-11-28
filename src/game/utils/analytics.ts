@@ -13,6 +13,8 @@
  *   analytics.track(EVENT_TYPES.PLAYER_LEVEL_UP, { level: 5 })
  */
 
+import { getFirebaseApp } from '../../firebase/auth'
+
 export interface GameEvent {
   type: string
   data?: Record<string, any>
@@ -33,17 +35,14 @@ class Analytics {
 
   private async initializeFirebaseAnalytics() {
     try {
-      // Dynamically import Firebase Analytics
+      // Dynamically import Firebase Analytics (only this module, not firebase/app)
+      // This keeps analytics code-split since it's only used in production
       const analyticsModule = await import('firebase/analytics')
-      const appModule = await import('firebase/app')
       
-      try {
-        const app = appModule.getApp()
-        this.firebaseAnalytics = analyticsModule.getAnalytics(app)
-      } catch (e) {
-        // App not initialized yet, try to initialize
-        const { firebaseConfig } = await import('../../firebase/config')
-        const app = appModule.initializeApp(firebaseConfig)
+      // Get the Firebase app from the auth module (already initialized)
+      const app = getFirebaseApp()
+      
+      if (app) {
         this.firebaseAnalytics = analyticsModule.getAnalytics(app)
       }
     } catch (error) {
@@ -70,7 +69,9 @@ class Analytics {
 
     // Send to Firebase Analytics in production
     if (import.meta.env.PROD && this.firebaseAnalytics) {
-      // Use dynamic import asynchronously
+      // Use the already-imported analytics module
+      // Since we initialize it in initializeFirebaseAnalytics, we can use it directly
+      // But we need to import it dynamically to avoid static import issues
       import('firebase/analytics').then(({ logEvent }) => {
         try {
           logEvent(this.firebaseAnalytics, eventType, data || {})
@@ -112,6 +113,35 @@ export const EVENT_TYPES = {
   GUILD_CREATED: 'guild_created',
   ITEM_PURCHASED: 'item_purchased',
   DUNGEON_ENTERED: 'dungeon_entered',
-  WORLD_BOSS_SPAWNED: 'world_boss_spawned'
+  WORLD_BOSS_SPAWNED: 'world_boss_spawned',
+  // Performance metrics
+  WEB_VITAL_LCP: 'web_vital_lcp',
+  WEB_VITAL_FID: 'web_vital_fid',
+  WEB_VITAL_CLS: 'web_vital_cls',
+  PERFORMANCE_MARK: 'performance_mark',
+  PERFORMANCE_BUDGET_EXCEEDED: 'performance_budget_exceeded'
+}
+
+/**
+ * Track performance mark
+ */
+export function trackPerformanceMark(name: string, value: number, metadata?: Record<string, any>) {
+  analytics.track(EVENT_TYPES.PERFORMANCE_MARK, {
+    name,
+    value,
+    ...metadata
+  })
+}
+
+/**
+ * Track performance budget exceeded
+ */
+export function trackPerformanceBudgetExceeded(budget: string, actual: number, threshold: number) {
+  analytics.track(EVENT_TYPES.PERFORMANCE_BUDGET_EXCEEDED, {
+    budget,
+    actual,
+    threshold,
+    exceededBy: actual - threshold
+  })
 }
 

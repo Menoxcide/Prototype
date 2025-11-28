@@ -103,10 +103,11 @@ function resetProjectile(projectile: SpellProjectile): void {
   projectile.casterId = ''
 }
 
+// Pre-allocate larger pools for optimal performance: 100 projectiles
 export const projectilePool: ObjectPool<SpellProjectile> = createObjectPool({
   factory: createProjectile,
   reset: resetProjectile,
-  initialSize: 20,
-  maxSize: 100
+  initialSize: 100, // Pre-allocate 100 projectiles at startup (increased from 20)
+  maxSize: 200 // Increased max size to 200
 })
 

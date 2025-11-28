@@ -1,9 +1,9 @@
 /**
- * Cyberpunk City Environment for NEX://VOID
+ * Cyberpunk City Environment for MARS://NEXUS
  * Creates a vibrant cyberpunk cityscape with buildings, neon lights, and atmosphere
  */
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import type { JSX } from 'react'
 import { assetManager } from '../assets/assetManager'
@@ -12,33 +12,16 @@ import { generateRoadNetwork, type RoadNetwork } from '../utils/roadGenerator'
 import InteractiveCityObjects from './InteractiveCityObjects'
 import { progressiveLoader } from '../utils/progressiveLoader'
 import { useLoadingPhase } from '../hooks/useLoadingPhase'
+import { loadingOrchestrator } from '../utils/loadingOrchestrator'
 import { chunkManager, type Chunk, type Building } from '../utils/chunkManager'
 import { generateCityBlocks, placeBuildingsInBlocks } from '../utils/cityLayout'
 import { useGameStore } from '../store/useGameStore'
+import BuildingRenderer from './BuildingRenderer'
 
 const CITY_SIZE = 500 // Much bigger city
 const BUILDING_COUNT = 80 // More buildings
 const WALL_HEIGHT = 15 // Height of perimeter walls
 const WALL_THICKNESS = 2 // Thickness of walls
-
-// Building style types (used in legacy code)
-/*
-type BuildingStyle = 'box' | 'tower' | 'wide' | 'L-shape' | 'slender'
-
-// Building size categories
-type BuildingSize = 'small' | 'medium' | 'large' | 'skyscraper'
-
-interface BuildingConfig {
-  style: BuildingStyle
-  size: BuildingSize
-  width: number
-  depth: number
-  height: number
-  textureType: 'concrete' | 'metal' | 'glass' | 'mixed'
-  hasNeonStrips: boolean
-  windowDensity: number
-}
-*/
 
 // Seeded random for consistent generation
 function seededRandom(seed: number) {
@@ -57,32 +40,109 @@ export default function CyberpunkCity() {
   const [roadNetwork, setRoadNetwork] = useState<RoadNetwork | null>(null)
   const [loadedBuildings, setLoadedBuildings] = useState<number>(0) // Track how many buildings are loaded
   const [chunkBuildings, setChunkBuildings] = useState<Map<string, Building[]>>(new Map())
+  const [buildingTextures, setBuildingTextures] = useState<Record<string, THREE.Texture>>({})
   const { phase } = useLoadingPhase()
   const player = useGameStore((state) => state.player)
   
-  // Generate road network and city blocks
+  // Track registered assets to prevent duplicates (React StrictMode double-invocation)
+  const registeredAssetsRef = useRef<Set<string>>(new Set())
+  
+  // Generate road network and city blocks - ASYNC and NON-BLOCKING
   useEffect(() => {
-    const network = generateRoadNetwork(CITY_SIZE, 0.6, 6, 50)
-    setRoadNetwork(network)
+    let cancelled = false
     
-    // Generate city blocks from road network
-    if (network) {
-      const blocks = generateCityBlocks(network, CITY_SIZE, 40)
+    // Use requestIdleCallback to defer heavy work and prevent blocking
+    const generateCityAsync = (_deadline?: IdleDeadline) => {
+      // Step 1: Generate road network (can be heavy, but necessary first)
+      const network = generateRoadNetwork(CITY_SIZE, 0.6, 6, 50)
+      if (cancelled) return
+      setRoadNetwork(network)
+      // Mark road network as loaded in orchestrator
+      loadingOrchestrator.markFeatureLoaded('Road Network')
       
-      // Place buildings in blocks
-      const rng = seededRandom(12345)
-      const placements = placeBuildingsInBlocks(blocks, network, BUILDING_COUNT, rng)
-      
-      // Group buildings by chunk
-      const buildingsByChunk = new Map<string, Building[]>()
-      for (const placement of placements) {
-        const chunkKey = chunkManager.getChunkKey(placement.position.x, placement.position.z)
-        if (!buildingsByChunk.has(chunkKey)) {
-          buildingsByChunk.set(chunkKey, [])
+      // Step 2: Defer city blocks and building generation to next idle period
+      const continueGeneration = () => {
+        if (cancelled || !network) return
+        
+        // Generate city blocks
+        const blocks = generateCityBlocks(network, CITY_SIZE, 40)
+        if (cancelled) return
+        
+        // Step 3: Defer building placement to another idle period
+        const placeBuildings = () => {
+          if (cancelled) return
+          
+          const rng = seededRandom(12345)
+          const placements = placeBuildingsInBlocks(blocks, network, BUILDING_COUNT, rng)
+          if (cancelled) return
+          
+          // Step 4: Group buildings by chunk in chunks to avoid blocking
+          const groupBuildings = (deadline?: IdleDeadline) => {
+            const buildingsByChunk = new Map<string, Building[]>()
+            const maxTimePerFrame = 8 // 8ms per frame
+            let processed = 0
+            
+            for (const placement of placements) {
+              // Check if we should yield to prevent blocking
+              if (deadline && deadline.timeRemaining() < maxTimePerFrame && processed > 10) {
+                // Schedule continuation
+                if (typeof requestIdleCallback !== 'undefined') {
+                  requestIdleCallback(() => groupBuildings(), { timeout: 50 })
+                } else {
+                  setTimeout(() => groupBuildings(), 0)
+                }
+                return
+              }
+              
+              const chunkKey = chunkManager.getChunkKey(placement.position.x, placement.position.z)
+              if (!buildingsByChunk.has(chunkKey)) {
+                buildingsByChunk.set(chunkKey, [])
+              }
+              buildingsByChunk.get(chunkKey)!.push(placement.building)
+              processed++
+            }
+            
+            if (!cancelled) {
+              setChunkBuildings(buildingsByChunk)
+            }
+          }
+          
+          // Start grouping with idle callback
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(() => groupBuildings(), { timeout: 100 })
+          } else {
+            // Fallback: use setTimeout to break up work
+            setTimeout(() => groupBuildings(), 0)
+          }
         }
-        buildingsByChunk.get(chunkKey)!.push(placement.building)
+        
+        // Start building placement with idle callback
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => placeBuildings(), { timeout: 100 })
+        } else {
+          setTimeout(() => placeBuildings(), 0)
+        }
       }
-      setChunkBuildings(buildingsByChunk)
+      
+      // Continue generation with idle callback
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => continueGeneration(), { timeout: 100 })
+      } else {
+        // Fallback: use setTimeout to defer
+        setTimeout(() => continueGeneration(), 0)
+      }
+    }
+    
+    // Start generation - defer if possible
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => generateCityAsync(), { timeout: 200 })
+    } else {
+      // Fallback: use setTimeout to defer at least one frame
+      setTimeout(() => generateCityAsync(), 0)
+    }
+    
+    return () => {
+      cancelled = true
     }
   }, [])
   
@@ -133,14 +193,19 @@ export default function CyberpunkCity() {
     const loadBasicGround = async () => {
       const textureId = 'cyberpunk-ground-basic'
       
-      // Register with progressive loader
-      progressiveLoader.addAsset({
-        id: textureId,
-        type: 'texture',
-        priority: 10,
-        critical: true,
-        phase: 'phase1'
-      })
+      // Only register if not already registered (prevents React StrictMode duplicates)
+      if (!registeredAssetsRef.current.has(textureId)) {
+        registeredAssetsRef.current.add(textureId)
+        
+        // Register with progressive loader
+        progressiveLoader.addAsset({
+          id: textureId,
+          type: 'texture',
+          priority: 10,
+          critical: true,
+          phase: 'phase1'
+        })
+      }
 
       try {
         // Create basic procedural texture (fast, no network)
@@ -192,6 +257,8 @@ export default function CyberpunkCity() {
         
         // Mark as loaded
         progressiveLoader.markAssetLoaded(textureId, 'phase1')
+        // Also mark texture feature as loaded in orchestrator
+        loadingOrchestrator.markFeatureLoaded('Textures')
       } catch (error) {
         console.error('Failed to load basic ground texture:', error)
         // Mark as loaded anyway (we have fallback)
@@ -210,16 +277,21 @@ export default function CyberpunkCity() {
 
     const loadTerrainTextures = async () => {
       try {
-        // Register terrain textures
+        // Register terrain textures (only if not already registered)
         const terrainTextures = ['roads', 'grass', 'pavement']
         terrainTextures.forEach((type) => {
-          progressiveLoader.addAsset({
-            id: `terrain-${type}`,
-            type: 'texture',
-            priority: 5,
-            critical: false,
-            phase: 'phase2'
-          })
+          const textureId = `terrain-${type}`
+          if (!registeredAssetsRef.current.has(textureId)) {
+            registeredAssetsRef.current.add(textureId)
+            
+            progressiveLoader.addAsset({
+              id: textureId,
+              type: 'texture',
+              priority: 5,
+              critical: false,
+              phase: 'phase2'
+            })
+          }
         })
 
         // Load road texture
@@ -465,6 +537,9 @@ export default function CyberpunkCity() {
           textures[textureType] = buildingTex
         }
         
+        // Store building textures in state for BuildingRenderer
+        setBuildingTextures(textures)
+        
         // Building textures are now handled by the chunk system
         // Mark building textures as loaded
         textureTypes.forEach((type) => {
@@ -569,195 +644,6 @@ export default function CyberpunkCity() {
     }
   }, [phase, loadedBuildings])
   
-  // Generate building configuration (used in legacy code, commented out)
-  /*
-  const generateBuildingConfig = (rng: () => number, _i: number): BuildingConfig => {
-    const sizeRoll = rng()
-    let size: BuildingSize
-    let baseWidth: number
-    let baseDepth: number
-    let baseHeight: number
-    
-    if (sizeRoll < 0.3) {
-      // Small residential buildings (30%)
-      size = 'small'
-      baseWidth = 2 + rng() * 3
-      baseDepth = 2 + rng() * 3
-      baseHeight = 8 + rng() * 12
-    } else if (sizeRoll < 0.6) {
-      // Medium commercial buildings (30%)
-      size = 'medium'
-      baseWidth = 4 + rng() * 4
-      baseDepth = 4 + rng() * 4
-      baseHeight = 15 + rng() * 20
-    } else if (sizeRoll < 0.85) {
-      // Large office buildings (25%)
-      size = 'large'
-      baseWidth = 6 + rng() * 6
-      baseDepth = 6 + rng() * 6
-      baseHeight = 30 + rng() * 35
-    } else {
-      // Skyscrapers (15%)
-      size = 'skyscraper'
-      baseWidth = 8 + rng() * 8
-      baseDepth = 8 + rng() * 8
-      baseHeight = 50 + rng() * 60
-    }
-    
-    // Choose building style
-    const styleRoll = rng()
-    let style: BuildingStyle
-    if (styleRoll < 0.4) {
-      style = 'box'
-    } else if (styleRoll < 0.65) {
-      style = 'tower'
-      baseWidth *= 0.7
-      baseDepth *= 0.7
-      baseHeight *= 1.3
-    } else if (styleRoll < 0.85) {
-      style = 'wide'
-      baseWidth *= 1.5
-      baseDepth *= 0.8
-    } else {
-      style = 'slender'
-      baseWidth *= 0.6
-      baseDepth *= 0.6
-      baseHeight *= 1.2
-    }
-    
-    // Choose texture type
-    const textureTypes: Array<'concrete' | 'metal' | 'glass' | 'mixed'> = ['concrete', 'metal', 'glass', 'mixed']
-    const textureType = textureTypes[Math.floor(rng() * textureTypes.length)]
-    
-    return {
-      style,
-      size,
-      width: baseWidth,
-      depth: baseDepth,
-      height: baseHeight,
-      textureType,
-      hasNeonStrips: rng() > 0.4,
-      windowDensity: 0.5 + rng() * 0.4 // 50-90% window density
-    }
-  }
-  */
-
-  // Generate realistic window colors (warm indoor lighting) - used in legacy code
-  /*
-  const getWindowColor = (rng: () => number): string => {
-    const colors = [
-      '#ffaa44', // Warm white/yellow
-      '#ffcc88', // Soft yellow
-      '#ffdd99', // Light yellow
-      '#ffeeaa', // Bright white
-      '#aaccff', // Cool white/blue
-      '#ff8866', // Warm orange
-      '#ffbb99', // Peach
-    ]
-    return colors[Math.floor(rng() * colors.length)]
-  }
-  */
-
-  // Create windows on a building face - used in legacy code
-  /*
-  const createBuildingFaceWindows = (
-    elements: JSX.Element[],
-    buildingId: number,
-    face: 'front' | 'back' | 'left' | 'right',
-    x: number,
-    z: number,
-    width: number,
-    depth: number,
-    height: number,
-    windowDensity: number,
-    rng: () => number
-  ) => {
-    let windowRows: number
-    let windowCols: number
-    let windowSpacing: number
-    let windowSize: number
-    let faceX: number
-    let faceZ: number
-    let faceWidth: number
-    let faceDepth: number
-    let rotation: [number, number, number] = [0, 0, 0]
-    
-    if (face === 'front' || face === 'back') {
-      faceWidth = width
-      faceDepth = depth
-      windowRows = Math.floor(height / 3.5)
-      windowCols = Math.floor(width / 2.5)
-      windowSpacing = width / windowCols
-      windowSize = Math.min(windowSpacing * 0.7, 1.2)
-      faceX = x
-      faceZ = z + (face === 'front' ? depth / 2 : -depth / 2)
-    } else {
-      faceWidth = depth
-      faceDepth = width
-      windowRows = Math.floor(height / 3.5)
-      windowCols = Math.floor(depth / 2.5)
-      windowSpacing = depth / windowCols
-      windowSize = Math.min(windowSpacing * 0.7, 1.2)
-      faceX = x + (face === 'right' ? width / 2 : -width / 2)
-      faceZ = z
-    }
-    
-    const baseY = height / 2
-    
-    for (let row = 0; row < windowRows; row++) {
-      for (let col = 0; col < windowCols; col++) {
-        // Random window state (some off, some on)
-        if (rng() < windowDensity) {
-          const windowColor = getWindowColor(rng)
-          const isOn = rng() > 0.25 // 75% chance window is lit
-          
-          if (isOn) {
-            let windowX: number
-            let windowY: number
-            let windowZ: number
-            
-            if (face === 'front') {
-              windowX = faceX + (col - windowCols / 2) * windowSpacing + windowSpacing / 2
-              windowY = baseY - (row - windowRows / 2) * (height / windowRows) - (height / windowRows) / 2
-              windowZ = faceZ + 0.01
-              rotation = [0, 0, 0]
-            } else if (face === 'back') {
-              windowX = faceX + (col - windowCols / 2) * windowSpacing + windowSpacing / 2
-              windowY = baseY - (row - windowRows / 2) * (height / windowRows) - (height / windowRows) / 2
-              windowZ = faceZ - 0.01
-              rotation = [0, Math.PI, 0]
-            } else if (face === 'right') {
-              windowX = faceX + 0.01
-              windowY = baseY - (row - windowRows / 2) * (height / windowRows) - (height / windowRows) / 2
-              windowZ = faceZ + (col - windowCols / 2) * windowSpacing + windowSpacing / 2
-              rotation = [0, -Math.PI / 2, 0]
-            } else {
-              windowX = faceX - 0.01
-              windowY = baseY - (row - windowRows / 2) * (height / windowRows) - (height / windowRows) / 2
-              windowZ = faceZ + (col - windowCols / 2) * windowSpacing + windowSpacing / 2
-              rotation = [0, Math.PI / 2, 0]
-            }
-            
-            elements.push(
-              <mesh
-                key={`window-${buildingId}-${face}-${row}-${col}`}
-                position={[windowX, windowY, windowZ]}
-                rotation={rotation}
-              >
-                <planeGeometry args={[windowSize * 0.9, windowSize * 0.9]} />
-                <meshStandardMaterial
-                  color={windowColor}
-                  emissive={windowColor}
-                  emissiveIntensity={1.8 + rng() * 0.7} // Vary intensity
-                />
-              </mesh>
-            )
-          }
-        }
-      }
-    }
-  }
-
   // Get buildings from loaded chunks
   const chunkBuildingsList = useMemo(() => {
     const allBuildings: Building[] = []
@@ -768,165 +654,7 @@ export default function CyberpunkCity() {
     }
     
     return allBuildings
-  }, [chunkBuildings, phase])
-  
-  // Buildings are now rendered via chunk system
-  // Legacy building generation (kept for reference, but not used)
-  // Disabled - using chunk-based system
-  /*
-  const legacyCityElements = useMemo(() => {
-    if (true) return [] // Disabled - using chunk-based system
-    
-    const elements: JSX.Element[] = []
-    const rng = seededRandom(12345) // Fixed seed for consistency
-    
-    // Generate buildings in a grid pattern
-    const gridSize = Math.ceil(Math.sqrt(BUILDING_COUNT))
-    const spacing = CITY_SIZE / gridSize
-    
-    // More vibrant, colorful palette for neon accents
-    const neonColors = [
-      '#ff6b35', '#ff8c42', '#ffaa5c', '#ffcc7a', // Mars oranges
-      '#00ffff', '#00ff88', '#88ff00', '#ffff00', // Bright cyans and greens
-      '#ff00ff', '#ff0088', '#8800ff', '#0088ff', // Magentas and purples
-      '#ff4444', '#44ff44', '#4444ff', '#ffff44'  // Primary colors
-    ]
-    
-    // Only generate up to loadedBuildings count
-    const buildingsToGenerate = Math.min(loadedBuildings, BUILDING_COUNT)
-    
-    for (let i = 0; i < buildingsToGenerate; i++) {
-      const gridX = (i % gridSize) - gridSize / 2
-      const gridZ = Math.floor(i / gridSize) - gridSize / 2
-      
-      const x = gridX * spacing + (rng() - 0.5) * spacing * 0.5
-      const z = gridZ * spacing + (rng() - 0.5) * spacing * 0.5
-      
-      const config = generateBuildingConfig(rng, i)
-      const neonColor = neonColors[Math.floor(rng() * neonColors.length)]
-      
-      // Building base color varies by texture type
-      const buildingColors: Record<string, string[]> = {
-        concrete: ['#2a2a3a', '#3a3a4a', '#2a3a3a'],
-        metal: ['#1a1a2a', '#2a2a3a', '#1a2a2a'],
-        glass: ['#0a0a1a', '#1a1a2a', '#0a1a1a'],
-        mixed: ['#1a2a2a', '#2a3a2a', '#1a3a3a']
-      }
-      const buildingColor = buildingColors[config.textureType][Math.floor(rng() * buildingColors[config.textureType].length)]
-      
-      const buildingTexture = buildingTextures[config.textureType]
-      
-      // Main building structure
-      elements.push(
-        <mesh
-          key={`building-${i}`}
-          position={[x, config.height / 2, z]}
-          castShadow
-          receiveShadow
-          userData={{
-            isBuilding: true,
-            buildingId: i,
-            buildingHeight: config.height,
-            buildingWidth: config.width,
-            buildingDepth: config.depth
-          }}
-        >
-          <boxGeometry args={[config.width, config.height, config.depth]} />
-          <meshStandardMaterial
-            color={buildingColor}
-            metalness={config.textureType === 'metal' ? 0.9 : config.textureType === 'glass' ? 0.5 : 0.7}
-            roughness={config.textureType === 'glass' ? 0.1 : config.textureType === 'metal' ? 0.3 : 0.5}
-            emissive={neonColor}
-            emissiveIntensity={0.2}
-            {...(buildingTexture ? { map: buildingTexture } : {})}
-          />
-        </mesh>
-      )
-      
-      // Neon strips on sides (if enabled)
-      if (config.hasNeonStrips) {
-        const stripCount = Math.floor(config.height / 8)
-        for (let s = 0; s < stripCount; s++) {
-          const side = rng() > 0.5 ? 1 : -1
-          elements.push(
-            <mesh
-              key={`strip-${i}-${s}`}
-              position={[
-                x + side * (config.width / 2 - 0.05),
-                (s - stripCount / 2) * (config.height / stripCount) + config.height / 2,
-                z
-              ]}
-            >
-              <boxGeometry args={[0.1, config.height / stripCount, config.depth + 0.1]} />
-              <meshStandardMaterial
-                color={neonColor}
-                emissive={neonColor}
-                emissiveIntensity={2}
-                metalness={0.9}
-                roughness={0.1}
-              />
-            </mesh>
-          )
-        }
-      }
-      
-      // Create windows on all four faces of the building
-      createBuildingFaceWindows(elements, i, 'front', x, z, config.width, config.depth, config.height, config.windowDensity, rng)
-      createBuildingFaceWindows(elements, i, 'back', x, z, config.width, config.depth, config.height, config.windowDensity, rng)
-      createBuildingFaceWindows(elements, i, 'left', x, z, config.width, config.depth, config.height, config.windowDensity, rng)
-      createBuildingFaceWindows(elements, i, 'right', x, z, config.width, config.depth, config.height, config.windowDensity, rng)
-      
-      // Add rooftop details for taller buildings (skyscrapers and large buildings)
-      if (config.size === 'skyscraper' || (config.size === 'large' && rng() > 0.6)) {
-        // Antenna or spire on top
-        if (rng() > 0.3) {
-          const antennaHeight = 5 + rng() * 10
-          elements.push(
-            <mesh
-              key={`antenna-${i}`}
-              position={[x, config.height + antennaHeight / 2, z]}
-            >
-              <cylinderGeometry args={[0.1, 0.1, antennaHeight, 8]} />
-              <meshStandardMaterial
-                color="#444444"
-                metalness={0.9}
-                roughness={0.1}
-                emissive="#00ffff"
-                emissiveIntensity={0.5}
-              />
-            </mesh>
-          )
-        }
-        
-        // Rooftop structures for some buildings
-        if (rng() > 0.5) {
-          const rooftopHeight = 2 + rng() * 3
-          const rooftopWidth = config.width * 0.7
-          const rooftopDepth = config.depth * 0.7
-          elements.push(
-            <mesh
-              key={`rooftop-${i}`}
-              position={[x, config.height + rooftopHeight / 2, z]}
-              castShadow
-              receiveShadow
-            >
-              <boxGeometry args={[rooftopWidth, rooftopHeight, rooftopDepth]} />
-              <meshStandardMaterial
-                color="#1a1a2a"
-                metalness={0.8}
-                roughness={0.4}
-                emissive={neonColor}
-                emissiveIntensity={0.2}
-              />
-            </mesh>
-          )
-        }
-      }
-    }
-    
-    return elements
-  }, [buildingTextures, phase, loadedBuildings])
-  */
+  }, [chunkBuildings, phase, player?.position.x, player?.position.z])
   
   // Generate road meshes with markings
   const roadMeshes = useMemo(() => {
@@ -2240,7 +1968,7 @@ export default function CyberpunkCity() {
     return elements
   }, [roadNetwork])
 
-  // Ground plane with texture
+  // Ground plane with texture - always render on mobile and desktop
   const groundMaterial = useMemo(() => {
     // Only include map if texture is available (THREE.js doesn't accept undefined)
     const materialConfig: any = {
@@ -2256,7 +1984,8 @@ export default function CyberpunkCity() {
       groundTexture.generateMipmaps = true
       groundTexture.minFilter = THREE.LinearMipmapLinearFilter
       groundTexture.magFilter = THREE.LinearFilter
-      groundTexture.anisotropy = 16
+      // Reduce anisotropy on mobile for better performance
+      groundTexture.anisotropy = typeof window !== 'undefined' && window.innerWidth < 768 ? 4 : 16
       materialConfig.map = groundTexture
     }
     
@@ -2265,12 +1994,13 @@ export default function CyberpunkCity() {
 
   return (
     <group>
-      {/* Textured ground plane */}
+      {/* Textured ground plane - always rendered, essential for mobile visibility */}
       <mesh 
         rotation={[-Math.PI / 2, 0, 0]} 
         position={[0, 0, 0]} 
         receiveShadow
         renderOrder={-1}
+        visible={true}
       >
         <planeGeometry args={[CITY_SIZE, CITY_SIZE]} />
         <primitive object={groundMaterial} attach="material" />
@@ -2289,6 +2019,9 @@ export default function CyberpunkCity() {
       {walls}
       
       {/* Buildings and decorations - chunk-based rendering via chunkManager */}
+      {chunkBuildingsList.length > 0 && Object.keys(buildingTextures).length > 0 && (
+        <BuildingRenderer buildings={chunkBuildingsList} buildingTextures={buildingTextures} />
+      )}
       
       {/* City terrain objects (billboards, street furniture, etc.) */}
       {cityObjects}

@@ -9,9 +9,26 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#00ffff" />
     <link rel="manifest" href="/manifest.json" />
-    <title>NEX://VOID - Mobile Cyberpunk MMO</title>
+    <title>MARS://NEXUS - Mobile Cyberpunk MMO</title>
+    <!-- Resource hints for faster loading -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    <!-- Firebase - critical for authentication and data -->
+    <link rel="preconnect" href="https://mars-nexus.firebaseapp.com">
+    <link rel="preconnect" href="https://mars-nexus.firebasestorage.app">
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com">
+    <link rel="preconnect" href="https://securetoken.googleapis.com">
+    <link rel="preconnect" href="https://firestore.googleapis.com">
+    <link rel="dns-prefetch" href="https://mars-nexus.firebaseapp.com">
+    <link rel="dns-prefetch" href="https://mars-nexus.firebasestorage.app">
+    <!-- Game server - DNS prefetch for WebSocket connections -->
+    <link rel="dns-prefetch" href="//localhost">
+    <!-- Prefetch likely-to-load assets (using prefetch instead of preload to avoid warnings) -->
+    <link rel="prefetch" href="/assets/models/ASSET_MANIFEST.json" as="fetch" crossorigin="anonymous">
+    <link rel="prefetch" href="/assets/models/ASSET_REGISTRY.json" as="fetch" crossorigin="anonymous">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
   </head>
   <body>
@@ -35,6 +52,8 @@
           return true;
         }
       });
+      
+      // Orientation lock is now handled by orientationLock.ts to avoid conflicts
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

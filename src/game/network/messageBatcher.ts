@@ -90,7 +90,7 @@ class MessageBatcher {
   }
 
   add(message: NetworkMessage, priority: number = 5): void {
-    // Critical messages (priority >= 9) are sent immediately
+    // Critical messages (priority >= 9) can be sent with priority-based immediate dispatch
     const clampedPriority = Math.max(0, Math.min(priority, 10))
     const isCritical = clampedPriority >= 9
     
@@ -109,9 +109,10 @@ class MessageBatcher {
       priority: clampedPriority
     }
 
-    // Critical messages bypass queue and are sent immediately
-    if (isCritical) {
-      // Return immediately for caller to send
+    // Priority-based immediate dispatch: movement messages (priority 9) are queued but flushed quickly
+    // Only truly critical messages (priority 10) bypass queue entirely
+    if (clampedPriority >= 10) {
+      // Return immediately for caller to send (only for priority 10)
       return messageWithPriority as any
     }
 

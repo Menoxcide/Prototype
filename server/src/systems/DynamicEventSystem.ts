@@ -93,7 +93,7 @@ export class DynamicEventSystem {
       if (completedEvent) {
         const rewards = this.completeEvent(event.id)
         if (this.broadcastCompletedCallback) {
-          this.broadcastCompletedCallback(event.id, rewards)
+          this.broadcastCompletedCallback(event.id, rewards || [])
         }
         this.activeEvents.delete(event.id)
       }

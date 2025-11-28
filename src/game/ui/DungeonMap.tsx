@@ -5,7 +5,7 @@
 
 import React from 'react'
 import { Html } from '@react-three/drei'
-import { Dungeon, DungeonProgress, Room, Cell } from '../../../shared/src/types/dungeons'
+import { Dungeon, DungeonProgress } from '../../../shared/src/types/dungeons'
 import { useGameStore } from '../store/useGameStore'
 import { useTranslation } from '../hooks/useTranslation'
 

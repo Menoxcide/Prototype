@@ -1,0 +1,74 @@
+[
+  {
+    "configuration": "Baseline - All Disabled",
+    "timestamp": 1764296753314,
+    "fps": 9,
+    "frameTime": 65.07666666607062,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Camera Smoothing Only",
+    "timestamp": 1764296762857,
+    "fps": 9,
+    "frameTime": 80.53666666646798,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Collision Detection Only",
+    "timestamp": 1764296770203,
+    "fps": 16,
+    "frameTime": 70.55666666726272,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Network Reconciliation Only",
+    "timestamp": 1764296780173,
+    "fps": 16,
+    "frameTime": 65.13833333353202,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Shadows Only",
+    "timestamp": 1764296789824,
+    "fps": 15,
+    "frameTime": 67.13666666646799,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Post-Processing Only",
+    "timestamp": 1764296799017,
+    "fps": 15,
+    "frameTime": 70.0633333325386,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "Weather Only",
+    "timestamp": 1764296811522,
+    "fps": 15,
+    "frameTime": 67.24500000079473,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  },
+  {
+    "configuration": "All Features Enabled",
+    "timestamp": 1764296832458,
+    "fps": 10,
+    "frameTime": 84.26666666666667,
+    "positionUpdates": 0,
+    "reconciliationEvents": 0,
+    "smoothMovement": false
+  }
+]

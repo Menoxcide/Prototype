@@ -11,8 +11,9 @@ import { useGameStore } from '../store/useGameStore'
 import { RACES } from '../data/races'
 import { assetManager } from '../assets/assetManager'
 import { RACE_TO_CHARACTER } from '../assets/spriteCharacterLoader'
-import SpriteCharacter from './SpriteCharacter'
+import EnhancedSpriteCharacter from './EnhancedSpriteCharacter'
 import PlayerNameplate from './PlayerNameplate'
+import { loadingOrchestrator } from '../utils/loadingOrchestrator'
 
 export default function Player() {
   const groupRef = useRef<THREE.Group>(null)
@@ -23,21 +24,35 @@ export default function Player() {
   const [useSprite, setUseSprite] = useState(false)
   const [spriteCharacterId, setSpriteCharacterId] = useState<string | null>(null)
   
-  if (!player) return null
-
-  const raceData = RACES[player.race]
+  // Get camera mode to hide player in first person
+  const cameraMode = useGameStore((state) => state.cameraMode)
+  const isFirstPerson = cameraMode === 'first-person'
+  
+  // Performance: Only update matrix when position actually changes
+  const lastPosition = useRef<{ x: number; y: number; z: number; rotation: number } | null>(null)
   
   // Check if we have a Pixellab character for this race
   useEffect(() => {
+    if (!player) return
     const characterId = RACE_TO_CHARACTER[player.race]
     if (characterId) {
       setSpriteCharacterId(characterId)
       setUseSprite(true)
     }
-  }, [player.race])
+  }, [player?.race])
+  
+  // Mark player as loaded when model is ready
+  useEffect(() => {
+    if (modelLoaded && player) {
+      loadingOrchestrator.markFeatureLoaded('Player')
+    }
+  }, [modelLoaded, player])
   
   // Load player model using model loader
   useEffect(() => {
+    if (!player) return
+    
+    const raceData = RACES[player.race]
     const loadModel = async () => {
       try {
         // Try to load from path first, fallback to procedural
@@ -88,11 +103,9 @@ export default function Player() {
       }
       assetManager.releaseModel(`player-${player.race}`)
     }
-  }, [player.race, raceData.color, raceData.glowColor])
+  }, [player?.race])
 
   // Update position EVERY frame - sync with store
-  // Performance: Only update matrix when position actually changes
-  const lastPosition = useRef<{ x: number; y: number; z: number; rotation: number } | null>(null)
   
   useFrame(() => {
     if (!groupRef.current) return
@@ -133,43 +146,44 @@ export default function Player() {
     }
   })
 
-  // Get camera mode to hide player in first person
-  const cameraMode = useGameStore((state) => state.cameraMode)
-  const isFirstPerson = cameraMode === 'first-person'
-  
   // Check if player is crouching (we'll get this from controls via a store state or prop)
   // For now, we'll use a simple approach - check player Y position
-  const isCrouching = player.position.y < 0.6 // Crouched players are lower
+  const isCrouching = player?.position.y ? player.position.y < 0.6 : false // Crouched players are lower
 
   // Set initial position on mount
   useEffect(() => {
-    if (groupRef.current) {
-      groupRef.current.position.set(
-        player.position.x,
-        player.position.y,
-        player.position.z
-      )
-      groupRef.current.rotation.y = player.rotation
-      groupRef.current.updateMatrixWorld(true)
-      
-      if (import.meta.env.DEV) {
-        console.log('✅ Player group initialized:', {
-          position: { x: player.position.x, y: player.position.y, z: player.position.z },
-          rotation: player.rotation,
-          visible: groupRef.current.visible,
-          inScene: groupRef.current.parent !== null
-        })
-      }
+    if (!player || !groupRef.current) return
+    
+    groupRef.current.position.set(
+      player.position.x,
+      player.position.y,
+      player.position.z
+    )
+    groupRef.current.rotation.y = player.rotation
+    groupRef.current.updateMatrixWorld(true)
+    
+    if (import.meta.env.DEV) {
+      console.log('✅ Player group initialized:', {
+        position: { x: player.position.x, y: player.position.y, z: player.position.z },
+        rotation: player.rotation,
+        visible: groupRef.current.visible,
+        inScene: groupRef.current.parent !== null
+      })
     }
-  }, [player.id]) // Only on player ID change
+  }, [player?.id]) // Only on player ID change
 
   // Apply crouching scale to model
   useEffect(() => {
-    if (modelRef.current && groupRef.current) {
-      const scale = isCrouching ? 0.6 : 1.0
-      modelRef.current.scale.y = scale
-    }
-  }, [isCrouching])
+    if (!player || !modelRef.current || !groupRef.current) return
+    
+    const scale = isCrouching ? 0.6 : 1.0
+    modelRef.current.scale.y = scale
+  }, [isCrouching, player])
+
+  // Early return AFTER all hooks are declared (fixes React error #310)
+  if (!player) return null
+
+  const raceData = RACES[player.race]
 
   return (
     <group 
@@ -178,7 +192,7 @@ export default function Player() {
     >
       {/* Use 2.5D isometric sprite if available */}
       {useSprite && spriteCharacterId && !isFirstPerson && (
-        <SpriteCharacter
+        <EnhancedSpriteCharacter
           characterId={spriteCharacterId}
           position={[
             player.position.x,
@@ -192,6 +206,8 @@ export default function Player() {
           rotation={player.rotation}
           scale={1.5}
           instanceId={`player-${player.id}`}
+          enableDepth={true}
+          depthOffset={0.05}
         />
       )}
 

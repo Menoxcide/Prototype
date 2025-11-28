@@ -24,7 +24,12 @@ class GeometryDisposalTracker {
    */
   track(geometry: THREE.BufferGeometry, id: string, componentName?: string): void {
     if (this.trackedGeometries.has(id)) {
-      console.warn(`Geometry ${id} is already being tracked`)
+      // Already tracked - common in React StrictMode double-invocation
+      // Only warn if it's a different geometry instance to avoid false positives
+      const existing = this.trackedGeometries.get(id)
+      if (existing && existing.geometry !== geometry && import.meta.env.DEV) {
+        console.warn(`Geometry ${id} is already being tracked with a different instance`)
+      }
       return
     }
 

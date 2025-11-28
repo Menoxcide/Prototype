@@ -6,7 +6,8 @@
 import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { trackGeometry } from '../utils/geometryDisposalTracker'
+import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
+import { materialPool } from '../utils/materialBatching'
 
 interface SpellProjectile {
   id: string
@@ -26,25 +27,39 @@ export default function InstancedProjectiles({ projectiles }: InstancedProjectil
 
   // Create geometry and material once
   const geometry = useMemo(() => {
-    const geom = new THREE.SphereGeometry(0.2, 8, 8)
-    // Track geometry for disposal monitoring
-    trackGeometry(geom, `instanced-projectiles-geometry`, 'InstancedProjectiles')
-    return geom
+    return new THREE.SphereGeometry(0.2, 8, 8)
   }, [])
   
-  const material = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#00ffff',
-    emissive: '#00ffff',
-    emissiveIntensity: 0.8,
-    transparent: true,
-    opacity: 0.9
-  }), [])
+  const geometryTrackedRef = useRef<boolean>(false)
+  
+  // Track geometry for disposal monitoring (only once, using useEffect to prevent re-tracking on re-renders)
+  useEffect(() => {
+    if (!geometryTrackedRef.current && geometry) {
+      trackGeometry(geometry, `instanced-projectiles-geometry`, 'InstancedProjectiles')
+      geometryTrackedRef.current = true
+    }
+  }, [geometry])
+  
+  const material = useMemo(() => {
+    return materialPool.getMaterial('projectile-default', () => new THREE.MeshStandardMaterial({
+      color: '#00ffff',
+      emissive: '#00ffff',
+      emissiveIntensity: 0.8,
+      transparent: true,
+      opacity: 0.9
+    }))
+  }, [])
   
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Mark geometry as disposed in tracker before disposing
+      const tracker = getGeometryDisposalTracker()
+      tracker.markDisposed('instanced-projectiles-geometry')
       geometry.dispose()
-      material.dispose()
+      // Release material reference (pool handles disposal)
+      materialPool.releaseMaterial('projectile-default')
+      geometryTrackedRef.current = false
     }
   }, [geometry, material])
 
@@ -55,11 +70,7 @@ export default function InstancedProjectiles({ projectiles }: InstancedProjectil
     const projectileArray = Array.from(projectiles.values())
     const instanceCount = projectileArray.length
 
-    // Only use instancing if count > 10, otherwise fallback to individual rendering
-    if (instanceCount <= 10) {
-      return null
-    }
-
+    // ALWAYS use instancing (no count threshold) for optimal performance
     // Resize instance matrix if needed
     if (meshRef.current.count !== instanceCount) {
       meshRef.current.count = instanceCount
@@ -96,12 +107,13 @@ export default function InstancedProjectiles({ projectiles }: InstancedProjectil
     }
   })
 
-  if (projectiles.size === 0 || projectiles.size <= 10) return null
+  // ALWAYS render with instancing (no count threshold)
+  if (projectiles.size === 0) return null
 
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, material, projectiles.size]}
+      args={[geometry, material, Math.max(projectiles.size, 1)]}
       frustumCulled={true}
     />
   )

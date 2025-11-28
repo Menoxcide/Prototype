@@ -1,6 +1,6 @@
-# NEX://VOID Server
+# MARS://NEXUS Server
 
-Colyseus game server for NEX://VOID MMO.
+Colyseus game server for MARS://NEXUS MMO.
 
 ## Setup
 

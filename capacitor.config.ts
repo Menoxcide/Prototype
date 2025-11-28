@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
-  appId: 'com.nexvoid.game',
-  appName: 'NEX://VOID',
+  appId: 'com.marsnexus.game',
+  appName: 'MARS://NEXUS',
   webDir: 'dist',
   server: {
     androidScheme: 'https'

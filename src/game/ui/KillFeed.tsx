@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
+import DraggableResizable from '../components/DraggableResizable'
+import { isMobileDevice } from '../utils/mobileOptimizations'
 
 interface KillFeedEntry {
   id: string
@@ -11,6 +13,8 @@ interface KillFeedEntry {
 export default function KillFeed() {
   const { chatMessages } = useGameStore()
   const [killFeedEntries, setKillFeedEntries] = useState<KillFeedEntry[]>([])
+  const isMobile = isMobileDevice()
+  const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920
 
   useEffect(() => {
     // Extract kill messages from chat
@@ -33,9 +37,25 @@ export default function KillFeed() {
 
   if (killFeedEntries.length === 0) return null
 
+  const killFeedWidth = isMobile ? Math.min(screenWidth * 0.8, 256) : 256
+  const killFeedPosition = isMobile
+    ? { x: (screenWidth - killFeedWidth) / 2, y: 80 }
+    : { x: screenWidth - killFeedWidth - 16, y: 80 }
+
   return (
-    <div className="fixed top-20 right-4 w-64 pointer-events-none z-30">
-      <div className="space-y-2">
+    <DraggableResizable
+      id="kill-feed"
+      storageKey="killFeed"
+      defaultPosition={killFeedPosition}
+      defaultSize={{ width: killFeedWidth, height: 200 }}
+      minWidth={isMobile ? 200 : 200}
+      minHeight={100}
+      maxWidth={isMobile ? screenWidth - 16 : 400}
+      resizable={false}
+      draggable={true}
+      className="pointer-events-auto z-30"
+    >
+      <div className="space-y-2 pointer-events-none">
         {killFeedEntries.map(entry => {
           const age = Date.now() - entry.timestamp
           const opacity = Math.max(0, 1 - age / 5000) // Fade out over 5 seconds
@@ -55,7 +75,7 @@ export default function KillFeed() {
           )
         })}
       </div>
-    </div>
+    </DraggableResizable>
   )
 }
 

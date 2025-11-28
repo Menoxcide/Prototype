@@ -29,7 +29,6 @@
     "mana": "Мана",
     "stamina": "Выносливость",
     "all": "Все",
-    "info": "Информация",
     "details": "Детали",
     "have": "Иметь",
     "need": "Нужно",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "Побеждено сущностей: {{defeated}} / {{total}}",
     "requiredLevel": "Требуемый уровень: {{level}}"
   },
-  "errors": {
-    "networkError": "Ошибка сети. Пожалуйста, проверьте ваше соединение.",
-    "serverError": "Ошибка сервера. Пожалуйста, попробуйте позже.",
-    "invalidInput": "Неверный ввод. Пожалуйста, проверьте ваши значения.",
-    "notEnoughCredits": "Недостаточно кредитов.",
-    "notEnoughItems": "Недостаточно предметов.",
-    "itemNotFound": "Предмет не найден.",
-    "questNotFound": "Квест не найден.",
-    "dungeonNotFound": "Подземелье не найдено.",
-    "failedToEnterDungeon": "Не удалось войти в подземелье"
-  },
   "auth": {
     "signInWithGoogle": "Войти через Google",
     "signingIn": "Вход в систему...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "Создание персонажа...",
     "enterTheVoid": "Войти в Пустоту",
     "failedToCreate": "Не удалось создать персонажа. Пожалуйста, попробуйте снова."
+  },
+  "errors": {
+    "networkError": "Ошибка сети. Пожалуйста, проверьте ваше соединение.",
+    "serverError": "Ошибка сервера. Пожалуйста, попробуйте позже.",
+    "invalidInput": "Неверный ввод. Пожалуйста, проверьте ваши значения.",
+    "notEnoughCredits": "Недостаточно кредитов.",
+    "notEnoughItems": "Недостаточно предметов.",
+    "itemNotFound": "Предмет не найден.",
+    "questNotFound": "Квест не найден.",
+    "dungeonNotFound": "Подземелье не найдено.",
+    "failedToEnterDungeon": "Не удалось войти в подземелье"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "Выбрать Персонажа",
+    "loadingCharacters": "Загрузка персонажей...",
+    "serverUnavailable": "⚠️ Сервер Недоступен",
+    "serverUnavailableMessage": "Сервер недоступен. Вы все еще можете создать нового персонажа.",
+    "serverUnavailableSubtext": "Вы все еще можете создать нового персонажа. Он будет сохранен, когда сервер станет доступен.",
+    "characters": "Персонажи",
+    "noCharactersFound": "Персонажи не найдены. Создайте своего первого персонажа, чтобы начать!",
+    "refresh": "Обновить",
+    "createNewCharacter": "Создать Нового Персонажа",
+    "characterLimitReached": "Достигнут лимит персонажей ({{max}} персонажей)",
+    "lastPlayed": "Последняя игра:",
+    "created": "Создан:",
+    "levelShort": "Ур.",
+    "failedToLoadCharacters": "Не удалось загрузить персонажей. Пожалуйста, попробуйте снова.",
+    "failedToLoadCharacter": "Не удалось загрузить персонажа. Пожалуйста, попробуйте снова."
+  },
+  "npc": {
+    "next": "Далее",
+    "continue": "Продолжить",
+    "availableQuests": "Доступные Квесты",
+    "noQuestsAvailable": "Нет доступных квестов.",
+    "shop": "Магазин",
+    "noItemsForSale": "Нет товаров для продажи.",
+    "services": "Услуги",
+    "noServicesAvailable": "Нет доступных услуг.",
+    "serviceHeal": "Восстановить полное здоровье",
+    "serviceRepair": "Восстановить полную ману",
+    "serviceTeleport": "Телепортироваться в другое место",
+    "serviceEnchant": "Зачаровать ваши предметы",
+    "buy": "Купить",
+    "credits": "кредиты"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "Выбрать игрока для шепота",
+    "selectPlayer": "Выбрать игрока...",
+    "global": "Глобальный",
+    "guild": "Гильдия",
+    "whisper": "Шепот",
+    "noMessagesYet": "Пока нет сообщений. Начните общаться!",
+    "whisperTag": "[Шепот]",
+    "guildTag": "[Гильдия]",
+    "typeMessage": "Введите сообщение...",
+    "send": "Отправить",
+    "systemInfo": "Информация о Системе",
+    "connection": "Подключение:",
+    "online": "В сети",
+    "offline": "Не в сети",
+    "latency": "Задержка:",
+    "packetLoss": "Потеря Пакетов:",
+    "serverStatus": "Статус Сервера:",
+    "connected": "Подключено",
+    "disconnected": "Отключено",
+    "gameInfo": "Информация об Игре",
+    "zone": "Зона:",
+    "unknown": "Неизвестно",
+    "active": "Активно",
+    "serverState": "Состояние Сервера:",
+    "playerInfo": "Информация об Игроке",
+    "name": "Имя:",
+    "race": "Раса:",
+    "tradition": "Традиция:"
+  },
+  "victoryDefeat": {
+    "victory": "ПОБЕДА!",
+    "defeat": "ПОРАЖЕНИЕ",
+    "rewards": "Награды",
+    "items": "Предметы:",
+    "continue": "Продолжить"
+  },
+  "system": {
+    "loading": "Загрузка..."
+  },
+  "battlePass": {
+    "premium": "✓ Премиум",
+    "upgrade": "Улучшить",
+    "premiumPass": "Премиум Пропуск"
+  },
+  "cosmeticShop": {
+    "title": "Магазин Косметики",
+    "notEnoughCredits": "Недостаточно кредитов!",
+    "premiumRequiresPayment": "Премиум косметика требует оплаты. Пожалуйста, свяжитесь с поддержкой для покупки премиум товаров.\n\nИнтеграция Stripe требует настройки бэкенда. См. CosmeticShop.tsx для деталей реализации.",
+    "purchased": "Куплено {{name}}!"
+  },
+  "guild": {
+    "nameLengthError": "Название гильдии должно содержать от 3 до 20 символов",
+    "tagLengthError": "Тег гильдии должен содержать от 2 до 4 символов",
+    "enterGuildId": "Пожалуйста, введите ID гильдии",
+    "leaveGuildConfirm": "Вы уверены, что хотите покинуть свою гильдию?"
+  },
+  "social": {
+    "partySystem": "Система Группы",
+    "guildTag": "Тег Гильдии:",
+    "guildSystem": "Система Гильдии",
+    "removeFriendConfirm": "Удалить этого друга?",
+    "blockPlayerConfirm": "Заблокировать этого игрока? Он не сможет отправлять вам сообщения или запросы на дружбу.",
+    "reportPlayerPrompt": "Пожалуйста, опишите проблему с {{playerId}}:",
+    "addNotePrompt": "Добавить заметку для этого друга:"
   }
 }
-

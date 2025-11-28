@@ -1,4 +1,4 @@
-# NEX://VOID - Mobile Cyberpunk MMO
+# MARS://NEXUS - Mobile Cyberpunk MMO
 
 A production-ready mobile-first cyberpunk MMO built with React, TypeScript, Three.js, and Colyseus.
 

@@ -1,7 +1,7 @@
 /**
  * CAMERA COMPONENT
  * First-person camera that follows player (Minecraft-style)
- * Camera rotation is controlled by MinecraftControls via mouse
+ * Camera rotation is controlled by PlayerControls via mouse
  */
 
 import { useFrame, useThree } from '@react-three/fiber'
@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { cameraOrbit } from '../utils/cameraOrbit'
+import { isFeatureEnabled } from '../utils/featureFlags'
 
 export default function PlayerCamera() {
   const { camera } = useThree()
@@ -175,7 +176,7 @@ export default function PlayerCamera() {
         playerPos.z + shakeZ
       )
       camera.position.copy(targetPos) // Direct copy for instant sync - no lerp smoothing
-      // Camera rotation is handled by MinecraftControls via mouse
+      // Camera rotation is handled by PlayerControls via mouse
       // Player can naturally look up with mouse when climbing
       } else {
         // Third-person: camera orbits around player using spherical coordinates
@@ -184,7 +185,7 @@ export default function PlayerCamera() {
         const cameraDistance = 8 // Distance from player
         const playerCenterY = playerPos.y + 0.8 // Player visual center (where sprite is rendered)
         
-        // Get orbit angles from shared module (updated by MinecraftControls on mouse move)
+        // Get orbit angles from shared module (updated by PlayerControls on mouse move)
         // Orbit is relative to player's facing direction
         let orbitOffsetY = cameraOrbit.y // Horizontal orbit offset from player facing
         let phi = cameraOrbit.x   // Vertical angle (pitch) - 0 = horizontal, positive = up, negative = down
@@ -242,8 +243,14 @@ export default function PlayerCamera() {
         const finalCameraY = Math.max(cameraY, minCameraY)
         
         // Delta-based smoothing for camera movement (prevents jittery updates)
+        // Can be disabled via feature flag to test if lerp is causing stuttering
         const targetPos = new THREE.Vector3(cameraX, finalCameraY, cameraZ)
-        camera.position.lerp(targetPos, thirdPersonLerp)
+        if (isFeatureEnabled('cameraSmoothingEnabled')) {
+          camera.position.lerp(targetPos, thirdPersonLerp)
+        } else {
+          // Direct position assignment (no lerp) - like first-person mode
+          camera.position.copy(targetPos)
+        }
         
         // Look at player center - smooth update
         camera.lookAt(playerPos.x, playerCenterY, playerPos.z)

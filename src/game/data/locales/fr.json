@@ -29,7 +29,6 @@
     "mana": "PM",
     "stamina": "Endurance",
     "all": "Tout",
-    "info": "Information",
     "details": "Détails",
     "have": "Avoir",
     "need": "Besoin",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "Entités Vaincues : {{defeated}} / {{total}}",
     "requiredLevel": "Niveau Requis : {{level}}"
   },
-  "errors": {
-    "networkError": "Erreur réseau. Veuillez vérifier votre connexion.",
-    "serverError": "Erreur serveur. Veuillez réessayer plus tard.",
-    "invalidInput": "Entrée invalide. Veuillez vérifier vos valeurs.",
-    "notEnoughCredits": "Crédits insuffisants.",
-    "notEnoughItems": "Objets insuffisants.",
-    "itemNotFound": "Objet introuvable.",
-    "questNotFound": "Quête introuvable.",
-    "dungeonNotFound": "Donjon introuvable.",
-    "failedToEnterDungeon": "Échec de l'entrée dans le donjon"
-  },
   "auth": {
     "signInWithGoogle": "Se connecter avec Google",
     "signingIn": "Connexion en cours...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "Création du Personnage...",
     "enterTheVoid": "Entrer dans le Vide",
     "failedToCreate": "Échec de la création du personnage. Veuillez réessayer."
+  },
+  "errors": {
+    "networkError": "Erreur réseau. Veuillez vérifier votre connexion.",
+    "serverError": "Erreur serveur. Veuillez réessayer plus tard.",
+    "invalidInput": "Entrée invalide. Veuillez vérifier vos valeurs.",
+    "notEnoughCredits": "Crédits insuffisants.",
+    "notEnoughItems": "Objets insuffisants.",
+    "itemNotFound": "Objet introuvable.",
+    "questNotFound": "Quête introuvable.",
+    "dungeonNotFound": "Donjon introuvable.",
+    "failedToEnterDungeon": "Échec de l'entrée dans le donjon"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "Sélectionner un Personnage",
+    "loadingCharacters": "Chargement des personnages...",
+    "serverUnavailable": "⚠️ Serveur Indisponible",
+    "serverUnavailableMessage": "Le serveur n'est pas disponible. Vous pouvez toujours créer un nouveau personnage.",
+    "serverUnavailableSubtext": "Vous pouvez toujours créer un nouveau personnage. Il sera enregistré lorsque le serveur sera disponible.",
+    "characters": "Personnages",
+    "noCharactersFound": "Aucun personnage trouvé. Créez votre premier personnage pour commencer !",
+    "refresh": "Actualiser",
+    "createNewCharacter": "Créer un Nouveau Personnage",
+    "characterLimitReached": "Limite de personnages atteinte ({{max}} personnages)",
+    "lastPlayed": "Dernière partie :",
+    "created": "Créé :",
+    "levelShort": "Nv.",
+    "failedToLoadCharacters": "Échec du chargement des personnages. Veuillez réessayer.",
+    "failedToLoadCharacter": "Échec du chargement du personnage. Veuillez réessayer."
+  },
+  "npc": {
+    "next": "Suivant",
+    "continue": "Continuer",
+    "availableQuests": "Quêtes Disponibles",
+    "noQuestsAvailable": "Aucune quête disponible.",
+    "shop": "Boutique",
+    "noItemsForSale": "Aucun article en vente.",
+    "services": "Services",
+    "noServicesAvailable": "Aucun service disponible.",
+    "serviceHeal": "Restaurer la santé complète",
+    "serviceRepair": "Restaurer le mana complet",
+    "serviceTeleport": "Se téléporter à un autre endroit",
+    "serviceEnchant": "Enchanter vos objets",
+    "buy": "Acheter",
+    "credits": "crédits"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "Sélectionner un joueur pour chuchoter",
+    "selectPlayer": "Sélectionner un joueur...",
+    "global": "Global",
+    "guild": "Guilde",
+    "whisper": "Chuchoter",
+    "noMessagesYet": "Aucun message pour le moment. Commencez à discuter !",
+    "whisperTag": "[Chuchotement]",
+    "guildTag": "[Guilde]",
+    "typeMessage": "Tapez un message...",
+    "send": "Envoyer",
+    "systemInfo": "Informations Système",
+    "connection": "Connexion :",
+    "online": "En ligne",
+    "offline": "Hors ligne",
+    "latency": "Latence :",
+    "packetLoss": "Perte de Paquets :",
+    "serverStatus": "État du Serveur :",
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "gameInfo": "Informations du Jeu",
+    "zone": "Zone :",
+    "unknown": "Inconnu",
+    "active": "Actif",
+    "serverState": "État du Serveur :",
+    "playerInfo": "Informations du Joueur",
+    "name": "Nom :",
+    "race": "Race :",
+    "tradition": "Tradition :"
+  },
+  "victoryDefeat": {
+    "victory": "VICTOIRE !",
+    "defeat": "DÉFAITE",
+    "rewards": "Récompenses",
+    "items": "Objets :",
+    "continue": "Continuer"
+  },
+  "system": {
+    "loading": "Chargement..."
+  },
+  "battlePass": {
+    "premium": "✓ Premium",
+    "upgrade": "Améliorer",
+    "premiumPass": "Passe Premium"
+  },
+  "cosmeticShop": {
+    "title": "Boutique de Cosmétiques",
+    "notEnoughCredits": "Crédits insuffisants !",
+    "premiumRequiresPayment": "Les cosmétiques premium nécessitent un paiement. Veuillez contacter le support pour les achats premium.\n\nL'intégration Stripe nécessite une configuration backend. Voir CosmeticShop.tsx pour les détails d'implémentation.",
+    "purchased": "{{name}} acheté !"
+  },
+  "guild": {
+    "nameLengthError": "Le nom de la guilde doit contenir entre 3 et 20 caractères",
+    "tagLengthError": "L'étiquette de la guilde doit contenir entre 2 et 4 caractères",
+    "enterGuildId": "Veuillez entrer un ID de guilde",
+    "leaveGuildConfirm": "Êtes-vous sûr de vouloir quitter votre guilde ?"
+  },
+  "social": {
+    "partySystem": "Système de Groupe",
+    "guildTag": "Étiquette de Guilde :",
+    "guildSystem": "Système de Guilde",
+    "removeFriendConfirm": "Supprimer cet ami ?",
+    "blockPlayerConfirm": "Bloquer ce joueur ? Il ne pourra plus vous envoyer de messages ou de demandes d'amitié.",
+    "reportPlayerPrompt": "Veuillez décrire le problème avec {{playerId}} :",
+    "addNotePrompt": "Ajouter une note pour cet ami :"
   }
 }
-

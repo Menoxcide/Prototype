@@ -13,9 +13,7 @@ export default function CraftingModal() {
   const [showMaterialTracker, setShowMaterialTracker] = useState(false)
   const [craftingQueue, setCraftingQueue] = useState<Array<{ recipeId: string; count: number; progress: number }>>([])
 
-  if (!isCraftingOpen || !player) return null
-
-  const availableRecipes = getRecipesByLevel(player.level)
+  const availableRecipes = player ? getRecipesByLevel(player.level) : []
   const recipe = selectedRecipe ? RECIPES.find(r => r.id === selectedRecipe) : null
 
   const canCraft = (recipeId: string) => {
@@ -70,6 +68,9 @@ export default function CraftingModal() {
       ...data
     }))
   }, [availableRecipes, inventory])
+
+  // Early return check moved here to ensure all hooks are called first
+  if (!isCraftingOpen || !player) return null
 
   const handleCraft = async (count: number = 1) => {
     if (!selectedRecipe || !recipe) return
@@ -179,7 +180,7 @@ export default function CraftingModal() {
                       {resultItem && <span className="text-2xl">{resultItem.icon}</span>}
                       <span className="font-bold text-cyan-300">{recipe.name}</span>
                     </div>
-                    <div className="text-xs text-gray-400">Lv. {recipe.level}</div>
+                    <div className="text-xs text-gray-400">{t('characterSelection.levelShort')} {recipe.level}</div>
                   </button>
                 )
               })}

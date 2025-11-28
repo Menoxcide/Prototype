@@ -6,8 +6,10 @@ import { useState, useEffect } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import EnhancedModal from './components/EnhancedModal'
 import { requestFriends, sendFriendRequest, acceptFriendRequest, rejectFriendRequest, removeFriend, blockPlayer, reportPlayer } from '../network/colyseus'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function SocialModal() {
+  const { t } = useTranslation()
   const { isSocialOpen, toggleSocial, player, friends, friendRequests, otherPlayers } = useGameStore()
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'find' | 'party' | 'guild'>('friends')
   const [searchPlayer, setSearchPlayer] = useState('')
@@ -36,19 +38,19 @@ export default function SocialModal() {
   }
 
   const handleRemoveFriend = (friendId: string) => {
-    if (confirm('Remove this friend?')) {
+    if (confirm(t('social.removeFriendConfirm'))) {
       removeFriend(friendId)
     }
   }
 
   const handleBlockPlayer = (targetPlayerId: string) => {
-    if (confirm('Block this player? They will not be able to send you messages or friend requests.')) {
+    if (confirm(t('social.blockPlayerConfirm'))) {
       blockPlayer(targetPlayerId)
     }
   }
 
   const handleReportPlayer = (targetPlayerId: string, reason: string) => {
-    const description = prompt(`Please describe the issue with ${targetPlayerId}:`)
+    const description = prompt(t('social.reportPlayerPrompt', { playerId: targetPlayerId }))
     if (description) {
       reportPlayer(targetPlayerId, reason, description)
     }
@@ -190,7 +192,7 @@ export default function SocialModal() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          const note = prompt('Add a note for this friend:', playerNotes.get(friend.id) || '')
+                          const note = prompt(t('social.addNotePrompt'), playerNotes.get(friend.id) || '')
                           if (note !== null) {
                             setPlayerNotes(prev => new Map(prev).set(friend.id, note))
                           }
@@ -327,7 +329,7 @@ export default function SocialModal() {
         {activeTab === 'party' && (
           <div className="space-y-4 flex-1 overflow-y-auto">
             <div className="bg-gray-800 rounded-lg p-4">
-              <h3 className="text-cyan-400 font-bold mb-2">Party System</h3>
+              <h3 className="text-cyan-400 font-bold mb-2">{t('social.partySystem')}</h3>
               <p className="text-gray-400 text-sm mb-4">
                 Invite friends to form a party and share XP and loot!
               </p>
@@ -347,7 +349,7 @@ export default function SocialModal() {
         {activeTab === 'guild' && (
           <div className="space-y-4 flex-1 overflow-y-auto">
             <div className="bg-gray-800 rounded-lg p-4">
-              <h3 className="text-cyan-400 font-bold mb-2">Guild System</h3>
+              <h3 className="text-cyan-400 font-bold mb-2">{t('social.guildSystem')}</h3>
               <p className="text-gray-400 text-sm mb-4">
                 Join or create a guild to connect with other players!
               </p>

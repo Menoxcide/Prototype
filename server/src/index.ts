@@ -9,15 +9,55 @@ import { NexusRoom } from './rooms/NexusRoom'
 import { MonitoringServiceImpl } from './services/MonitoringService'
 import { createMonitoringRouter } from './routes/monitoring'
 import { createCharactersRouter } from './routes/characters'
+import { createConfigRouter } from './routes/config'
 import { redisService } from './services/RedisService'
 import { initializeFirebaseAdmin } from './services/FirebaseAdmin'
 import { createDatabaseService } from './services/DatabaseService'
 
 const app = express()
-const defaultPort = Number(process.env.PORT || 2567)
+// Cloud Run sets PORT env var, default to 8080 for production, 2567 for local dev
+// Ensure PORT is always a valid number
+const getPort = (): number => {
+  const envPort = process.env.PORT
+  if (envPort) {
+    const port = Number(envPort)
+    if (!isNaN(port) && port > 0) {
+      return port
+    }
+  }
+  return process.env.NODE_ENV === 'production' ? 8080 : 2567
+}
+const defaultPort = getPort()
 
-app.use(cors())
+// Trust proxy for Cloud Run (reads X-Forwarded-* headers)
+// Cloud Run terminates SSL/TLS and forwards requests, so we need to trust the proxy
+app.set('trust proxy', true)
+
+// CORS configuration - allow all origins in development, specific origins in production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.ALLOWED_ORIGINS?.split(',') || []
+    : true, // Allow all origins in development
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}
+app.use(cors(corsOptions))
 app.use(express.json())
+
+// Health check endpoint for Cloud Run
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    service: 'MARS://NEXUS Server',
+    status: 'running',
+    timestamp: new Date().toISOString()
+  })
+})
 
 // Initialize Firebase Admin SDK
 const firebaseInitialized = initializeFirebaseAdmin()
@@ -54,10 +94,22 @@ const gameServer = new Server({
   })
 })
 
-// Register room with monitoring service
+// Handle unhandled errors from WebSocket transport
+// Note: Seat reservation expired errors are handled by Colyseus internally
+// but we can catch them here for logging
+process.on('unhandledRejection', (reason, promise) => {
+  if (reason instanceof Error && reason.message.includes('seat reservation expired')) {
+    // Log but don't crash - this is expected when clients take too long to connect
+    console.warn('⚠️  Seat reservation expired. This may happen if the client takes too long to connect.')
+    return
+  }
+  // Let the default handler process other errors
+})
+
+// Register room with monitoring service and load balancing
 gameServer.define('nexus', NexusRoom, {
   monitoringService: globalMonitoringService
-})
+}).enableRealtimeListing() // Enable room listing for load balancing
 
 // Initialize database service for character management
 const databaseService = createDatabaseService()
@@ -70,6 +122,7 @@ databaseService.connect().catch(err => {
 app.use('/colyseus', monitor())
 app.use('/api/monitoring', createMonitoringRouter(globalMonitoringService))
 app.use('/api/characters', createCharactersRouter(databaseService))
+app.use('/api/config', createConfigRouter())
 
 // Initialize Redis connection (optional, only if REDIS_URL is set)
 if (process.env.REDIS_URL) {
@@ -102,9 +155,14 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
 
 // Start server with automatic port retry
 async function startServer() {
+  console.log('🚀 Starting MARS://NEXUS Server...')
+  console.log(`📋 Environment: ${process.env.NODE_ENV || 'development'}`)
+  console.log(`🔌 PORT environment variable: ${process.env.PORT || 'not set'}`)
+  console.log(`🔢 Using port: ${defaultPort}`)
+  
   let port = defaultPort
   
-  // If PORT is explicitly set, use it; otherwise try to find available port
+  // If PORT is not explicitly set, try to find available port (only for local dev)
   if (!process.env.PORT) {
     try {
       port = await findAvailablePort(defaultPort)
@@ -117,23 +175,51 @@ async function startServer() {
     }
   }
   
-  server.listen(port, () => {
-    console.log(`🚀 NEX://VOID Server listening on ws://localhost:${port}`)
-    console.log(`📊 Monitoring API available at http://localhost:${port}/api/monitoring`)
-  }).on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`❌ Port ${port} is already in use.`)
-      console.error(`   Please stop the other process using this port, or set PORT environment variable to use a different port.`)
-      console.error(`   Example: PORT=2568 npm run dev`)
-      process.exit(1)
-    } else {
-      console.error('❌ Server error:', err)
-      process.exit(1)
-    }
+  console.log(`🌐 Starting HTTP server on port ${port} (binding to 0.0.0.0)...`)
+  
+  // Start listening immediately - this is critical for Cloud Run health checks
+  return new Promise<void>((resolve, reject) => {
+    server.listen(port, '0.0.0.0', () => {
+      console.log(`✅ MARS://NEXUS Server listening on port ${port}`)
+      console.log(`📊 Monitoring API available at http://0.0.0.0:${port}/api/monitoring`)
+      console.log(`❤️  Health check available at http://0.0.0.0:${port}/health`)
+      resolve()
+    }).on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${port} is already in use.`)
+        console.error(`   Please stop the other process using this port, or set PORT environment variable to use a different port.`)
+        console.error(`   Example: PORT=2568 npm run dev`)
+        reject(err)
+      } else {
+        console.error('❌ Server error:', err)
+        reject(err)
+      }
+    })
   })
 }
 
-startServer()
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
+  // Don't exit - let the server continue running
+})
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error)
+  // Exit on uncaught exceptions as they indicate a serious problem
+  process.exit(1)
+})
+
+// Start server immediately - don't wait for async services
+startServer().catch((err) => {
+  console.error('❌ Failed to start server:', err)
+  console.error('   Error details:', err instanceof Error ? err.message : String(err))
+  if (err instanceof Error && err.stack) {
+    console.error('   Stack:', err.stack)
+  }
+  process.exit(1)
+})
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

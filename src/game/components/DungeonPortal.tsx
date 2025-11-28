@@ -5,7 +5,6 @@ import * as THREE from 'three'
 import { DungeonPortal as DungeonPortalType } from '../systems/dungeonSystem'
 import { useGameStore } from '../store/useGameStore'
 import { useTranslation } from '../hooks/useTranslation'
-import { enterDungeon } from '../network/colyseus'
 
 interface DungeonPortalProps {
   portal: DungeonPortalType

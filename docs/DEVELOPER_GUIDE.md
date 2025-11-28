@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide helps new developers get started with the NEX://VOID codebase.
+This guide helps new developers get started with the MARS://NEXUS codebase.
 
 ## Table of Contents
 

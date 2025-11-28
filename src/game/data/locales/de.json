@@ -29,7 +29,6 @@
     "mana": "MP",
     "stamina": "Ausdauer",
     "all": "Alle",
-    "info": "Information",
     "details": "Details",
     "have": "Haben",
     "need": "Benötigen",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "Entitäten Besiegt: {{defeated}} / {{total}}",
     "requiredLevel": "Erforderliches Level: {{level}}"
   },
-  "errors": {
-    "networkError": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
-    "serverError": "Serverfehler. Bitte versuchen Sie es später erneut.",
-    "invalidInput": "Ungültige Eingabe. Bitte überprüfen Sie Ihre Werte.",
-    "notEnoughCredits": "Nicht genug Credits.",
-    "notEnoughItems": "Nicht genug Gegenstände.",
-    "itemNotFound": "Gegenstand nicht gefunden.",
-    "questNotFound": "Quest nicht gefunden.",
-    "dungeonNotFound": "Dungeon nicht gefunden.",
-    "failedToEnterDungeon": "Fehler beim Betreten des Dungeons"
-  },
   "auth": {
     "signInWithGoogle": "Mit Google anmelden",
     "signingIn": "Anmeldung läuft...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "Charakter wird erstellt...",
     "enterTheVoid": "In die Leere Eintreten",
     "failedToCreate": "Fehler beim Erstellen des Charakters. Bitte versuchen Sie es erneut."
+  },
+  "errors": {
+    "networkError": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+    "serverError": "Serverfehler. Bitte versuchen Sie es später erneut.",
+    "invalidInput": "Ungültige Eingabe. Bitte überprüfen Sie Ihre Werte.",
+    "notEnoughCredits": "Nicht genug Credits.",
+    "notEnoughItems": "Nicht genug Gegenstände.",
+    "itemNotFound": "Gegenstand nicht gefunden.",
+    "questNotFound": "Quest nicht gefunden.",
+    "dungeonNotFound": "Dungeon nicht gefunden.",
+    "failedToEnterDungeon": "Fehler beim Betreten des Dungeons"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "Charakter Auswählen",
+    "loadingCharacters": "Charaktere werden geladen...",
+    "serverUnavailable": "⚠️ Server Nicht Verfügbar",
+    "serverUnavailableMessage": "Der Server ist nicht verfügbar. Sie können trotzdem einen neuen Charakter erstellen.",
+    "serverUnavailableSubtext": "Sie können trotzdem einen neuen Charakter erstellen. Er wird gespeichert, sobald der Server verfügbar ist.",
+    "characters": "Charaktere",
+    "noCharactersFound": "Keine Charaktere gefunden. Erstellen Sie Ihren ersten Charakter, um zu beginnen!",
+    "refresh": "Aktualisieren",
+    "createNewCharacter": "Neuen Charakter Erstellen",
+    "characterLimitReached": "Charakterlimit erreicht ({{max}} Charaktere)",
+    "lastPlayed": "Zuletzt gespielt:",
+    "created": "Erstellt:",
+    "levelShort": "St.",
+    "failedToLoadCharacters": "Fehler beim Laden der Charaktere. Bitte versuchen Sie es erneut.",
+    "failedToLoadCharacter": "Fehler beim Laden des Charakters. Bitte versuchen Sie es erneut."
+  },
+  "npc": {
+    "next": "Weiter",
+    "continue": "Fortsetzen",
+    "availableQuests": "Verfügbare Quests",
+    "noQuestsAvailable": "Keine Quests verfügbar.",
+    "shop": "Laden",
+    "noItemsForSale": "Keine Artikel zum Verkauf.",
+    "services": "Dienste",
+    "noServicesAvailable": "Keine Dienste verfügbar.",
+    "serviceHeal": "Vollständige Gesundheit wiederherstellen",
+    "serviceRepair": "Vollständiges Mana wiederherstellen",
+    "serviceTeleport": "Zu einem anderen Ort teleportieren",
+    "serviceEnchant": "Ihre Gegenstände verzaubern",
+    "buy": "Kaufen",
+    "credits": "Credits"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "Spieler zum Flüstern auswählen",
+    "selectPlayer": "Spieler auswählen...",
+    "global": "Global",
+    "guild": "Gilde",
+    "whisper": "Flüstern",
+    "noMessagesYet": "Noch keine Nachrichten. Beginnen Sie zu chatten!",
+    "whisperTag": "[Flüstern]",
+    "guildTag": "[Gilde]",
+    "typeMessage": "Nachricht eingeben...",
+    "send": "Senden",
+    "systemInfo": "Systeminformationen",
+    "connection": "Verbindung:",
+    "online": "Online",
+    "offline": "Offline",
+    "latency": "Latenz:",
+    "packetLoss": "Paketverlust:",
+    "serverStatus": "Serverstatus:",
+    "connected": "Verbunden",
+    "disconnected": "Getrennt",
+    "gameInfo": "Spielinformationen",
+    "zone": "Zone:",
+    "unknown": "Unbekannt",
+    "active": "Aktiv",
+    "serverState": "Serverstatus:",
+    "playerInfo": "Spielerinformationen",
+    "name": "Name:",
+    "race": "Rasse:",
+    "tradition": "Tradition:"
+  },
+  "victoryDefeat": {
+    "victory": "SIEG!",
+    "defeat": "NIEDERLAGE",
+    "rewards": "Belohnungen",
+    "items": "Gegenstände:",
+    "continue": "Fortsetzen"
+  },
+  "system": {
+    "loading": "Lädt..."
+  },
+  "battlePass": {
+    "premium": "✓ Premium",
+    "upgrade": "Upgrade",
+    "premiumPass": "Premium-Pass"
+  },
+  "cosmeticShop": {
+    "title": "Kosmetikladen",
+    "notEnoughCredits": "Nicht genug Credits!",
+    "premiumRequiresPayment": "Premium-Kosmetik erfordert Zahlung. Bitte kontaktieren Sie den Support für Premium-Käufe.\n\nDie Stripe-Integration erfordert Backend-Setup. Siehe CosmeticShop.tsx für Implementierungsdetails.",
+    "purchased": "{{name}} gekauft!"
+  },
+  "guild": {
+    "nameLengthError": "Der Gildename muss 3-20 Zeichen lang sein",
+    "tagLengthError": "Das Gildentag muss 2-4 Zeichen lang sein",
+    "enterGuildId": "Bitte geben Sie eine Gilden-ID ein",
+    "leaveGuildConfirm": "Sind Sie sicher, dass Sie Ihre Gilde verlassen möchten?"
+  },
+  "social": {
+    "partySystem": "Gruppensystem",
+    "guildTag": "Gildentag:",
+    "guildSystem": "Gildensystem",
+    "removeFriendConfirm": "Diesen Freund entfernen?",
+    "blockPlayerConfirm": "Diesen Spieler blockieren? Er kann Ihnen keine Nachrichten oder Freundschaftsanfragen mehr senden.",
+    "reportPlayerPrompt": "Bitte beschreiben Sie das Problem mit {{playerId}}:",
+    "addNotePrompt": "Notiz für diesen Freund hinzufügen:"
   }
 }
-

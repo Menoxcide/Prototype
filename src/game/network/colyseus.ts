@@ -1,7 +1,13 @@
 import { Client, Room } from 'colyseus.js'
 import { useGameStore } from '../store/useGameStore'
 import { getItem } from '../data/items'
+import { getIdToken } from '../../firebase/auth'
+import { createDamageNumber, createComboNumber } from '../utils/floatingNumbers'
 import type { StateDelta, QuestUpdateMessage, AvailableQuestsMessage, BattlePassUpdateMessage, HousingDataMessage, FriendsListMessage, FriendRequestsMessage, FriendRequestReceivedMessage, FriendRequestSentMessage } from '../../../shared/src/types/network'
+import type { PowerUpType } from '../../../shared/src/types/powerUps'
+import { sendBinaryMessage, receiveBinaryMessage, negotiateProtocol } from './binaryProtocolAdapter'
+import { getServerWsUrl } from '../utils/serverConfig'
+import { isFeatureEnabled } from '../utils/featureFlags'
 
 // Type definitions for room state
 interface PlayerSchema {
@@ -45,9 +51,21 @@ interface LootDropSchema {
   expiresAt: number
 }
 
+interface PowerUpSchema {
+  id: string
+  powerUpId: string
+  type: string
+  x: number
+  y: number
+  z: number
+  spawnTime: number
+  expiresAt: number
+}
+
 interface NexusRoomState {
   players: Map<string, PlayerSchema>
   enemies: Map<string, EnemySchema>
+  powerUps: Map<string, PowerUpSchema>
   resourceNodes: any
   lootDrops: Map<string, LootDropSchema>
   spellProjectiles: any
@@ -56,9 +74,12 @@ interface NexusRoomState {
 let client: Client | null = null
 let room: Room | null = null
 let isConnecting = false
+let isInitialConnectionPhase = false // Track if we're in the initial connection setup phase
+let connectionPromise: Promise<Room> | null = null // Track ongoing connection promise to prevent duplicates
 
 /**
  * Get the server URL from environment variables or use default
+ * @deprecated Use getServerWsUrl() from serverConfig instead for runtime config
  */
 function getServerUrl(): string {
   // Check for WebSocket URL first (for Colyseus)
@@ -75,8 +96,25 @@ function getServerUrl(): string {
   return 'ws://localhost:2567'
 }
 
-export function initializeClient(serverUrl?: string) {
-  const url = serverUrl || getServerUrl()
+/**
+ * Initialize the Colyseus client with the server URL
+ * Fetches server config at runtime to ensure we're using the current server URL
+ */
+export async function initializeClient(serverUrl?: string) {
+  let url: string
+  
+  if (serverUrl) {
+    url = serverUrl
+  } else {
+    // Fetch server config at runtime to get the current server URL
+    try {
+      url = await getServerWsUrl()
+    } catch (error) {
+      console.warn('Failed to fetch server config, using fallback:', error)
+      url = getServerUrl() // Fallback to build-time env vars
+    }
+  }
+  
   if (import.meta.env.DEV) {
     console.log('🔌 Initializing Colyseus client:', url)
   }
@@ -93,10 +131,41 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     return room
   }
 
-    // Prevent multiple simultaneous connection attempts
+  // Prevent multiple simultaneous connection attempts
+  // If there's an ongoing connection promise, wait for it instead of starting a new one
+  if (connectionPromise && !isReconnectAttempt) {
+    try {
+      const existingRoom = await connectionPromise
+      if (existingRoom && existingRoom.connection.isOpen) {
+        if (import.meta.env.DEV) {
+          console.log('🔌 Reusing existing connection promise')
+        }
+        return existingRoom
+      }
+    } catch (error) {
+      // Previous connection failed, continue with new attempt
+      connectionPromise = null
+    }
+  }
+
+  // Prevent multiple simultaneous connection attempts
   if (isConnecting && !isReconnectAttempt) {
-    // Wait for existing connection to complete
-    while (isConnecting) {
+    // Wait for existing connection to complete (max 2 seconds)
+    const maxWaitTime = 2000
+    const startTime = Date.now()
+    while (isConnecting && connectionPromise && (Date.now() - startTime) < maxWaitTime) {
+      try {
+        const existingRoom = await connectionPromise
+        if (existingRoom && existingRoom.connection.isOpen) {
+          if (import.meta.env.DEV) {
+            console.log('🔌 Reusing existing connection')
+          }
+          return existingRoom
+        }
+      } catch {
+        // Connection failed, break out of loop
+        break
+      }
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     if (room && room.connection.isOpen) {
@@ -129,22 +198,23 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
   }
 
   isConnecting = true
+  isInitialConnectionPhase = true // Mark that we're starting initial connection
 
   // Reinitialize client if needed or if server URL changed
-  const serverUrl = getServerUrl()
   if (!client) {
-    client = initializeClient(serverUrl)
+    client = await initializeClient()
   } else {
     // Check if we need to reinitialize with a new URL
     // Note: Colyseus Client doesn't expose the URL, so we'll just reinitialize if client is null
     // In practice, the URL shouldn't change during runtime
   }
 
-  try {
+  // Create connection promise to track this connection attempt
+  const createConnection = async (): Promise<Room> => {
+    try {
     // Get Firebase token if not provided
     let idToken: string | undefined = firebaseToken
     if (!idToken) {
-      const { getIdToken } = await import('../../firebase/auth')
       idToken = await getIdToken() || undefined
     }
 
@@ -153,13 +223,23 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       throw new Error('Colyseus client not initialized')
     }
 
+    // Get server URL for logging and error messages
+    let serverUrl: string
+    try {
+      serverUrl = await getServerWsUrl()
+    } catch (error) {
+      serverUrl = getServerUrl() // Fallback to build-time env vars
+    }
+
     if (import.meta.env.DEV) {
       console.log('🔌 Attempting to connect to server:', serverUrl)
     }
 
     // Set a timeout for the connection attempt
-    const connectionTimeout = 10000 // 10 seconds
-    const connectionPromise = client.joinOrCreate<NexusRoomState>('nexus', {
+    // Increased to 20s to allow more time for state initialization
+    // Server's seat reservation timeout is typically 15-30s, so 20s is safe
+    const connectionTimeout = 20000 // 20 seconds
+    const joinPromise = client.joinOrCreate<NexusRoomState>('nexus', {
       name: playerName,
       race,
       firebaseToken: idToken || undefined // Send Firebase token for verification
@@ -168,45 +248,89 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     // Race between connection and timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        reject(new Error(`Connection timeout: Server at ${serverUrl} did not respond within ${connectionTimeout}ms. Make sure the server is running.`))
+        // Provide more helpful error message with troubleshooting tips
+        const errorMsg = `Connection timeout: Server at ${serverUrl} did not respond within ${connectionTimeout}ms. ` +
+          `This could mean: (1) The server is down or not deployed, (2) The server URL is incorrect, ` +
+          `(3) The server is experiencing a cold start (Cloud Run), or (4) Network/firewall issues. ` +
+          `The game will continue in offline mode.`
+        reject(new Error(errorMsg))
       }, connectionTimeout)
     })
 
-    room = await Promise.race([connectionPromise, timeoutPromise])
+    room = await Promise.race([joinPromise, timeoutPromise])
 
-    // Validate room object is properly initialized
+    // Validate room object is properly initialized IMMEDIATELY after assignment
+    // This prevents the "Room is null after creation" error
     if (!room) {
-      throw new Error('Failed to create room: room object is null')
+      isConnecting = false
+      const errorMsg = 'Failed to create room: room object is null after connection attempt'
+      console.error('❌', errorMsg, {
+        serverUrl,
+        playerName,
+        hasClient: !!client,
+        connectionTimeout
+      })
+      throw new Error(errorMsg)
     }
 
-    if (typeof room.onStateChange !== 'function' || typeof room.onMessage !== 'function') {
+    // Store room reference immediately to prevent it from being cleared
+    const roomRef = room
+
+    // Check if room disconnected during creation (defensive check)
+    if (!roomRef || !roomRef.connection || !roomRef.connection.isOpen) {
+      isConnecting = false
+      isInitialConnectionPhase = false
+      const errorMsg = 'Room disconnected immediately after creation - connection may have been interrupted'
+      console.error('❌', errorMsg, {
+        hasRoomRef: !!roomRef,
+        hasConnection: !!roomRef?.connection,
+        isOpen: roomRef?.connection?.isOpen,
+        sessionId: roomRef?.sessionId
+      })
+      throw new Error(errorMsg)
+    }
+
+    if (typeof roomRef.onStateChange !== 'function' || typeof roomRef.onMessage !== 'function') {
+      isConnecting = false
       console.error('Room object missing required methods:', {
-        hasOnStateChange: typeof room.onStateChange === 'function',
-        hasOnMessage: typeof room.onMessage === 'function',
-        roomType: typeof room,
-        roomKeys: room ? Object.keys(room) : []
+        hasOnStateChange: typeof roomRef.onStateChange === 'function',
+        hasOnMessage: typeof roomRef.onMessage === 'function',
+        roomType: typeof roomRef,
+        roomKeys: roomRef ? Object.keys(roomRef) : [],
+        sessionId: roomRef?.sessionId
       })
       throw new Error('Room object is not properly initialized - missing required methods')
     }
 
     if (import.meta.env.DEV) {
-      console.log('Joined room:', room.sessionId)
+      console.log('Joined room:', roomRef.sessionId)
     }
 
+    // Negotiate protocol on connection
+    const protocol = negotiateProtocol()
+    if (protocol.useBinary && import.meta.env.DEV) {
+      console.log('📦 Binary protocol enabled (version', protocol.version, ')')
+    }
+    
     // Register message handlers IMMEDIATELY to prevent "not registered" warnings
     // These must be registered before any messages can arrive
-    room.onMessage('stateDelta', (data: { deltas: StateDelta[] }) => {
+    // Use roomRef consistently to prevent issues if room variable gets cleared
+    roomRef.onMessage('stateDelta', (data: { deltas: StateDelta[] } | ArrayBuffer) => {
+      // Deserialize binary message if needed
+      const deserialized = receiveBinaryMessage('stateDelta', data)
+      const deltaData = deserialized.deltas ? deserialized : data as { deltas: StateDelta[] }
+      
       // Apply delta updates to game state
       // This is handled by the onAdd/onRemove/onChange listeners in setupRoomListeners
       // but we register the handler early to prevent warnings
-      if (data.deltas && data.deltas.length > 0) {
+      if (deltaData.deltas && deltaData.deltas.length > 0) {
         // Delta updates are already applied through schema listeners
         // This handler just prevents the "not registered" warning
       }
     })
 
     // Register chat handler EARLY to ensure it's always available
-    room.onMessage('chat', (message: { playerId: string; playerName: string; message: string; timestamp: number }) => {
+    roomRef.onMessage('chat', (message: { playerId: string; playerName: string; message: string; timestamp: number }) => {
       // Chat messages are frequent, don't log them
       useGameStore.getState().addChatMessage({
         id: `msg_${message.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
@@ -220,7 +344,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     })
 
     // Register whisper handler EARLY
-    room.onMessage('whisper', (data: { fromId: string; fromName: string; message: string; timestamp: number }) => {
+    roomRef.onMessage('whisper', (data: { fromId: string; fromName: string; message: string; timestamp: number }) => {
       // Whisper messages are frequent, don't log them
       useGameStore.getState().addChatMessage({
         id: `whisper_${data.timestamp}_${Math.random().toString(36).substr(2, 9)}`,
@@ -235,7 +359,7 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
     // Register positionCorrection handler EARLY to prevent "not registered" warnings
     // This must be registered before any movement messages can arrive
-    room.onMessage('positionCorrection', (data: { x: number; y: number; z: number; rotation: number }) => {
+    roomRef.onMessage('positionCorrection', (data: { x: number; y: number; z: number; rotation: number }) => {
       // Server rejected movement - reconcile position
       import('./syncSystem').then(({ reconcilePosition }) => {
         reconcilePosition({ x: data.x, y: data.y, z: data.z }, data.rotation)
@@ -245,15 +369,24 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     // Wait for state to be fully decoded and ready
     // The most reliable way is to wait for the first state change event
     // which indicates the state has been decoded and MapSchema methods are available
-    await new Promise<void>((resolve) => {
-      if (!room) {
-        resolve()
+    // Use roomRef consistently to prevent issues if room variable gets cleared
+    await new Promise<void>((resolve, reject) => {
+      if (!roomRef || !roomRef.connection || !roomRef.connection.isOpen) {
+        // Room disconnected during wait - reject with specific error
+        const errorMsg = 'Room disconnected during state initialization - connection was lost'
+        console.error('❌', errorMsg, {
+          hasRoomRef: !!roomRef,
+          hasConnection: !!roomRef?.connection,
+          isOpen: roomRef?.connection?.isOpen,
+          sessionId: roomRef?.sessionId
+        })
+        reject(new Error(errorMsg))
         return
       }
 
       // Verify room has the expected methods
-      if (typeof room.onStateChange !== 'function') {
-        console.error('Room does not have onStateChange method', room)
+      if (typeof roomRef.onStateChange !== 'function') {
+        console.error('Room does not have onStateChange method', roomRef)
         // Proceed anyway after a short delay
         setTimeout(() => resolve(), 100)
         return
@@ -268,9 +401,10 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
       // Check if state is already ready with methods
       const checkStateReady = () => {
-        if (!room || resolved) return false
+        // Check roomRef instead of room to prevent race conditions
+        if (!roomRef || !roomRef.connection || !roomRef.connection.isOpen || resolved) return false
 
-        const playersReady = room.state?.players && typeof room.state.players.onAdd === 'function'
+        const playersReady = roomRef.state?.players && typeof roomRef.state.players.onAdd === 'function'
         
         if (playersReady) {
           doResolve()
@@ -290,7 +424,8 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       let cleanupListener: (() => void) | null = null
       
       const stateChangeHandler = (_state: unknown) => {
-        if (!stateChangeHandled && room && !resolved) {
+        // Check roomRef instead of room to prevent race conditions
+        if (!stateChangeHandled && roomRef && roomRef.connection && roomRef.connection.isOpen && !resolved) {
           stateChangeHandled = true
           // Clean up listener after first call
           if (cleanupListener) {
@@ -309,12 +444,12 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
       // Set up state change listener with cleanup
       try {
-        room.onStateChange(stateChangeHandler)
+        roomRef.onStateChange(stateChangeHandler)
         // Store cleanup function (onStateChange returns cleanup in some versions)
         // If it doesn't return cleanup, we'll handle it differently
         cleanupListener = () => {
           // Try to remove listener if possible
-          if (room && typeof room.removeAllListeners === 'function') {
+          if (roomRef && typeof roomRef.removeAllListeners === 'function') {
             // Note: This removes ALL listeners, so be careful
             // In practice, we rely on the handler flag to prevent re-execution
           }
@@ -326,9 +461,22 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
         return
       }
 
-      // Fallback timeout (1.5 seconds max) - state should be ready by then
+      // Fallback timeout (5 seconds max) - increased further to handle slow state initialization
+      // Some connections may take longer, especially on slower networks, during server load, or when main thread is blocked
       setTimeout(() => {
         if (!resolved) {
+          // Check if room disconnected during wait
+          if (!roomRef || !roomRef.connection || !roomRef.connection.isOpen) {
+            const errorMsg = 'Room disconnected during state initialization timeout - connection was lost'
+            console.error('❌', errorMsg, {
+              hasRoomRef: !!roomRef,
+              hasConnection: !!roomRef?.connection,
+              isOpen: roomRef?.connection?.isOpen,
+              sessionId: roomRef?.sessionId
+            })
+            reject(new Error(errorMsg))
+            return
+          }
           // Mark as handled to prevent handler from running
           stateChangeHandled = true
           if (cleanupListener) {
@@ -336,17 +484,44 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
             cleanupListener = null
           }
           // Proceed even if methods aren't ready - they'll become available eventually
+          // Log a warning in dev mode if we're proceeding without methods ready
+          if (import.meta.env.DEV && !checkStateReady()) {
+            console.warn('⚠️ Proceeding with connection despite state methods not being ready - they may become available later')
+          }
           doResolve()
         }
-      }, 1500)
+      }, 5000)
     })
 
     // Set up room event listeners
-    await setupRoomListeners(room)
+    // Use roomRef to ensure we're using the validated room object
+    // Double-check roomRef is still valid and connected (defensive programming)
+    if (!roomRef || !roomRef.connection || !roomRef.connection.isOpen) {
+      isConnecting = false
+      isInitialConnectionPhase = false
+      const errorMsg = 'Room is null or disconnected after creation - connection may have been interrupted'
+      console.error('❌', errorMsg, {
+        hasRoomRef: !!roomRef,
+        hasConnection: !!roomRef?.connection,
+        isOpen: roomRef?.connection?.isOpen,
+        sessionId: roomRef?.sessionId
+      })
+      throw new Error(errorMsg)
+    }
+    
+    try {
+      await setupRoomListeners(roomRef)
+    } catch (error) {
+      isConnecting = false
+      console.error('Failed to set up room listeners:', error)
+      // Re-throw to let caller handle it
+      throw error
+    }
 
     // Sync initial player state from room state (only on first connection)
-    if (room.state && room.state.players) {
-      const playerInState = room.state.players.get(room.sessionId)
+    // Use roomRef to ensure consistency
+    if (roomRef && roomRef.state && roomRef.state.players) {
+      const playerInState = roomRef.state.players.get(roomRef.sessionId)
       if (playerInState) {
         const { player, setPlayer } = useGameStore.getState()
         if (player) {
@@ -377,8 +552,10 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
 
       // Sync existing other players (for whisper dropdown)
       // onAdd only fires for NEW players, so we need to sync existing ones
-      room?.state.players.forEach((player: PlayerSchema, sessionId: string) => {
-        if (sessionId !== room?.sessionId) {
+      // Use roomRef consistently to prevent issues if room variable gets cleared
+      if (roomRef && roomRef.state && roomRef.state.players) {
+        roomRef.state.players.forEach((player: PlayerSchema, sessionId: string) => {
+          if (sessionId !== roomRef?.sessionId) {
           const { otherPlayers } = useGameStore.getState()
           // Only add if not already present
           if (!otherPlayers.has(sessionId)) {
@@ -401,12 +578,14 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
               guildName: player.guildName || undefined
             })
           }
-        }
-      })
+          }
+        })
+      }
     }
 
     // Handle disconnection with reconnection logic
-    room.onLeave(async (code) => {
+    // Use roomRef consistently to prevent issues if room variable gets cleared
+    roomRef.onLeave(async (code) => {
       // Only log non-normal disconnections in dev mode
       // Suppress common error codes that are expected
       if (code !== 1000 && code !== 4002 && import.meta.env.DEV) {
@@ -414,22 +593,36 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       }
       useGameStore.getState().setConnected(false)
       
-      // Clear room reference immediately to prevent race conditions
+      // Don't clear room reference if we're still in initial connection phase
+      // This prevents race conditions where room gets cleared during setup
       const oldRoom = room
-      room = null
-      isConnecting = false
+      const wasInInitialPhase = isInitialConnectionPhase
+      
+      // Only clear room if not in initial connection phase
+      // If in initial phase, let the connection logic handle the error
+      if (!isInitialConnectionPhase) {
+        room = null
+        isConnecting = false
+      } else {
+        // Still in initial phase - mark as disconnected but don't clear yet
+        // The connection logic will handle cleanup and error reporting
+        if (import.meta.env.DEV) {
+          console.warn('Room disconnected during initial connection phase, connection logic will handle cleanup')
+        }
+      }
+      
       listenersSetup = false // Reset listeners flag on leave
       
       // Only attempt reconnection if not intentionally left (code 1000 = normal closure)
       // Also skip reconnection for code 4002 (ROOM_NOT_FOUND) if it happens during initial connection
-      if (code !== 1000) {
+      // Don't attempt reconnection if we're still in initial connection phase - let the connection logic handle it
+      if (code !== 1000 && !wasInInitialPhase) {
         // Code 4002 means room not found - might happen during initial connection
         // In that case, don't spam reconnection attempts immediately
         const shouldReconnect = code !== 4002 || oldRoom?.sessionId
         
         if (shouldReconnect) {
           const { reconnectionManager } = await import('./reconnection')
-          const { joinRoom } = await import('./colyseus')
           const playerName = useGameStore.getState().player?.name || 'Player'
           const race = useGameStore.getState().player?.race || 'human'
           
@@ -437,12 +630,13 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
             async () => {
               try {
                 // Get Firebase token for reconnection
-                const { getIdToken } = await import('../../firebase/auth')
+                // getIdToken is already imported at the top
                 const firebaseToken = await getIdToken()
                 
                 // Pass isReconnectAttempt flag to bypass "already connected" check
                 // Reset listeners flag before reconnecting
                 listenersSetup = false
+                // joinRoom is defined in this same file, no need to import
                 const newRoom = await joinRoom(playerName, race, true, firebaseToken || undefined)
                 return newRoom
               } catch (error) {
@@ -485,7 +679,8 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     })
 
     // Handle errors
-    room.onError((code, message) => {
+    // Use roomRef consistently to prevent issues if room variable gets cleared
+    roomRef.onError((code, message) => {
       // Only log non-trivial errors (suppress common expected errors)
       if (code !== 0 && code !== 4002 && import.meta.env.DEV) {
         console.error('Room error:', code, message)
@@ -493,16 +688,35 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       useGameStore.getState().setConnected(false)
     })
 
+    // Connection setup complete - mark initial phase as done
+    isInitialConnectionPhase = false
     useGameStore.getState().setConnected(true)
     isConnecting = false
     
     const { reconnectionManager } = await import('./reconnection')
-    reconnectionManager.startLatencyMonitoring(room)
+    reconnectionManager.startLatencyMonitoring(roomRef)
 
-    return room
+    // Update room variable now that setup is complete
+    room = roomRef
+    connectionPromise = null // Clear connection promise on success
+    return roomRef
+    } catch (error) {
+      connectionPromise = null // Clear connection promise on error
+      throw error
+    }
+  }
+
+  // Store the connection promise to prevent duplicate connections
+  connectionPromise = createConnection()
+
+  try {
+    const connectedRoom = await connectionPromise
+    return connectedRoom
   } catch (error) {
     isConnecting = false
+    isInitialConnectionPhase = false // Reset connection phase flag
     listenersSetup = false // Reset listeners flag on error
+    connectionPromise = null // Clear connection promise on error
     room = null
     useGameStore.getState().setConnected(false)
     
@@ -512,7 +726,15 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
     
     if (error instanceof Error) {
       // Check for specific error types
-      if (error.message.includes('timeout')) {
+      if (error.message.includes('seat reservation expired') || error.message.includes('reservation expired')) {
+        // Seat reservation expired - client took too long to connect
+        // This is recoverable, suggest retrying
+        errorMessage = `Connection timeout: Took too long to establish connection. Please try again.`
+        // Don't log as error in production - this is expected sometimes
+        if (import.meta.env.DEV) {
+          console.warn('⚠️  Seat reservation expired - client took too long to connect')
+        }
+      } else if (error.message.includes('timeout')) {
         errorMessage = error.message
       } else if (error.message.includes('get')) {
         errorMessage = `Server connection failed: The game server at ${serverUrl} is not responding. Please make sure the server is running.`
@@ -523,13 +745,47 @@ export async function joinRoom(playerName: string, race: string, isReconnectAtte
       }
     }
     
-    // Only log connection errors in dev mode or if it's not a timeout
-    // Timeouts are expected when server is not running
-    if (import.meta.env.DEV || !errorMessage.includes('timeout')) {
-      console.error('❌ Failed to join room:', errorMessage)
+    // Check for seat reservation expired errors (from Colyseus client)
+    const isSeatReservationExpired = error instanceof Error && 
+      (error.message.includes('seat reservation expired') || 
+       error.message.includes('reservation expired') ||
+       (error as any).code === 4002)
+    
+    // Log connection errors with helpful context
+    // Suppress duplicate logs and reduce noise in production
+    const isTimeout = errorMessage.includes('timeout')
+    const shouldLogError = import.meta.env.DEV || (!isTimeout && !isSeatReservationExpired)
+    
+    if (shouldLogError) {
+      // Only log first occurrence to prevent spam
+      if (!(window as any).__lastConnectionError || 
+          (window as any).__lastConnectionError !== errorMessage) {
+        console.error('❌ Failed to join room:', errorMessage)
+        if (import.meta.env.DEV) {
+          console.error('   Server URL:', serverUrl)
+          console.error('   Original error:', error)
+          console.error('   Troubleshooting:')
+          console.error('     - Check if server is deployed: gcloud run services list')
+          console.error('     - Check server logs: gcloud run services logs read mars-nexus-server')
+          console.error('     - Verify URL matches deployed service')
+        }
+        (window as any).__lastConnectionError = errorMessage
+        // Clear after 5 seconds to allow new error types to be logged
+        setTimeout(() => {
+          (window as any).__lastConnectionError = null
+        }, 5000)
+      }
+    } else if (isSeatReservationExpired) {
+      // Seat reservation expired - this is recoverable, only log in dev
       if (import.meta.env.DEV) {
-        console.error('   Server URL:', serverUrl)
-        console.error('   Original error:', error)
+        console.warn('⚠️ Seat reservation expired - connection will retry')
+      }
+    } else if (isTimeout) {
+      // In production, log timeout but don't spam - it's expected behavior
+      const lastTimeoutLog = (window as any).__lastTimeoutLog as number | undefined
+      if (!lastTimeoutLog || Date.now() - lastTimeoutLog > 10000) {
+        console.warn('⚠️ Server connection timeout - continuing in offline mode')
+        ;(window as any).__lastTimeoutLog = Date.now()
       }
     }
     
@@ -583,7 +839,8 @@ function _waitForStateInitialization(room: Room): Promise<void> {
     if (room.state && 
         isMapSchema(room.state.players) && 
         isMapSchema(room.state.enemies) && 
-        isMapSchema(room.state.lootDrops)) {
+        isMapSchema(room.state.lootDrops) &&
+        isMapSchema(room.state.powerUps)) {
       resolve()
       return
     }
@@ -629,7 +886,8 @@ function _waitForStateInitialization(room: Room): Promise<void> {
       if (room.state && 
           (isMapSchema(room.state.players) || 
            isMapSchema(room.state.enemies) || 
-           isMapSchema(room.state.lootDrops))) {
+           isMapSchema(room.state.lootDrops) ||
+           isMapSchema(room.state.powerUps))) {
         // At least some state is initialized, proceed silently
         resolve()
       } else {
@@ -645,7 +903,13 @@ function _waitForStateInitialization(room: Room): Promise<void> {
 }
 */
 
-async function setupRoomListeners(room: Room) {
+async function setupRoomListeners(room: Room | null) {
+  // Validate room exists
+  if (!room) {
+    console.error('Room is null, cannot setup listeners')
+    return
+  }
+
   // Prevent duplicate listener setup during reconnection
   if (listenersSetup) {
     console.log('Listeners already setup, skipping duplicate registration')
@@ -670,6 +934,18 @@ async function setupRoomListeners(room: Room) {
     }
     // Remove from world
     useGameStore.getState().removeLootDrop(data.lootId)
+  })
+
+  // Listen for power-up pickup confirmation
+  room.onMessage('powerUpPickedUp', (data) => {
+    // Remove from world (effect already applied client-side)
+    useGameStore.getState().removePowerUp(data.powerUpId)
+  })
+
+  room.onMessage('powerUpPickupConfirmed', (data) => {
+    // Power-up pickup confirmed by server
+    // Effect was already applied client-side, just remove from world
+    useGameStore.getState().removePowerUp(data.powerUpId)
   })
 
   // Note: Chat and whisper handlers are registered early in joinRoom() to ensure they're always available
@@ -868,7 +1144,7 @@ async function setupRoomListeners(room: Room) {
     useGameStore.getState().setDungeonProgress(data.dungeonId, data.progress)
   })
 
-  room.onMessage('dungeonCompleted', (data: { dungeonId: string }) => {
+  room.onMessage('dungeonCompleted', (_data: { dungeonId: string }) => {
     useGameStore.getState().addChatMessage({
       id: `dungeon_completed_${Date.now()}`,
       playerId: '',
@@ -1022,23 +1298,7 @@ async function setupRoomListeners(room: Room) {
 
   // Listen for damage numbers
   room.onMessage('damageNumber', async (data: { enemyId: string; damage: number; isCrit: boolean; position: { x: number; y: number; z: number } }) => {
-    // Legacy damage number system (for backward compatibility)
-    const { damageNumberPool } = await import('../utils/damageNumberPool')
-    const damageNumber = damageNumberPool.get()
-    
-    damageNumber.id = `damage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    damageNumber.damage = data.damage
-    damageNumber.position = data.position
-    damageNumber.isCrit = data.isCrit
-    damageNumber.createdAt = Date.now()
-    damageNumber.opacity = 1
-    damageNumber.yOffset = 0
-    
-    // Add to game store (legacy)
-    useGameStore.getState().addDamageNumber(damageNumber)
-    
-    // Also create enhanced floating number
-    const { createDamageNumber } = await import('../utils/floatingNumbers')
+    // Create enhanced floating number
     const { logDamageDealt } = await import('../utils/combatLog')
     
     createDamageNumber(data.damage, data.position, data.isCrit)
@@ -1047,12 +1307,6 @@ async function setupRoomListeners(room: Room) {
     const enemy = useGameStore.getState().enemies.get(data.enemyId)
     const enemyName = enemy?.type || 'Enemy'
     logDamageDealt(data.damage, enemyName, data.isCrit)
-    
-    // Auto-remove after 2 seconds
-    setTimeout(() => {
-      useGameStore.getState().removeDamageNumber(damageNumber.id)
-      damageNumberPool.release(damageNumber)
-    }, 2000)
   })
 
   // Listen for kills
@@ -1066,7 +1320,6 @@ async function setupRoomListeners(room: Room) {
     if (data.playerId === room?.sessionId) {
       // Your combo!
       const { logCombo } = await import('../utils/combatLog')
-      const { createComboNumber } = await import('../utils/floatingNumbers')
       const { player } = useGameStore.getState()
       
       logCombo(data.kills, data.multiplier)
@@ -1166,7 +1419,8 @@ async function setupRoomListeners(room: Room) {
 
   // At this point, we've already waited for methods to be available
   // But double-check to be safe - players is critical, others are optional
-  if (!room.state.players || !isMapSchema(room.state.players)) {
+  // Add defensive check for room and room.state
+  if (!room || !room.state || !room.state.players || !isMapSchema(room.state.players)) {
     // Set up a fallback to retry when state changes
     let retryHandled = false
     const retryOnStateChange = (_state: any) => {
@@ -1176,7 +1430,9 @@ async function setupRoomListeners(room: Room) {
       }
     }
     // Use onStateChange (Colyseus API) instead of room.once which doesn't exist
-    room.onStateChange(retryOnStateChange)
+    if (room) {
+      room.onStateChange(retryOnStateChange)
+    }
     
     // Also retry after a delay as fallback
     setTimeout(() => {
@@ -1199,7 +1455,9 @@ async function setupRoomListeners(room: Room) {
       }
     }
     // Use onStateChange (Colyseus API) instead of room.once which doesn't exist
-    room.onStateChange(retryOnStateChange)
+    if (room) {
+      room.onStateChange(retryOnStateChange)
+    }
     
     // Also retry after a delay as fallback
     setTimeout(() => {
@@ -1211,12 +1469,22 @@ async function setupRoomListeners(room: Room) {
     return
   }
 
+  // Add defensive checks for all state accesses
+  if (!room || !room.state) {
+    console.error('Room or room.state is null, cannot setup listeners')
+    return
+  }
+
   if (!room.state.enemies || !isMapSchema(room.state.enemies)) {
     // Silently continue - enemies might not be critical for initial setup
   }
 
   if (!room.state.lootDrops || !isMapSchema(room.state.lootDrops)) {
     // Silently continue - lootDrops might not be critical for initial setup
+  }
+
+  if (!room.state.powerUps || !isMapSchema(room.state.powerUps)) {
+    // Silently continue - powerUps might not be critical for initial setup
   }
 
   // Now set up state listeners AFTER message handlers are registered and validation passes
@@ -1229,6 +1497,11 @@ async function setupRoomListeners(room: Room) {
     
     // Listen for state changes
     room.onStateChange((state) => {
+      // Add defensive check - room might have been closed
+      if (!room || !room.state) {
+        return
+      }
+      
       // Measure latency based on state change frequency
       // This provides a proxy for connection quality
       const now = Date.now()
@@ -1255,7 +1528,8 @@ async function setupRoomListeners(room: Room) {
 
     // Listen for player updates
     // Double-check onAdd exists before calling (defensive programming)
-    if (typeof room.state.players.onAdd === 'function') {
+    // Add defensive check for room and room.state
+    if (room && room.state && room.state.players && typeof room.state.players.onAdd === 'function') {
       room.state.players.onAdd((player: PlayerSchema, sessionId: string) => {
       // Prevent duplicate additions - check if player already exists
       const { otherPlayers } = useGameStore.getState()
@@ -1356,6 +1630,12 @@ async function setupRoomListeners(room: Room) {
           // IMPORTANT: Only update position from server if reconciliation is needed
           // Completely ignore server updates when difference < 5.0 units to allow client-side prediction
           if (shouldReconcile) {
+            // Check if network reconciliation is enabled via feature flag
+            if (!isFeatureEnabled('networkReconciliationEnabled')) {
+              // Skip reconciliation - rely on client-side prediction only
+              return
+            }
+            
             // Large difference - server correction needed (anti-cheat or significant lag)
             // Only log in dev mode and very rarely to avoid spam
             if (import.meta.env.DEV && Math.random() < 0.01) {
@@ -1408,7 +1688,7 @@ async function setupRoomListeners(room: Room) {
   }
 
   // Listen for enemy updates (with defensive check)
-  if (room.state.enemies && typeof room.state.enemies.onAdd === 'function') {
+  if (room && room.state && room.state.enemies && typeof room.state.enemies.onAdd === 'function') {
     room.state.enemies.onAdd((enemy: EnemySchema) => {
       useGameStore.getState().addEnemy({
         id: enemy.id,
@@ -1440,7 +1720,7 @@ async function setupRoomListeners(room: Room) {
   }
 
   // Listen for loot drops (with defensive check)
-  if (room.state.lootDrops && typeof room.state.lootDrops.onAdd === 'function') {
+  if (room && room.state && room.state.lootDrops && typeof room.state.lootDrops.onAdd === 'function') {
     room.state.lootDrops.onAdd((loot: LootDropSchema) => {
       const item = getItem(loot.itemId)
       if (item) {
@@ -1457,6 +1737,26 @@ async function setupRoomListeners(room: Room) {
     if (typeof room.state.lootDrops.onRemove === 'function') {
       room.state.lootDrops.onRemove((loot: LootDropSchema) => {
         useGameStore.getState().removeLootDrop(loot.id)
+      })
+    }
+  }
+
+  // Listen for power-ups (with defensive check)
+  if (room && room.state && room.state.powerUps && typeof room.state.powerUps.onAdd === 'function') {
+    room.state.powerUps.onAdd((powerUp: PowerUpSchema) => {
+      useGameStore.getState().addPowerUp({
+        id: powerUp.id,
+        powerUpId: powerUp.powerUpId,
+        type: powerUp.type as PowerUpType,
+        position: { x: powerUp.x, y: powerUp.y, z: powerUp.z },
+        spawnTime: powerUp.spawnTime,
+        expiresAt: powerUp.expiresAt
+      })
+    })
+
+    if (typeof room.state.powerUps.onRemove === 'function') {
+      room.state.powerUps.onRemove((powerUp: PowerUpSchema) => {
+        useGameStore.getState().removePowerUp(powerUp.id)
       })
     }
   }
@@ -1483,6 +1783,12 @@ function syncGameState(state: NexusRoomState) {
   const dz = player.position.z - serverPlayer.z
   const distance = Math.sqrt(dx * dx + dz * dz)
 
+  // Check if network reconciliation is enabled via feature flag
+  if (!isFeatureEnabled('networkReconciliationEnabled')) {
+    // Skip reconciliation - rely on client-side prediction only
+    return
+  }
+  
   // ONLY reconcile when player is NOT moving OR if there's a significant discrepancy
   // This prevents server from overwriting client-side prediction during active movement
   if (!isPlayerMoving || distance > 5.0) {
@@ -1509,7 +1815,7 @@ function syncGameState(state: NexusRoomState) {
 export function sendMovement(x: number, y: number, z: number, rotation: number) {
   if (room && room.connection && room.connection.isOpen) {
     try {
-      room.send('move', { x, y, z, rotation })
+      sendBinaryMessage(room, 'move', { x, y, z, rotation })
     } catch (error) {
       // Connection might have closed between check and send
       if (import.meta.env.DEV) {
@@ -1522,7 +1828,7 @@ export function sendMovement(x: number, y: number, z: number, rotation: number) 
 export function sendSpellCast(spellId: string, position: { x: number; y: number; z: number }, rotation: number) {
   if (room && room.connection && room.connection.isOpen) {
     try {
-      room.send('castSpell', { spellId, position, rotation })
+      sendBinaryMessage(room, 'castSpell', { spellId, position, rotation })
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to send spell cast:', error)
@@ -1534,7 +1840,7 @@ export function sendSpellCast(spellId: string, position: { x: number; y: number;
 export function sendChatMessage(message: string) {
   if (room && room.connection && room.connection.isOpen) {
     try {
-      room.send('chat', { text: message })
+      sendBinaryMessage(room, 'chat', { text: message })
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to send chat message:', error)
@@ -1546,10 +1852,22 @@ export function sendChatMessage(message: string) {
 export function sendLootPickup(lootId: string) {
   if (room && room.connection && room.connection.isOpen) {
     try {
-      room.send('pickupLoot', { lootId })
+      sendBinaryMessage(room, 'pickupLoot', { lootId })
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to send loot pickup:', error)
+      }
+    }
+  }
+}
+
+export function sendPowerUpPickup(powerUpId: string) {
+  if (room && room.connection && room.connection.isOpen) {
+    try {
+      sendBinaryMessage(room, 'pickupPowerUp', { powerUpId })
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to send power-up pickup:', error)
       }
     }
   }

@@ -1,12 +1,12 @@
 {
-  "name": "NEX://VOID - Mobile Cyberpunk MMO",
-  "short_name": "NEX://VOID",
+  "name": "MARS://NEXUS - Mobile Cyberpunk MMO",
+  "short_name": "MARS://NEXUS",
   "description": "The first true mobile cyberpunk MMO",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "landscape",
   "background_color": "#0a0a0a",
   "theme_color": "#00ffff",
-  "orientation": "any",
   "icons": [
     {
       "src": "/icon-192.svg",

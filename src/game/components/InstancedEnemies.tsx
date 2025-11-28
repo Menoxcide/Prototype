@@ -10,6 +10,7 @@ import { useGameStore } from '../store/useGameStore'
 import { Enemy } from '../types'
 import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
 import { getPooledGeometry, releasePooledGeometry } from '../utils/geometryPool'
+import { materialPool } from '../utils/materialBatching'
 
 interface InstancedEnemiesProps {
   enemies: Map<string, Enemy>
@@ -23,24 +24,28 @@ export default function InstancedEnemies({ enemies }: InstancedEnemiesProps) {
 
   // Create geometry and material once (using geometry pool)
   const geometry = useMemo(() => {
-    const geom = getPooledGeometry('enemy-box', () => new THREE.BoxGeometry(1, 1, 1))
-    // Track geometry for disposal monitoring (only once)
-    if (!geometryTrackedRef.current) {
-      trackGeometry(geom, `instanced-enemies-geometry`, 'InstancedEnemies')
+    return getPooledGeometry('enemy-box', () => new THREE.BoxGeometry(1, 1, 1))
+  }, [])
+  
+  // Track geometry for disposal monitoring (only once, using useEffect to prevent re-tracking on re-renders)
+  useEffect(() => {
+    if (!geometryTrackedRef.current && geometry) {
+      trackGeometry(geometry, `instanced-enemies-geometry`, 'InstancedEnemies')
       geometryTrackedRef.current = true
     }
-    return geom
+  }, [geometry])
+  // Use material pool for efficient material reuse
+  const material = useMemo(() => {
+    return materialPool.getMaterial('enemy-default', () => new THREE.MeshStandardMaterial({
+      color: '#ff0000',
+      emissive: '#ff0000',
+      emissiveIntensity: 0.3
+    }))
   }, [])
-  // Batch entities by material type for better GPU efficiency
-  const material = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#ff0000',
-    emissive: '#ff0000',
-    emissiveIntensity: 0.3
-  }), [])
   
   // Note: For material batching with multiple materials, we would need to
   // group enemies by material type and create separate instanced meshes
-  // This is a simplified version with a single material
+  // This is a simplified version with a single material, but uses material pooling
   
   // Cleanup on unmount
   useEffect(() => {
@@ -50,7 +55,8 @@ export default function InstancedEnemies({ enemies }: InstancedEnemiesProps) {
       tracker.markDisposed('instanced-enemies-geometry')
       // Release geometry back to pool instead of disposing
       releasePooledGeometry('enemy-box')
-      material.dispose()
+      // Release material reference (pool handles disposal)
+      materialPool.releaseMaterial('enemy-default')
       geometryTrackedRef.current = false
     }
   }, [geometry, material])

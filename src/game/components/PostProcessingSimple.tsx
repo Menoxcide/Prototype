@@ -60,8 +60,9 @@ export default function PostProcessingSimple({ enabled = true }: PostProcessingP
     if ('outputColorSpace' in gl) {
       (gl as any).outputColorSpace = 'srgb'
     } else if ('outputEncoding' in gl) {
-      // Fallback for older Three.js versions
-      (gl as any).outputEncoding = (THREE as any).sRGBEncoding
+      // Fallback for older Three.js versions (pre-r152)
+      // Note: sRGBEncoding constant was removed in r152+, use numeric value 3001
+      (gl as any).outputEncoding = 3001 // sRGBEncoding value
     }
     
     // Set pixel ratio based on quality
@@ -87,7 +88,9 @@ export default function PostProcessingSimple({ enabled = true }: PostProcessingP
       if ('outputColorSpace' in gl) {
         (gl as any).outputColorSpace = 'srgb-linear'
       } else if ('outputEncoding' in gl) {
-        (gl as any).outputEncoding = (THREE as any).LinearEncoding
+        // Fallback for older Three.js versions (pre-r152)
+        // Note: LinearEncoding constant was removed in r152+, use numeric value 3000
+        (gl as any).outputEncoding = 3000 // LinearEncoding value
       }
     }
   }, [gl, shouldEnable, qualitySettings])
@@ -102,10 +105,21 @@ export default function PostProcessingSimple({ enabled = true }: PostProcessingP
         const material = object.material as THREE.MeshStandardMaterial
         
         if (material.emissive && material.emissiveIntensity) {
-          // Boost emissive intensity slightly for bloom effect
+          // Boost emissive intensity for neon bloom effect
           // This creates a glow without actual bloom shader
           const originalIntensity = material.emissiveIntensity
-          material.emissiveIntensity = originalIntensity * 1.2
+          // Increased multiplier for stronger bloom (1.5x for cyberpunk aesthetic)
+          material.emissiveIntensity = originalIntensity * 1.5
+          
+          // Enhance metalness and reduce roughness for neon materials
+          if (material.metalness !== undefined) {
+            ;(material as any).__originalMetalness = material.metalness
+            material.metalness = Math.max(material.metalness, 0.7)
+          }
+          if (material.roughness !== undefined) {
+            ;(material as any).__originalRoughness = material.roughness
+            material.roughness = Math.min(material.roughness, 0.2)
+          }
           
           // Store original for cleanup
           ;(material as any).__originalEmissiveIntensity = originalIntensity
@@ -114,13 +128,21 @@ export default function PostProcessingSimple({ enabled = true }: PostProcessingP
     })
 
     return () => {
-      // Restore original emissive intensities
+      // Restore original emissive intensities and material properties
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh && object.material) {
           const material = object.material as THREE.MeshStandardMaterial
           if ((material as any).__originalEmissiveIntensity !== undefined) {
             material.emissiveIntensity = (material as any).__originalEmissiveIntensity
             delete (material as any).__originalEmissiveIntensity
+          }
+          if ((material as any).__originalMetalness !== undefined) {
+            material.metalness = (material as any).__originalMetalness
+            delete (material as any).__originalMetalness
+          }
+          if ((material as any).__originalRoughness !== undefined) {
+            material.roughness = (material as any).__originalRoughness
+            delete (material as any).__originalRoughness
           }
         }
       })

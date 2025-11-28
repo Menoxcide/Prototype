@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface VictoryDefeatScreenProps {
   type: 'victory' | 'defeat'
@@ -16,6 +17,7 @@ interface VictoryDefeatScreenProps {
 }
 
 export default function VictoryDefeatScreen({ type, onClose, rewards }: VictoryDefeatScreenProps) {
+  const { t } = useTranslation()
   const [show, setShow] = useState(true)
   const [animationComplete, setAnimationComplete] = useState(false)
 
@@ -58,27 +60,27 @@ export default function VictoryDefeatScreen({ type, onClose, rewards }: VictoryD
             animation: 'pulse 2s infinite'
           }}
         >
-          {isVictory ? 'VICTORY!' : 'DEFEAT'}
+          {isVictory ? t('victoryDefeat.victory') : t('victoryDefeat.defeat')}
         </div>
 
         {/* Rewards (only for victory) */}
         {isVictory && rewards && (
           <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 mt-8">
-            <h3 className="text-cyan-400 font-bold text-xl mb-4">Rewards</h3>
+            <h3 className="text-cyan-400 font-bold text-xl mb-4">{t('victoryDefeat.rewards')}</h3>
             <div className="space-y-2">
               {rewards.xp && (
                 <div className="text-yellow-400">
-                  +{rewards.xp} XP
+                  +{rewards.xp} {t('common.xp')}
                 </div>
               )}
               {rewards.credits && (
                 <div className="text-green-400">
-                  +{rewards.credits} Credits
+                  +{rewards.credits} {t('common.credits')}
                 </div>
               )}
               {rewards.items && rewards.items.length > 0 && (
                 <div className="text-cyan-400">
-                  Items: {rewards.items.map(i => `${i.itemId} x${i.quantity}`).join(', ')}
+                  {t('victoryDefeat.items')} {rewards.items.map(i => `${i.itemId} x${i.quantity}`).join(', ')}
                 </div>
               )}
             </div>
@@ -93,7 +95,7 @@ export default function VictoryDefeatScreen({ type, onClose, rewards }: VictoryD
           }}
           className="mt-8 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-8 rounded-lg text-lg"
         >
-          Continue
+          {t('victoryDefeat.continue')}
         </button>
       </div>
     </div>

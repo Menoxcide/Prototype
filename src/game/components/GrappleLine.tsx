@@ -53,36 +53,40 @@ export default function GrappleLine({ start, end, visible, ropeLength, isTaut = 
     return geometry
   }, [start, end])
 
-  // Main line material - bright green with glow
+  // Main line material - bright cyan with neon bloom
   // Note: linewidth doesn't work in WebGL, so we'll use tube geometry for thickness
   const lineMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
-      color: 0x00ff00, // Bright green
+      color: 0x00ffff, // Bright cyan (cyberpunk neon)
       transparent: true,
       opacity: 1,
-      emissive: 0x00ff00,
-      emissiveIntensity: 1.5,
+      emissive: 0x00ffff,
+      emissiveIntensity: 2.0, // Increased for better bloom
+      metalness: 0.8,
+      roughness: 0.1,
     })
   }, [])
 
-  // Glow line material - softer green, thicker
+  // Glow line material - softer cyan, thicker (bloom effect)
   const glowMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
-      color: 0x00ff88, // Softer green
+      color: 0x00ffff, // Cyan
       transparent: true,
-      opacity: 0.4,
-      emissive: 0x00ff88,
-      emissiveIntensity: 0.8,
+      opacity: 0.5,
+      emissive: 0x00ffff,
+      emissiveIntensity: 1.5, // Strong bloom
+      metalness: 0.9,
+      roughness: 0.05,
     })
   }, [])
 
-  // Particle material - glowing green dots
+  // Particle material - glowing cyan dots with bloom
   const particleMaterial = useMemo(() => {
     return new THREE.PointsMaterial({
-      color: 0x00ff00,
-      size: 0.15,
+      color: 0x00ffff, // Cyan
+      size: 0.2, // Slightly larger for better visibility
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })

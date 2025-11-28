@@ -20,7 +20,8 @@ export class BatchSaveService {
 
   constructor(db: DatabaseService, options: { batchSize?: number; saveIntervalMs?: number } = {}) {
     this.db = db
-    this.batchSize = options.batchSize || 10
+    // Optimized batch size: 50-100 operations per batch (increased from 10)
+    this.batchSize = options.batchSize || 75
     this.saveIntervalMs = options.saveIntervalMs || 5000 // 5 seconds
 
     // Start periodic batch saves

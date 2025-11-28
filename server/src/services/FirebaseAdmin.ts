@@ -65,11 +65,14 @@ export function initializeFirebaseAdmin(): boolean {
   try {
     // Try to load from service account file first
     // Check multiple possible locations
+    // Priority: explicit env var > mars-nexus file > generic firebase-service-account.json
     const possiblePaths = [
       process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
-      path.join(process.cwd(), 'firebase-service-account.json'), // Server directory
-      path.join(process.cwd(), '..', 'firebase-service-account.json'), // Project root
-      path.join(__dirname, '..', '..', 'firebase-service-account.json') // Relative to this file
+      path.join(process.cwd(), '..', 'mars-nexus-firebase-adminsdk-fbsvc-efd79e637c.json'), // Project root (mars-nexus - preferred)
+      path.join(__dirname, '..', '..', '..', 'mars-nexus-firebase-adminsdk-fbsvc-efd79e637c.json'), // Project root from server dir (mars-nexus)
+      path.join(process.cwd(), 'firebase-service-account.json'), // Server directory (fallback)
+      path.join(process.cwd(), '..', 'firebase-service-account.json'), // Project root (fallback)
+      path.join(__dirname, '..', '..', 'firebase-service-account.json') // Relative to this file (fallback)
     ].filter(Boolean) as string[]
     
     let serviceAccountPath: string | null = null
@@ -82,11 +85,23 @@ export function initializeFirebaseAdmin(): boolean {
 
     if (serviceAccountPath) {
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+      
+      // Warn if using wrong project (common issue: nex-void vs mars-nexus)
+      if (serviceAccount.project_id === 'nex-void') {
+        console.warn('⚠️  Warning: Service account is for project "nex-void", but frontend uses "mars-nexus"')
+        console.warn('   This will cause token verification failures!')
+        console.warn('   Expected project: mars-nexus')
+        console.warn('   Found project: nex-void')
+        console.warn(`   File: ${serviceAccountPath}`)
+        console.warn('   Consider removing this file or using mars-nexus-firebase-adminsdk-fbsvc-efd79e637c.json instead')
+      }
+      
       adminApp = initializeApp({
         credential: cert(serviceAccount),
         projectId: serviceAccount.project_id
       })
       console.log(`Firebase Admin initialized from service account file: ${serviceAccountPath}`)
+      console.log(`📋 Firebase project: ${serviceAccount.project_id}`)
     } else if (process.env.FIREBASE_ADMIN_PROJECT_ID) {
       // Use environment variables
       const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -112,7 +127,7 @@ export function initializeFirebaseAdmin(): boolean {
       possiblePaths.forEach(p => console.warn(`  - ${p}`))
       console.warn('')
       console.warn('To fix this:')
-      console.warn('  1. Go to: https://console.firebase.google.com/project/nex-void/settings/serviceaccounts/adminsdk')
+      console.warn('  1. Go to: https://console.firebase.google.com/project/mars-nexus/settings/serviceaccounts/adminsdk')
       console.warn('  2. Click "Generate new private key"')
       console.warn('  3. Save as: server/firebase-service-account.json')
       console.warn('  OR set FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_ADMIN_* environment variables')

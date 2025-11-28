@@ -1,6 +1,6 @@
 # API Documentation
 
-This document describes all API endpoints and WebSocket message protocols for NEX://VOID.
+This document describes all API endpoints and WebSocket message protocols for MARS://NEXUS.
 
 ## Table of Contents
 

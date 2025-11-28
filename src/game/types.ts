@@ -103,6 +103,24 @@ export interface LootDrop {
   expiresAt: number
 }
 
+export interface PowerUpEntity {
+  id: string
+  powerUpId: string
+  type: string
+  position: { x: number; y: number; z: number }
+  spawnTime: number
+  expiresAt: number
+}
+
+export interface ActivePowerUp {
+  id: string
+  powerUpId: string
+  type: string
+  startTime: number
+  expiresAt: number
+  effectValue: number
+}
+
 export interface ChatMessage {
   id: string
   playerId: string

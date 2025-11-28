@@ -1,6 +1,6 @@
 # Testing Documentation
 
-This document describes the testing strategy, structure, and guidelines for NEX://VOID.
+This document describes the testing strategy, structure, and guidelines for MARS://NEXUS.
 
 ## Table of Contents
 

@@ -257,9 +257,23 @@ export class InMemoryDatabaseService implements DatabaseService {
  * PostgreSQL database service (for production)
  * Requires pg package: npm install pg @types/pg
  */
+interface PoolClient {
+  query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
+  release: () => void
+}
+
+interface Pool {
+  query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
+  end: () => Promise<void>
+  connect: () => Promise<PoolClient>
+}
+
 export class PostgreSQLDatabaseService implements DatabaseService {
-  private pool: unknown = null
+  private pool: Pool | null = null
   private connected: boolean = false
+  // Prepared statement cache for query optimization
+  private preparedStatements: Map<string, { statement: string; params: unknown[] }> = new Map()
+  private readonly STATEMENT_CACHE_SIZE = 100
 
   constructor(private config: {
     host: string
@@ -288,9 +302,11 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       })
 
       // Test connection
-      await this.pool.query('SELECT NOW()')
-      this.connected = true
-      console.log('DatabaseService: Connected to PostgreSQL')
+      if (this.pool) {
+        await this.pool.query('SELECT NOW()')
+        this.connected = true
+        console.log('DatabaseService: Connected to PostgreSQL')
+      }
     } catch (error) {
       console.error('DatabaseService: Failed to connect to PostgreSQL', error)
       throw error
@@ -298,7 +314,7 @@ export class PostgreSQLDatabaseService implements DatabaseService {
   }
 
   async disconnect(): Promise<void> {
-    if (this.pool) {
+    if (this.pool && typeof this.pool.end === 'function') {
       await this.pool.end()
       this.pool = null
       this.connected = false
@@ -315,41 +331,56 @@ export class PostgreSQLDatabaseService implements DatabaseService {
     const characterId = playerId
     const userId = data.userId || null
 
-    const query = `
-      INSERT INTO players (
-        id, character_id, user_id, name, race, level, xp, xp_to_next, credits,
-        position_x, position_y, position_z, rotation,
-        health, max_health, mana, max_mana,
-        inventory, equipped_spells, guild_id, guild_tag,
-        achievements, quests, battle_pass,
-        created_at, last_login, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
-      ON CONFLICT (id) DO UPDATE SET
-        character_id = COALESCE(EXCLUDED.character_id, players.character_id),
-        user_id = COALESCE(EXCLUDED.user_id, players.user_id),
-        name = EXCLUDED.name,
-        level = EXCLUDED.level,
-        xp = EXCLUDED.xp,
-        xp_to_next = EXCLUDED.xp_to_next,
-        credits = EXCLUDED.credits,
-        position_x = EXCLUDED.position_x,
-        position_y = EXCLUDED.position_y,
-        position_z = EXCLUDED.position_z,
-        rotation = EXCLUDED.rotation,
-        health = EXCLUDED.health,
-        max_health = EXCLUDED.max_health,
-        mana = EXCLUDED.mana,
-        max_mana = EXCLUDED.max_mana,
-        inventory = EXCLUDED.inventory,
-        equipped_spells = EXCLUDED.equipped_spells,
-        guild_id = EXCLUDED.guild_id,
-        guild_tag = EXCLUDED.guild_tag,
-        achievements = EXCLUDED.achievements,
-        quests = EXCLUDED.quests,
-        battle_pass = EXCLUDED.battle_pass,
-        last_login = EXCLUDED.last_login,
-        updated_at = EXCLUDED.updated_at
-    `
+    // Prepared statement caching: reuse query string
+    const queryKey = 'savePlayerData'
+    let query = this.preparedStatements.get(queryKey)?.statement
+    
+    if (!query) {
+      query = `
+        INSERT INTO players (
+          id, character_id, user_id, name, race, level, xp, xp_to_next, credits,
+          position_x, position_y, position_z, rotation,
+          health, max_health, mana, max_mana,
+          inventory, equipped_spells, guild_id, guild_tag,
+          achievements, quests, battle_pass,
+          created_at, last_login, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+        ON CONFLICT (id) DO UPDATE SET
+          character_id = COALESCE(EXCLUDED.character_id, players.character_id),
+          user_id = COALESCE(EXCLUDED.user_id, players.user_id),
+          name = EXCLUDED.name,
+          level = EXCLUDED.level,
+          xp = EXCLUDED.xp,
+          xp_to_next = EXCLUDED.xp_to_next,
+          credits = EXCLUDED.credits,
+          position_x = EXCLUDED.position_x,
+          position_y = EXCLUDED.position_y,
+          position_z = EXCLUDED.position_z,
+          rotation = EXCLUDED.rotation,
+          health = EXCLUDED.health,
+          max_health = EXCLUDED.max_health,
+          mana = EXCLUDED.mana,
+          max_mana = EXCLUDED.max_mana,
+          inventory = EXCLUDED.inventory,
+          equipped_spells = EXCLUDED.equipped_spells,
+          guild_id = EXCLUDED.guild_id,
+          guild_tag = EXCLUDED.guild_tag,
+          achievements = EXCLUDED.achievements,
+          quests = EXCLUDED.quests,
+          battle_pass = EXCLUDED.battle_pass,
+          last_login = EXCLUDED.last_login,
+          updated_at = EXCLUDED.updated_at
+      `
+      
+      // Cache prepared statement (LRU: remove oldest if cache full)
+      if (this.preparedStatements.size >= this.STATEMENT_CACHE_SIZE) {
+        const firstKey = this.preparedStatements.keys().next().value
+        if (firstKey) this.preparedStatements.delete(firstKey)
+      }
+      this.preparedStatements.set(queryKey, { statement: query, params: [] })
+    } else {
+      query = this.preparedStatements.get(queryKey)!.statement
+    }
 
     const params = [
       playerId, // id (keep for backwards compatibility)
@@ -381,6 +412,7 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       new Date()
     ]
 
+    if (!this.pool) throw new Error('Database pool not initialized')
     await this.pool.query(query, params)
     console.log(`DatabaseService: Saved player data for ${playerId}`)
   }
@@ -390,50 +422,66 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       throw new Error('Database not connected')
     }
 
-    // Try to load by character_id first, then fall back to id for backwards compatibility
-    const query = `
-      SELECT * FROM players 
-      WHERE character_id = $1 OR (character_id IS NULL AND id = $1)
-      LIMIT 1
-    `
+    // Prepared statement caching: reuse query string
+    const queryKey = 'loadPlayerData'
+    let query = this.preparedStatements.get(queryKey)?.statement
+    
+    if (!query) {
+      // Try to load by character_id first, then fall back to id for backwards compatibility
+      query = `
+        SELECT * FROM players 
+        WHERE character_id = $1 OR (character_id IS NULL AND id = $1)
+        LIMIT 1
+      `
+      
+      // Cache prepared statement
+      if (this.preparedStatements.size >= this.STATEMENT_CACHE_SIZE) {
+        const firstKey = this.preparedStatements.keys().next().value
+        if (firstKey) this.preparedStatements.delete(firstKey)
+      }
+      this.preparedStatements.set(queryKey, { statement: query, params: [] })
+    } else {
+      query = this.preparedStatements.get(queryKey)!.statement
+    }
 
+    if (!this.pool) throw new Error('Database pool not initialized')
     const result = await this.pool.query(query, [playerId])
     
     if (result.rows.length === 0) {
       return null
     }
 
-    const row = result.rows[0]
-    const characterId = row.character_id || row.id
+    const row = result.rows[0] as Record<string, unknown>
+    const characterId = (row.character_id as string) || (row.id as string)
     return {
       id: characterId,
-      userId: row.user_id,
-      name: row.name,
-      race: row.race,
-      level: row.level,
-      xp: row.xp,
-      xpToNext: row.xp_to_next,
-      credits: row.credits,
+      userId: row.user_id as string | undefined,
+      name: row.name as string,
+      race: row.race as string,
+      level: row.level as number,
+      xp: row.xp as number,
+      xpToNext: row.xp_to_next as number,
+      credits: row.credits as number,
       position: {
-        x: row.position_x,
-        y: row.position_y,
-        z: row.position_z
+        x: row.position_x as number,
+        y: row.position_y as number,
+        z: row.position_z as number
       },
-      rotation: row.rotation,
-      health: row.health,
-      maxHealth: row.max_health,
-      mana: row.mana,
-      maxMana: row.max_mana,
-      inventory: JSON.parse(row.inventory || '[]'),
-      equippedSpells: JSON.parse(row.equipped_spells || '[]'),
-      guildId: row.guild_id,
-      guildTag: row.guild_tag,
-      achievements: JSON.parse(row.achievements || '[]'),
-      quests: JSON.parse(row.quests || '[]'),
-      battlePass: JSON.parse(row.battle_pass || '{}'),
-      createdAt: row.created_at,
-      lastLogin: row.last_login,
-      updatedAt: row.updated_at
+      rotation: row.rotation as number,
+      health: row.health as number,
+      maxHealth: row.max_health as number,
+      mana: row.mana as number,
+      maxMana: row.max_mana as number,
+      inventory: JSON.parse((row.inventory as string) || '[]'),
+      equippedSpells: JSON.parse((row.equipped_spells as string) || '[]'),
+      guildId: row.guild_id as string | undefined,
+      guildTag: row.guild_tag as string | undefined,
+      achievements: JSON.parse((row.achievements as string) || '[]'),
+      quests: JSON.parse((row.quests as string) || '[]'),
+      battlePass: JSON.parse((row.battle_pass as string) || '{}'),
+      createdAt: row.created_at as Date,
+      lastLogin: row.last_login as Date,
+      updatedAt: row.updated_at as Date
     }
   }
 
@@ -442,29 +490,47 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       throw new Error('Database not connected')
     }
 
-    const query = `
-      SELECT 
-        COALESCE(character_id, id) as id,
-        name,
-        race,
-        level,
-        last_login,
-        created_at
-      FROM players
-      WHERE user_id = $1
-      ORDER BY last_login DESC
-    `
+    // Prepared statement caching
+    const queryKey = 'listCharactersByUser'
+    let query = this.preparedStatements.get(queryKey)?.statement
+    
+    if (!query) {
+      query = `
+        SELECT 
+          COALESCE(character_id, id) as id,
+          name,
+          race,
+          level,
+          last_login,
+          created_at
+        FROM players
+        WHERE user_id = $1
+        ORDER BY last_login DESC
+      `
+      
+      if (this.preparedStatements.size >= this.STATEMENT_CACHE_SIZE) {
+        const firstKey = this.preparedStatements.keys().next().value
+        if (firstKey) this.preparedStatements.delete(firstKey)
+      }
+      this.preparedStatements.set(queryKey, { statement: query, params: [] })
+    } else {
+      query = this.preparedStatements.get(queryKey)!.statement
+    }
 
+    if (!this.pool) throw new Error('Database pool not initialized')
     const result = await this.pool.query(query, [userId])
     
-    return result.rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      race: row.race,
-      level: row.level,
-      lastLogin: row.last_login,
-      createdAt: row.created_at
-    }))
+    return result.rows.map((row: unknown) => {
+      const rowData = row as Record<string, unknown>
+      return {
+        id: rowData.id as string,
+        name: rowData.name as string,
+        race: rowData.race as string,
+        level: rowData.level as number,
+        lastLogin: rowData.last_login as Date,
+        createdAt: rowData.created_at as Date
+      }
+    })
   }
 
   async countCharactersByUser(userId: string): Promise<number> {
@@ -478,8 +544,10 @@ export class PostgreSQLDatabaseService implements DatabaseService {
       WHERE user_id = $1
     `
 
+    if (!this.pool) throw new Error('Database pool not initialized')
     const result = await this.pool.query(query, [userId])
-    return parseInt(result.rows[0].count, 10)
+    const row = result.rows[0] as { count: string }
+    return parseInt(row.count, 10)
   }
 
   async query<T>(query: string, params: any[]): Promise<T[]> {

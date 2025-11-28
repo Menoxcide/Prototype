@@ -19,10 +19,14 @@ interface WeatherSystemProps {
 }
 
 export default function WeatherSystem({ 
-  weatherType = 'none',
+  weatherType = 'cyber-rain', // Default to neon rain for cyberpunk aesthetic
   intensity = 1.0,
   rainIntensity = 'medium'
 }: WeatherSystemProps) {
+  // DISABLED: Early return to disable weather system completely
+  // This is a temporary measure to investigate movement stuttering
+  if (true) return null
+  
   const particlesRef = useRef<THREE.Points>(null)
   const { player } = useGameStore()
   const qualitySettings = getQualitySettings()
@@ -69,7 +73,7 @@ export default function WeatherSystem({
         count: qualitySettings.preset === 'low' ? 500 : 2000,
         speed: 25,
         size: 0.15,
-        color: '#00ffff',
+        color: '#00ffff', // Cyan neon
         gravity: 10,
         spread: 50
       },
@@ -211,7 +215,10 @@ export default function WeatherSystem({
   }, [weatherConfig.size, weatherType, rainIntensity])
 
   // Position relative to player
-  const position: [number, number, number] = player ? [player.position.x, 0, player.position.z] : [0, 0, 0]
+  const position: [number, number, number] = useMemo(() => {
+    if (!player || !player.position) return [0, 0, 0]
+    return [player.position.x, 0, player.position.z]
+  }, [player])
 
   return (
     <points

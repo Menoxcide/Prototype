@@ -5,6 +5,10 @@
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import { getOptimalCompressionFormat } from '../utils/compressionSupport'
+import { assetManifest } from './assetManifest'
+import { assetCache } from '../utils/assetCache'
 
 export interface ModelCache {
   model: THREE.Group | THREE.Object3D
@@ -21,14 +25,75 @@ export interface ModelCache {
 class ModelLoader {
   private models: Map<string, ModelCache> = new Map()
   private loader: GLTFLoader
+  private dracoLoader: DRACOLoader | null = null
   private loadingPromises: Map<string, Promise<THREE.Group | THREE.Object3D>> = new Map()
+  private compressionFormat: 'draco' | 'glb' = 'glb'
 
   constructor() {
     this.loader = new GLTFLoader()
+    
+    // Initialize Draco loader if supported
+    const compressionFormat = getOptimalCompressionFormat()
+    this.compressionFormat = compressionFormat.model
+    
+    if (compressionFormat.model === 'draco') {
+      this.dracoLoader = new DRACOLoader()
+      // Use CDN for Draco decoder (or local if available)
+      this.dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+      this.loader.setDRACOLoader(this.dracoLoader)
+    }
+  }
+
+  /**
+   * Check if a model file exists (for converted 3D models)
+   * Uses asset manifest to avoid individual HEAD requests
+   */
+  private async checkModelExists(path: string): Promise<{ exists: boolean; compressed?: boolean; path?: string }> {
+    try {
+      // Try to use asset manifest first
+      const manifest = assetManifest.getManifest()
+      if (manifest) {
+        // Extract model ID from path
+        const modelId = path.replace(/^\/assets\/models\//, '').replace(/\.glb$/, '').replace(/\.drc$/, '')
+        
+        // Check compressed version first if Draco is supported
+        if (this.compressionFormat === 'draco') {
+          const compressedPath = await assetManifest.getModelPath(modelId, true)
+          if (compressedPath) {
+            return { exists: true, compressed: true, path: compressedPath }
+          }
+        }
+        
+        // Check regular version
+        const regularPath = await assetManifest.getModelPath(modelId, false)
+        if (regularPath) {
+          return { exists: true, compressed: false, path: regularPath }
+        }
+      }
+      
+      // Fallback to HEAD request if manifest not available
+      if (this.compressionFormat === 'draco') {
+        const compressedPath = path.replace(/\.glb$/, '.drc.glb').replace(/\.gltf$/, '.drc.gltf')
+        const compressedResponse = await fetch(compressedPath, { method: 'HEAD' })
+        if (compressedResponse.ok) {
+          return { exists: true, compressed: true, path: compressedPath }
+        }
+      }
+      
+      const response = await fetch(path, { method: 'HEAD' })
+      if (response.ok) {
+        return { exists: true, compressed: false, path }
+      }
+      
+      return { exists: false }
+    } catch {
+      return { exists: false }
+    }
   }
 
   /**
    * Load a GLTF/GLB model
+   * Supports both file paths and asset IDs (for converted 3D models)
    */
   async loadModel(
     id: string,
@@ -43,6 +108,16 @@ class ModelLoader {
       onProgress?: (progress: number) => void
     }
   ): Promise<THREE.Group | THREE.Object3D> {
+    // Check if path is an asset ID (for converted 3D models)
+    if (!path.includes('/') && !path.includes('\\') && !path.startsWith('http')) {
+      // Try to load from converted models directory
+      const convertedPath = `/assets/models/${path}/${id}.glb`
+      const exists = await this.checkModelExists(convertedPath)
+      if (exists.exists && exists.path) {
+        // Use the path returned from check (already includes compression if available)
+        return this.loadModel(id, exists.path, options)
+      }
+    }
     // Return cached model if available
     if (this.models.has(id)) {
       const cached = this.models.get(id)!
@@ -57,7 +132,28 @@ class ModelLoader {
       return model.clone()
     }
 
-    // Start loading
+    // Check IndexedDB cache first
+    const cachedData = await assetCache.getCachedModel(id)
+    if (cachedData) {
+      // Load from cache
+      const blob = new Blob([cachedData], { type: 'model/gltf-binary' })
+      const url = URL.createObjectURL(blob)
+      try {
+        const gltf = await this.loader.loadAsync(url)
+        URL.revokeObjectURL(url)
+        const model = gltf.scene
+        if (options?.scale) {
+          model.scale.setScalar(options.scale)
+        }
+        this.optimizeTextures(model)
+        return model.clone()
+      } catch (error) {
+        URL.revokeObjectURL(url)
+        console.warn(`Failed to load cached model ${id}, falling back to network:`, error)
+      }
+    }
+
+    // Start loading from network
     const loadPromise = this.loader.loadAsync(
       path,
       options?.onProgress ? (progress) => {
@@ -65,7 +161,7 @@ class ModelLoader {
           options.onProgress!(progress.loaded / progress.total)
         }
       } : undefined
-    ).then((gltf) => {
+    ).then(async (gltf) => {
       let model = gltf.scene
 
       // Apply scale if specified
@@ -73,11 +169,41 @@ class ModelLoader {
         model.scale.setScalar(options.scale)
       }
 
+      // Optimize textures: detect and apply compression
+      this.optimizeTextures(model)
+
+      // Cache the model data in IndexedDB (in background)
+      fetch(path)
+        .then(response => response.arrayBuffer())
+        .then(data => assetCache.cacheModel(id, data))
+        .catch(err => console.warn(`Failed to cache model ${id}:`, err))
+
       // Load LOD versions if specified
       const lodVersions: ModelCache['lodVersions'] = {}
       if (options?.lodVersions) {
-        // LOD versions would be loaded here
-        // For now, we'll create simplified versions procedurally
+        // Load LOD versions asynchronously
+        const lodPromises: Promise<void>[] = []
+        
+        if (options.lodVersions.high) {
+          lodPromises.push(
+            this.loadLODVersion(options.lodVersions.high, 'high', lodVersions)
+          )
+        }
+        if (options.lodVersions.medium) {
+          lodPromises.push(
+            this.loadLODVersion(options.lodVersions.medium, 'medium', lodVersions)
+          )
+        }
+        if (options.lodVersions.low) {
+          lodPromises.push(
+            this.loadLODVersion(options.lodVersions.low, 'low', lodVersions)
+          )
+        }
+        
+        // Don't wait for LOD versions - load them in background
+        Promise.all(lodPromises).catch(err => {
+          console.warn(`Failed to load some LOD versions for ${id}:`, err)
+        })
       }
 
       // Cache the model
@@ -129,6 +255,146 @@ class ModelLoader {
     if (!cached) return
 
     cached.refCount = Math.max(0, cached.refCount - 1)
+  }
+
+  /**
+   * Optimize textures in a model (detect compression, reduce quality if needed)
+   */
+  private optimizeTextures(model: THREE.Group | THREE.Object3D): void {
+    model.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        const materials = Array.isArray(object.material) 
+          ? object.material 
+          : [object.material]
+
+        materials.forEach((material) => {
+          if (material instanceof THREE.MeshStandardMaterial || 
+              material instanceof THREE.MeshBasicMaterial ||
+              material instanceof THREE.MeshPhongMaterial) {
+            
+            // Optimize texture maps (only for MeshStandardMaterial which has all these properties)
+            const textureMaps: Array<{ map: THREE.Texture | null; name: string }> = []
+            if (material instanceof THREE.MeshStandardMaterial) {
+              textureMaps.push(
+                { map: material.map, name: 'map' },
+                { map: material.normalMap, name: 'normalMap' },
+                { map: material.roughnessMap, name: 'roughnessMap' },
+                { map: material.metalnessMap, name: 'metalnessMap' },
+                { map: material.emissiveMap, name: 'emissiveMap' },
+                { map: material.aoMap, name: 'aoMap' }
+              )
+            } else if (material instanceof THREE.MeshPhongMaterial) {
+              textureMaps.push(
+                { map: material.map, name: 'map' },
+                { map: material.normalMap, name: 'normalMap' },
+                { map: material.emissiveMap, name: 'emissiveMap' }
+              )
+            } else if (material instanceof THREE.MeshBasicMaterial) {
+              textureMaps.push(
+                { map: material.map, name: 'map' }
+              )
+            }
+
+            textureMaps.forEach(({ map, name }) => {
+              if (map && map instanceof THREE.Texture) {
+                // Detect compression format
+                const isCompressed = this.detectTextureCompression(map)
+                
+                // Apply optimizations based on compression
+                if (!isCompressed) {
+                  // For uncompressed textures, reduce quality during loading
+                  map.generateMipmaps = true
+                  map.minFilter = THREE.LinearMipmapLinearFilter
+                  map.magFilter = THREE.LinearFilter
+                  
+                  // Reduce anisotropy for non-critical textures
+                  if (name !== 'map') { // Keep full quality for main texture
+                    map.anisotropy = Math.min(4, map.anisotropy || 1)
+                  }
+                } else {
+                  // Compressed textures can use higher quality
+                  map.anisotropy = 16
+                }
+                
+                // Set texture format based on compression
+                if (map.format === THREE.RGBAFormat) {
+                  // Prefer compressed formats if available
+                  map.format = THREE.RGBAFormat // Keep RGBA for now, could use compressed formats
+                }
+              }
+            })
+          }
+        })
+      }
+    })
+  }
+
+  /**
+   * Detect if a texture is using compression
+   */
+  private detectTextureCompression(texture: THREE.Texture): boolean {
+    // Check if texture uses compressed format
+    // This is a simplified check - in practice, you'd check the actual format
+    // Check texture internal format (if available)
+    // WebGL2 supports compressed texture formats
+    return texture.format !== THREE.RGBAFormat && texture.format !== THREE.RGBFormat
+  }
+
+  /**
+   * Load a LOD version of a model
+   */
+  private async loadLODVersion(
+    path: string,
+    level: 'high' | 'medium' | 'low',
+    lodVersions: ModelCache['lodVersions']
+  ): Promise<void> {
+    try {
+      const gltf = await this.loader.loadAsync(path)
+      if (!lodVersions) {
+        return
+      }
+      lodVersions[level] = gltf.scene
+      
+      // Optimize LOD textures (lower quality for lower LOD)
+      const lodVersion = lodVersions[level]
+      if (lodVersion) {
+        this.optimizeLODTextures(lodVersion, level)
+      }
+    } catch (error) {
+      console.warn(`Failed to load ${level} LOD version from ${path}:`, error)
+    }
+  }
+
+  /**
+   * Optimize textures for LOD versions (reduce quality for lower LOD)
+   */
+  private optimizeLODTextures(model: THREE.Group | THREE.Object3D, level: 'high' | 'medium' | 'low'): void {
+    const qualityMultiplier = level === 'high' ? 1.0 : level === 'medium' ? 0.75 : 0.5
+    
+    model.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        const materials = Array.isArray(object.material) 
+          ? object.material 
+          : [object.material]
+
+        materials.forEach((material) => {
+          if (material instanceof THREE.MeshStandardMaterial || 
+              material instanceof THREE.MeshBasicMaterial ||
+              material instanceof THREE.MeshPhongMaterial) {
+            
+            if (material.map && material.map instanceof THREE.Texture) {
+              // Reduce anisotropy for lower LOD
+              material.map.anisotropy = Math.max(1, Math.floor(16 * qualityMultiplier))
+              
+              // Use simpler filtering for low LOD
+              if (level === 'low') {
+                material.map.minFilter = THREE.LinearMipmapNearestFilter
+              }
+            }
+          }
+        })
+      }
+    })
   }
 
   /**

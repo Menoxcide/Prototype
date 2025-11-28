@@ -5,6 +5,7 @@
  */
 
 import * as THREE from 'three'
+import { assetManager } from '../assets/assetManager'
 
 export interface PerformanceMetrics {
   fps: number
@@ -14,6 +15,15 @@ export interface PerformanceMetrics {
   geometries: number
   textures: number
   memoryUsage: number
+  // Frame time breakdown
+  renderingTime: number
+  physicsTime: number
+  networkTime: number
+  scriptTime: number
+  // GPU memory (if available)
+  gpuMemory?: number
+  // Asset cache size
+  assetCacheSize?: number
 }
 
 class PerformanceProfiler {
@@ -27,8 +37,15 @@ class PerformanceProfiler {
     triangles: 0,
     geometries: 0,
     textures: 0,
-    memoryUsage: 0
+    memoryUsage: 0,
+    renderingTime: 0,
+    physicsTime: 0,
+    networkTime: 0,
+    scriptTime: 0,
+    gpuMemory: undefined,
+    assetCacheSize: undefined
   }
+  
   private isEnabled = false
   private updateInterval: number | null = null
 
@@ -80,6 +97,15 @@ class PerformanceProfiler {
           this.metrics.triangles = info.render.triangles
           this.metrics.geometries = info.memory.geometries
           this.metrics.textures = info.memory.textures
+          
+          // GPU memory (if available in renderer info)
+          if (info.memory.programs) {
+            // Estimate GPU memory usage
+            this.metrics.gpuMemory = Math.round(
+              (info.memory.textures * 1024 * 1024 + // Estimate texture memory
+               info.memory.geometries * 64 * 1024) / 1024 / 1024 // Estimate geometry memory
+            )
+          }
         }
       }
 
@@ -87,6 +113,44 @@ class PerformanceProfiler {
       if ('memory' in performance) {
         const memory = (performance as any).memory
         this.metrics.memoryUsage = Math.round(memory.usedJSHeapSize / 1048576) // MB
+      }
+      
+      // Asset cache size (if assetManager is available)
+      try {
+        if (assetManager && typeof assetManager.getAssetStats === 'function') {
+          const stats = assetManager.getAssetStats()
+          // Calculate approximate cache size from asset stats (total number of cached assets)
+          this.metrics.assetCacheSize = stats.textures.total + stats.materials.total + (stats.models?.total || 0)
+        }
+      } catch {
+        // AssetManager not available, ignore
+      }
+      
+      // Frame time breakdown using Performance API marks
+      try {
+        const marks = performance.getEntriesByType('mark') as PerformanceMark[]
+        const measures = performance.getEntriesByType('measure') as PerformanceMeasure[]
+        
+        // Calculate frame time breakdown from measures
+        const renderingMeasure = measures.find(m => m.name === 'rendering')
+        const physicsMeasure = measures.find(m => m.name === 'physics')
+        const networkMeasure = measures.find(m => m.name === 'network')
+        const scriptMeasure = measures.find(m => m.name === 'scripts')
+        
+        this.metrics.renderingTime = renderingMeasure ? Math.round(renderingMeasure.duration * 100) / 100 : 0
+        this.metrics.physicsTime = physicsMeasure ? Math.round(physicsMeasure.duration * 100) / 100 : 0
+        this.metrics.networkTime = networkMeasure ? Math.round(networkMeasure.duration * 100) / 100 : 0
+        this.metrics.scriptTime = scriptMeasure ? Math.round(scriptMeasure.duration * 100) / 100 : 0
+        
+        // Clear old marks/measures to prevent memory buildup
+        if (marks.length > 100) {
+          marks.slice(0, marks.length - 50).forEach(m => performance.clearMarks(m.name))
+        }
+        if (measures.length > 100) {
+          measures.slice(0, measures.length - 50).forEach(m => performance.clearMeasures(m.name))
+        }
+      } catch {
+        // Performance API not fully supported, ignore
       }
     }
 

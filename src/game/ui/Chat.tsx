@@ -2,10 +2,13 @@ import { useState, useRef, useEffect } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { sendChatMessage, sendWhisper, sendGuildChat } from '../network/colyseus'
 import DraggableResizable from '../components/DraggableResizable'
+import { useTranslation } from '../hooks/useTranslation'
+import { isMobileDevice } from '../utils/mobileOptimizations'
 
 type TabType = 'chat' | 'status' | 'combat'
 
 export default function Chat() {
+  const { t } = useTranslation()
   const { 
     isChatOpen, 
     toggleChat, 
@@ -85,11 +88,26 @@ export default function Chat() {
     }
   }
 
+  const isMobile = isMobileDevice()
+  const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920
+  const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080
+  
+  // Mobile-specific chat sizing
+  const chatWidth = isMobile ? Math.min(screenWidth * 0.95, screenWidth - 16) : 320
+  const chatHeight = isMobile ? Math.min(screenHeight * 0.6, 400) : 384
+  const chatPosition = isMobile
+    ? { x: (screenWidth - chatWidth) / 2, y: screenHeight * 0.2 }
+    : { x: screenWidth - 340, y: screenHeight - 400 }
+
   if (!isChatOpen) {
     return (
       <button
         onClick={toggleChat}
-        className="fixed bottom-20 right-4 bg-gray-900/90 border-2 border-cyan-500 rounded-lg px-4 py-2 text-cyan-400 font-bold pointer-events-auto z-30 hover:bg-gray-800 transition-all"
+        className="fixed bg-gray-900/90 border-2 border-cyan-500 rounded-lg px-4 py-2 text-cyan-400 font-bold pointer-events-auto z-30 hover:bg-gray-800 transition-all"
+        style={{
+          bottom: isMobile ? '72px' : '80px',
+          right: isMobile ? '8px' : '16px'
+        }}
       >
         💬 Chat
       </button>
@@ -159,15 +177,14 @@ export default function Chat() {
     <DraggableResizable
       id="chat-window"
       storageKey="chat"
-      defaultPosition={{ 
-        x: typeof window !== 'undefined' ? window.innerWidth - 340 : 200, 
-        y: typeof window !== 'undefined' ? window.innerHeight - 400 : 200 
-      }}
-      defaultSize={{ width: 320, height: 384 }}
-      minWidth={250}
-      minHeight={200}
-      maxWidth={600}
-      maxHeight={800}
+      defaultPosition={chatPosition}
+      defaultSize={{ width: chatWidth, height: chatHeight }}
+      minWidth={isMobile ? Math.min(screenWidth * 0.9, 250) : 250}
+      minHeight={isMobile ? 200 : 200}
+      maxWidth={isMobile ? screenWidth - 16 : 600}
+      maxHeight={isMobile ? screenHeight * 0.7 : 800}
+      draggable={true}
+      resizable={true}
       className="pointer-events-auto z-30 bg-gray-900/95 border-2 border-cyan-500 rounded-lg neon-border"
       header={chatHeader}
     >
@@ -177,7 +194,7 @@ export default function Chat() {
           <>
             {chatMode === 'whisper' && (
               <div className="p-2 border-b border-cyan-500">
-                <label htmlFor="whisper-target" className="sr-only">Select player to whisper</label>
+                <label htmlFor="whisper-target" className="sr-only">{t('chat.selectPlayerToWhisper')}</label>
                 <select
                   id="whisper-target"
                   name="whisper-target"
@@ -185,7 +202,7 @@ export default function Chat() {
                   onChange={(e) => setWhisperTarget(e.target.value)}
                   className="w-full bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-300 focus:outline-none"
                 >
-                  <option value="">Select player...</option>
+                  <option value="">{t('chat.selectPlayer')}</option>
                   {Array.from(otherPlayers.values())
                     .filter((player, index, self) => 
                       // Remove duplicates by name (keep first occurrence)
@@ -208,7 +225,7 @@ export default function Chat() {
                   chatMode === 'global' ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
                 }`}
               >
-                Global
+                {t('chat.global')}
               </button>
               {player?.guildId && (
                 <button
@@ -217,7 +234,7 @@ export default function Chat() {
                     chatMode === 'guild' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-purple-400 hover:bg-gray-700'
                   }`}
                 >
-                  Guild
+                  {t('chat.guild')}
                 </button>
               )}
               <button
@@ -226,14 +243,14 @@ export default function Chat() {
                   chatMode === 'whisper' ? 'bg-green-600 text-white' : 'bg-gray-800 text-green-400 hover:bg-gray-700'
                 }`}
               >
-                Whisper
+                {t('chat.whisper')}
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1" style={{ minHeight: 0 }}>
               {chatMessages.length === 0 ? (
                 <div className="text-center text-gray-400 text-sm py-4">
-                  No messages yet. Start chatting!
+                  {t('chat.noMessagesYet')}
                 </div>
               ) : (
                 chatMessages.map(msg => {
@@ -257,10 +274,10 @@ export default function Chat() {
                       }`}
                     >
                       {msg.type === 'whisper' && (
-                        <span className="text-green-400 text-xs">[Whisper] </span>
+                        <span className="text-green-400 text-xs">{t('chat.whisperTag')} </span>
                       )}
                       {msg.type === 'guild' && (
-                        <span className="text-purple-400 text-xs">[Guild] </span>
+                        <span className="text-purple-400 text-xs">{t('chat.guildTag')} </span>
                       )}
                       {isCombatLog && (
                         <span className="text-red-400 text-xs">⚔️ </span>
@@ -283,7 +300,7 @@ export default function Chat() {
             </div>
 
             <div className="p-2 border-t border-cyan-500 flex gap-2 shrink-0 bg-gray-900/95">
-              <label htmlFor="chat-message" className="sr-only">Type a message</label>
+              <label htmlFor="chat-message" className="sr-only">{t('chat.typeMessage')}</label>
               <input
                 id="chat-message"
                 name="chat-message"
@@ -299,7 +316,7 @@ export default function Chat() {
                     e.currentTarget.blur()
                   }
                 }}
-                placeholder="Type a message..."
+                placeholder={t('chat.typeMessage')}
                 maxLength={200}
                 className="flex-1 min-w-0 bg-gray-800 border border-cyan-500 rounded px-3 py-2 text-cyan-300 focus:outline-none focus:border-cyan-400"
               />
@@ -309,7 +326,7 @@ export default function Chat() {
                   sendButtonHighlight ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-gray-900' : ''
                 }`}
               >
-                Send
+                {t('chat.send')}
               </button>
             </div>
           </>
@@ -326,17 +343,17 @@ export default function Chat() {
               <>
                 {/* System Info */}
                 <div>
-                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">System Info</h3>
+                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">{t('chat.systemInfo')}</h3>
                   <div className="space-y-1 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Connection:</span>
+                      <span className="text-gray-400">{t('chat.connection')}</span>
                       <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-                        {isConnected ? 'Online' : 'Offline'}
+                        {isConnected ? t('chat.online') : t('chat.offline')}
                       </span>
                     </div>
                     {networkLatency > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Latency:</span>
+                        <span className="text-gray-400">{t('chat.latency')}</span>
                         <span className={networkLatency < 100 ? 'text-green-400' : networkLatency < 300 ? 'text-yellow-400' : 'text-red-400'}>
                           {networkLatency}ms
                         </span>
@@ -344,16 +361,16 @@ export default function Chat() {
                     )}
                     {packetLoss > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Packet Loss:</span>
+                        <span className="text-gray-400">{t('chat.packetLoss')}</span>
                         <span className={packetLoss < 1 ? 'text-green-400' : packetLoss < 5 ? 'text-yellow-400' : 'text-red-400'}>
                           {packetLoss.toFixed(1)}%
                         </span>
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Server Status:</span>
+                      <span className="text-gray-400">{t('chat.serverStatus')}</span>
                       <span className={isConnected ? 'text-green-400' : 'text-gray-500'}>
-                        {isConnected ? 'Connected' : 'Disconnected'}
+                        {isConnected ? t('chat.connected') : t('chat.disconnected')}
                       </span>
                     </div>
                   </div>
@@ -361,44 +378,44 @@ export default function Chat() {
 
                 {/* Game Info */}
                 <div>
-                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">Game Info</h3>
+                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">{t('chat.gameInfo')}</h3>
                   <div className="space-y-1 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Zone:</span>
-                      <span className="text-cyan-300">{currentZone || 'Unknown'}</span>
+                      <span className="text-gray-400">{t('chat.zone')}</span>
+                      <span className="text-cyan-300">{currentZone || t('chat.unknown')}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Server State:</span>
-                      <span className="text-cyan-300">{isConnected ? 'Active' : 'Offline'}</span>
+                      <span className="text-gray-400">{t('chat.serverState')}</span>
+                      <span className="text-cyan-300">{isConnected ? t('chat.active') : t('chat.offline')}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Player Info */}
                 <div>
-                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">Player Info</h3>
+                  <h3 className="text-cyan-400 font-bold text-sm mb-2 border-b border-cyan-500/30 pb-1">{t('chat.playerInfo')}</h3>
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Name:</span>
+                      <span className="text-gray-400">{t('chat.name')}</span>
                       <span className="text-cyan-300">{player.name}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Level:</span>
+                      <span className="text-gray-400">{t('common.level')}:</span>
                       <span className="text-cyan-300">{player.level}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Race:</span>
+                      <span className="text-gray-400">{t('chat.race')}</span>
                       <span className="text-cyan-300 capitalize">{player.race}</span>
                     </div>
                     {player.tradition && (
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Tradition:</span>
+                        <span className="text-gray-400">{t('chat.tradition')}</span>
                         <span className="text-cyan-300 capitalize">{player.tradition}</span>
                       </div>
                     )}
                     <div className="pt-1">
                       <div className="flex justify-between mb-1">
-                        <span className="text-gray-400">XP:</span>
+                        <span className="text-gray-400">{t('common.xp')}:</span>
                         <span className="text-cyan-300">{player.xp} / {player.xpToNext}</span>
                       </div>
                       <div className="w-full bg-gray-800 rounded-full h-1.5">
@@ -409,7 +426,7 @@ export default function Chat() {
                       </div>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-400">Credits:</span>
+                      <span className="text-gray-400">{t('common.credits')}:</span>
                       <span className="text-cyan-300">{player.credits.toLocaleString()}</span>
                     </div>
                     <div className="pt-1">
@@ -450,7 +467,7 @@ export default function Chat() {
                         </div>
                         {player.guildTag && (
                           <div className="flex justify-between">
-                            <span className="text-gray-400">Guild Tag:</span>
+                            <span className="text-gray-400">{t('social.guildTag')}</span>
                             <span className="text-purple-300">[{player.guildTag}]</span>
                           </div>
                         )}

@@ -1,6 +1,8 @@
 /**
- * Building Grapple System
- * Detects nearby buildings, highlights them, and allows grappling on click
+ * Pathfinder-Style Grapple System
+ * Detects nearby objects and allows grappling on click
+ * Works with any object within range (like Pathfinder from Apex Legends)
+ * No visual indicators - relies on intuitive gameplay like Apex Legends
  */
 
 import { useEffect, useRef, useCallback } from 'react'
@@ -9,18 +11,21 @@ import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import GrappleLine from './GrappleLine'
 import GrappleHook from './GrappleHook'
+import { useAltKey } from '../hooks/useAltKey'
+import { hapticManager } from '../utils/haptics'
+import { playMovementSound } from '../assets/expandedSounds'
+import { COOLDOWN_GRAPPLE } from '../data/cooldowns'
 
 const GRAPPLE_DISTANCE = 60 // Maximum distance to grapple (doubled from 30)
-const HIGHLIGHT_DISTANCE = 50 // Distance to start highlighting buildings (doubled from 25)
 const GRAPPLE_COST = 20 // Stamina cost per grapple
-const HIGHLIGHT_SMOOTH_SPEED = 3 // Speed for smooth highlight interpolation
+const GRAPPLE_ACTION_ID = 'grapple'
 
 // Physics constants
-const GRAVITY = 9.8 // Gravity acceleration
-const DAMPING = 0.95 // Air resistance/damping factor (0-1, lower = more damping)
 const RETRACTION_SPEED = 15 // Speed at which player can pull themselves up
 const MIN_ROPE_LENGTH = 2 // Minimum rope length
-const MAX_SWING_ANGLE = Math.PI * 0.4 // Maximum swing angle (about 72 degrees)
+const GRAPPLE_PULL_STRENGTH = 40 // Base pull strength towards grapple point
+const GRAPPLE_MAX_PULL_DISTANCE = 60 // Maximum distance to apply pull (same as grapple distance)
+const GRAPPLE_RELEASE_DISTANCE = 3 // Distance at which grapple auto-releases (player reached target)
 
 export default function BuildingGrappleSystem() {
   const { camera, scene, raycaster } = useThree()
@@ -29,10 +34,10 @@ export default function BuildingGrappleSystem() {
   const consumeStamina = useGameStore((s) => s.consumeStamina)
   const setCanGrapple = useGameStore((s) => s.setCanGrapple)
   const setGrappledBuilding = useGameStore((s) => s.setGrappledBuilding)
-  const updatePlayerPosition = useGameStore((s) => s.updatePlayerPosition)
+  const setGrapplePullVelocity = useGameStore((s) => s.setGrapplePullVelocity)
+  const isOnCooldown = useGameStore((s) => s.isOnCooldown)
+  const startCooldown = useGameStore((s) => s.startCooldown)
   
-  const highlightedBuildings = useRef<Map<string, THREE.Mesh>>(new Map())
-  const highlightIntensities = useRef<Map<string, number>>(new Map()) // Track highlight intensity for smooth interpolation
   const mouseDownRef = useRef(false)
   const grappleTargetRef = useRef<{ id: string; position: THREE.Vector3 } | null>(null)
   
@@ -43,125 +48,113 @@ export default function BuildingGrappleSystem() {
   const initialRopeLengthRef = useRef(0) // Initial rope length when grapple started
   const swingPlaneNormalRef = useRef<THREE.Vector3 | null>(null) // Normal vector for swing plane
   const isRetractingRef = useRef(false) // Whether player is retracting (pulling up)
+  const wasGrappling = useRef(false) // Track previous grappling state for logging
+  
+  // Momentum conservation: Store velocity before release
+  const momentumOnReleaseRef = useRef<THREE.Vector3 | null>(null)
+  const setMomentumOnRelease = useGameStore((s) => s.setMomentumOnRelease)
+  const lastVelocityRef = useRef<THREE.Vector3>(new THREE.Vector3())
 
-  // Find all buildings in the scene
-  const findBuildings = (): THREE.Mesh[] => {
-    const buildings: THREE.Mesh[] = []
+  // Find all grappleable objects in the scene (any mesh - walls and objects)
+  const findGrappleableObjects = (): THREE.Mesh[] => {
+    if (!player) return []
+    
+    const objects: THREE.Mesh[] = []
+    
     scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh && obj.userData.isBuilding) {
-        buildings.push(obj)
+      if (obj instanceof THREE.Mesh) {
+        // Skip player, UI elements, and explicitly non-grappleable objects
+        // Include all walls (userData.isWall) and all other objects
+        if (obj.userData.isPlayer || obj.userData.isUI || obj.userData.isGrappleable === false) {
+          return
+        }
+        
+        // Include all meshes (walls, buildings, objects) - range check happens on hit point
+        objects.push(obj)
       }
     })
-    return buildings
+    return objects
   }
 
-  // Check if player can grapple to a building
-  const checkGrappleable = (building: THREE.Mesh): boolean => {
+  // Check if player can grapple to a hit point (not object center)
+  const checkGrappleable = (hitPoint: THREE.Vector3): boolean => {
     if (!player) return false
     
-    const buildingPos = new THREE.Vector3()
-    building.getWorldPosition(buildingPos)
-    
     const playerPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
-    const distance = playerPos.distanceTo(buildingPos)
+    const distance = playerPos.distanceTo(hitPoint)
     
     // Check distance and stamina
     return distance <= GRAPPLE_DISTANCE && stamina >= GRAPPLE_COST
   }
 
-  // Highlight a building (smooth interpolation)
-  const highlightBuilding = (building: THREE.Mesh, delta: number) => {
-    if (!highlightedBuildings.current.has(building.uuid)) {
-      // Store original material on first highlight
-      const originalMaterial = building.material as THREE.MeshStandardMaterial
-      building.userData.originalEmissive = originalMaterial.emissive.clone()
-      building.userData.originalEmissiveIntensity = originalMaterial.emissiveIntensity || 0
-      highlightedBuildings.current.set(building.uuid, building)
-      highlightIntensities.current.set(building.uuid, 0) // Start at 0
-    }
-    
-    // Smoothly interpolate highlight intensity
-    const currentIntensity = highlightIntensities.current.get(building.uuid) || 0
-    const targetIntensity = 0.8
-    const newIntensity = Math.min(targetIntensity, currentIntensity + HIGHLIGHT_SMOOTH_SPEED * delta)
-    highlightIntensities.current.set(building.uuid, newIntensity)
-    
-    // Apply smooth highlight
-    const material = building.material as THREE.MeshStandardMaterial
-    if (material) {
-      // Blend between original emissive and cyan highlight
-      const originalEmissive = building.userData.originalEmissive || new THREE.Color(0x000000)
-      const highlightColor = new THREE.Color(0x00ffff) // Cyan
-      material.emissive.lerpColors(originalEmissive, highlightColor, newIntensity)
-      material.emissiveIntensity = (building.userData.originalEmissiveIntensity || 0) * (1 - newIntensity) + newIntensity
-    }
-  }
-
-  // Remove highlight from building (smooth fade out)
-  const removeHighlight = (building: THREE.Mesh, delta: number) => {
-    if (!highlightedBuildings.current.has(building.uuid)) return
-    
-    // Smoothly fade out highlight
-    const currentIntensity = highlightIntensities.current.get(building.uuid) || 0
-    if (currentIntensity > 0.01) {
-      const newIntensity = Math.max(0, currentIntensity - HIGHLIGHT_SMOOTH_SPEED * delta)
-      highlightIntensities.current.set(building.uuid, newIntensity)
-      
-      // Apply fade out
-      const material = building.material as THREE.MeshStandardMaterial
-      if (material && building.userData.originalEmissive) {
-        const originalEmissive = building.userData.originalEmissive
-        const highlightColor = new THREE.Color(0x00ffff)
-        material.emissive.lerpColors(originalEmissive, highlightColor, newIntensity)
-        material.emissiveIntensity = (building.userData.originalEmissiveIntensity || 0) * (1 - newIntensity) + newIntensity
-      }
-    } else {
-      // Fully removed, restore original
-      const originalMaterial = building.material as THREE.MeshStandardMaterial
-      if (originalMaterial && building.userData.originalEmissive) {
-        // Copy the original emissive color (don't assign reference)
-        originalMaterial.emissive.copy(building.userData.originalEmissive)
-        originalMaterial.emissiveIntensity = building.userData.originalEmissiveIntensity || 0
-        // Mark material as needing update
-        originalMaterial.needsUpdate = true
-      }
-      highlightedBuildings.current.delete(building.uuid)
-      highlightIntensities.current.delete(building.uuid)
-    }
-  }
-
-  // Release grapple function
+  // Release grapple function with momentum conservation
   const releaseGrapple = useCallback(() => {
-    if (grappleTargetRef.current) {
-      const grappledBuildingId = grappleTargetRef.current.id
-      const buildings = findBuildings()
-      const grappledBuilding = buildings.find(b => b.uuid === grappledBuildingId)
-      if (grappledBuilding) {
-        const material = grappledBuilding.material as THREE.MeshStandardMaterial
-        if (material && grappledBuilding.userData.originalEmissive) {
-          material.emissive.copy(grappledBuilding.userData.originalEmissive)
-          material.emissiveIntensity = grappledBuilding.userData.originalEmissiveIntensity || 0
-          material.needsUpdate = true
+    // Sound effect for grapple release
+    if (wasGrappling.current) {
+      playMovementSound('grappleRetract', 0.6)
+    }
+    
+    // Store momentum before release for conservation
+    if (player && wasGrappling.current) {
+      // Use stored velocity from last frame (tracked in useFrame)
+      if (momentumOnReleaseRef.current) {
+        // Boost momentum for better feel (1.3x multiplier)
+        const momentum = momentumOnReleaseRef.current.clone().multiplyScalar(1.3)
+        setMomentumOnRelease({
+          x: momentum.x,
+          y: momentum.y,
+          z: momentum.z
+        })
+        momentumOnReleaseRef.current.set(0, 0, 0)
+      } else {
+        const grapplePullVelocity = useGameStore.getState().grapplePullVelocity
+        if (grapplePullVelocity) {
+          // Fallback: Estimate velocity from grapple pull direction
+          const momentum = new THREE.Vector3(
+            grapplePullVelocity.x * 0.6,
+            grapplePullVelocity.y * 0.6,
+            grapplePullVelocity.z * 0.6
+          )
+          momentum.multiplyScalar(1.2)
+          setMomentumOnRelease({
+            x: momentum.x,
+            y: momentum.y,
+            z: momentum.z
+          })
         }
-        highlightedBuildings.current.delete(grappledBuildingId)
-        highlightIntensities.current.delete(grappledBuildingId)
       }
     }
+    
+    // Log grapple stop
+    if (wasGrappling.current) {
+      import('../utils/combatLog').then(({ addStatusLog }) => {
+        addStatusLog('Released grapple', '#888888')
+      })
+      wasGrappling.current = false
+    }
+    
     grappleTargetRef.current = null
     setGrappledBuilding(null)
+    setGrapplePullVelocity(null)
     swingAngleRef.current = 0
     angularVelocityRef.current = 0
     ropeLengthRef.current = 0
     initialRopeLengthRef.current = 0
     swingPlaneNormalRef.current = null
     isRetractingRef.current = false
-  }, [])
+    }, [setGrapplePullVelocity, setMomentumOnRelease, player])
+
+  // Track Alt key state for UI interaction
+  const isAltPressed = useAltKey()
 
   // Handle mouse click for grappling
   useEffect(() => {
     if (!player) return
 
     const handleMouseDown = (e: MouseEvent) => {
+      // Don't handle clicks when Alt is held (user wants to interact with UI)
+      if (isAltPressed) return
+      
       // Only handle left click
       if (e.button !== 0) return
       
@@ -173,28 +166,38 @@ export default function BuildingGrappleSystem() {
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1
       
       raycaster.setFromCamera(mouse, camera)
-      const intersects = raycaster.intersectObjects(findBuildings(), true)
+      // Find all objects in scene (not just buildings)
+      const allObjects: THREE.Object3D[] = []
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh && !obj.userData.isPlayer && !obj.userData.isUI && obj.userData.isGrappleable !== false) {
+          allObjects.push(obj)
+        }
+      })
+      const intersects = raycaster.intersectObjects(allObjects, true)
       
       if (intersects.length > 0) {
         const hit = intersects[0]
-        const building = hit.object as THREE.Mesh
+        const obj = hit.object as THREE.Mesh
         
-        if (building.userData.isBuilding && checkGrappleable(building)) {
-          const buildingPos = new THREE.Vector3()
-          building.getWorldPosition(buildingPos)
-          
-          // Get building height from userData
-          const buildingHeight = building.userData.buildingHeight || 10
-          buildingPos.y = buildingHeight / 2 // Grapple to middle of building
+        // Use the hit point directly (any point on wall/object surface)
+        const targetPos = hit.point.clone()
+        
+        // Check cooldown before grappling
+        if (isOnCooldown(GRAPPLE_ACTION_ID)) {
+          return
+        }
+        
+        // Check if hit point is within range
+        if (checkGrappleable(targetPos)) {
           
           // Calculate initial rope length and swing parameters
           const playerPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
-          const initialDistance = playerPos.distanceTo(buildingPos)
+          const initialDistance = playerPos.distanceTo(targetPos)
           initialRopeLengthRef.current = initialDistance
           ropeLengthRef.current = initialDistance
           
           // Calculate swing plane normal (perpendicular to gravity and initial direction)
-          const initialDirection = new THREE.Vector3().subVectors(buildingPos, playerPos).normalize()
+          const initialDirection = new THREE.Vector3().subVectors(targetPos, playerPos).normalize()
           const gravityDir = new THREE.Vector3(0, -1, 0)
           swingPlaneNormalRef.current = new THREE.Vector3().crossVectors(initialDirection, gravityDir).normalize()
           if (swingPlaneNormalRef.current.length() < 0.1) {
@@ -210,17 +213,26 @@ export default function BuildingGrappleSystem() {
           
           // Start grapple
           grappleTargetRef.current = {
-            id: building.uuid,
-            position: buildingPos
+            id: obj.uuid,
+            position: targetPos
           }
           
           // Consume stamina
           consumeStamina(GRAPPLE_COST)
           
+          // Haptic feedback for grapple
+          hapticManager.grapple()
+          
+          // Sound effect for grapple deployment
+          playMovementSound('grappleDeploy', 0.8)
+          
+          // Start cooldown
+          startCooldown(GRAPPLE_ACTION_ID, COOLDOWN_GRAPPLE * 1000)
+          
           if (import.meta.env.DEV) {
-            console.log('🎯 Grappling to building:', {
-              buildingId: building.uuid,
-              targetPos: buildingPos.toArray(),
+            console.log('🎯 Grappling to object:', {
+              objectId: obj.uuid,
+              targetPos: targetPos.toArray(),
               initialRopeLength: initialRopeLengthRef.current,
               initialAngle: swingAngleRef.current,
               stamina: stamina
@@ -236,11 +248,19 @@ export default function BuildingGrappleSystem() {
 
     // Handle retraction and release
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Shift + Space: retract grapple (hold to pull up)
-      if ((e.shiftKey && e.code === 'Space') && grappleTargetRef.current) {
+      // Only handle Space key when grappling
+      if (!grappleTargetRef.current || e.code !== 'Space') return
+      
+      // Shift + Space: retract grapple (hold to pull up) - check this first
+      if (e.shiftKey) {
         isRetractingRef.current = true
         e.preventDefault()
+        return
       }
+      
+      // Space (without Shift): release grapple
+      releaseGrapple()
+      e.preventDefault()
     }
 
     const handleRightClick = (e: MouseEvent) => {
@@ -271,41 +291,50 @@ export default function BuildingGrappleSystem() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [camera, raycaster, player, stamina, consumeStamina, releaseGrapple])
+  }, [camera, raycaster, player, stamina, consumeStamina, releaseGrapple, setGrapplePullVelocity, isAltPressed])
 
-  // Update building highlights and handle grappling
+  // Handle grappling
   useFrame((_, delta) => {
     if (!player) return
 
-    const buildings = findBuildings()
-    const playerPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
-    
-    // Check each building for highlighting (with smooth interpolation)
-    let foundGrappleable = false
-    buildings.forEach((building) => {
-      const buildingPos = new THREE.Vector3()
-      building.getWorldPosition(buildingPos)
-      const distance = playerPos.distanceTo(buildingPos)
-      
-      if (distance <= HIGHLIGHT_DISTANCE && checkGrappleable(building)) {
-        highlightBuilding(building, delta)
-        foundGrappleable = true
-      } else {
-        // Remove highlight if building is too far or not grappleable
-        // Also remove highlight if this building is currently being grappled
-        const isCurrentlyGrappled = grappleTargetRef.current?.id === building.uuid
-        if (!isCurrentlyGrappled) {
-          removeHighlight(building, delta)
-        }
-      }
-    })
-    
-    setCanGrapple(foundGrappleable)
+    // Track velocity for momentum conservation
+    const currentPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
+    if (grappleTargetRef.current) {
+      // Calculate velocity from position change
+      const velocity = new THREE.Vector3().subVectors(
+        currentPos,
+        lastVelocityRef.current
+      ).divideScalar(delta || 0.016)
+      momentumOnReleaseRef.current = velocity.clone()
+    }
+    lastVelocityRef.current.copy(currentPos)
 
-    // Handle active grapple with physics-based swinging
+    // Note: Grapple availability is now checked by GrappleIndicator component
+    // This check is kept for backward compatibility but is less accurate
+    const objects = findGrappleableObjects()
+    setCanGrapple(objects.length > 0 && stamina >= GRAPPLE_COST)
+
+    // Handle active grapple with velocity-based pulling
     if (grappleTargetRef.current && initialRopeLengthRef.current > 0) {
       const attachmentPoint = grappleTargetRef.current.position
       const currentPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z)
+      
+      // Calculate direction from player to attachment point (pull direction)
+      const pullDirection = new THREE.Vector3().subVectors(attachmentPoint, currentPos)
+      const distanceToTarget = pullDirection.length()
+      
+      // Auto-release if player is very close to target
+      if (distanceToTarget < GRAPPLE_RELEASE_DISTANCE) {
+        // Log grapple stop
+        if (wasGrappling.current) {
+          import('../utils/combatLog').then(({ addStatusLog }) => {
+            addStatusLog('Reached grapple target', '#00ff88')
+          })
+          wasGrappling.current = false
+        }
+        releaseGrapple()
+        return
+      }
       
       // Handle retraction (player pulling themselves up)
       if (isRetractingRef.current && ropeLengthRef.current > MIN_ROPE_LENGTH) {
@@ -320,161 +349,60 @@ export default function BuildingGrappleSystem() {
         ropeLengthRef.current = currentRopeLength
       }
       
-      // Calculate direction from attachment point to player
-      const ropeDirection = new THREE.Vector3().subVectors(currentPos, attachmentPoint)
-      const distance = ropeDirection.length()
+      // Calculate pull acceleration towards grapple point
+      // Pull strength increases with distance (stronger pull when farther away)
+      const normalizedDistance = Math.min(1, distanceToTarget / GRAPPLE_MAX_PULL_DISTANCE)
+      const pullStrength = GRAPPLE_PULL_STRENGTH * (1 + normalizedDistance * 0.5) // 1x to 1.5x strength
       
-      // Normalize rope direction
-      if (distance > 0.01) {
-        ropeDirection.normalize()
+      // Normalize pull direction
+      if (distanceToTarget > 0.01) {
+        pullDirection.normalize()
       } else {
-        ropeDirection.set(0, -1, 0) // Default to straight down
+        pullDirection.set(0, 1, 0) // Default upward if too close
       }
       
-      // Calculate swing angle from vertical
-      const vertical = new THREE.Vector3(0, -1, 0)
-      const angle = Math.acos(Math.max(-1, Math.min(1, ropeDirection.dot(vertical))))
-      swingAngleRef.current = angle
+      // Calculate pull acceleration (units per second squared)
+      // This will be applied to velocity in the movement system
+      const pullAcceleration = pullDirection.multiplyScalar(pullStrength)
       
-      // Pendulum physics: θ'' = -(g/L) * sin(θ) - damping * θ'
-      const L = ropeLengthRef.current
-      if (L > 0.1) {
-        // Angular acceleration due to gravity
-        const angularAcceleration = -(GRAVITY / L) * Math.sin(swingAngleRef.current)
-        
-        // Apply damping
-        angularVelocityRef.current *= DAMPING
-        
-        // Update angular velocity
-        angularVelocityRef.current += angularAcceleration * delta
-        
-        // Clamp angular velocity to prevent excessive speeds
-        const MAX_ANGULAR_VELOCITY = 10
-        angularVelocityRef.current = Math.max(-MAX_ANGULAR_VELOCITY, Math.min(MAX_ANGULAR_VELOCITY, angularVelocityRef.current))
-        
-        // Update swing angle
-        swingAngleRef.current += angularVelocityRef.current * delta
-        
-        // Clamp swing angle to prevent going too far
-        swingAngleRef.current = Math.max(-MAX_SWING_ANGLE, Math.min(MAX_SWING_ANGLE, swingAngleRef.current))
-      }
+      // Store pull acceleration for movement system to apply
+      setGrapplePullVelocity({
+        x: pullAcceleration.x,
+        y: pullAcceleration.y,
+        z: pullAcceleration.z
+      })
       
-      // Calculate new position based on swing physics
-      // Position = attachmentPoint + ropeLength * direction(angle)
-      const swingDirection = new THREE.Vector3()
+      // Update grappled object state
+      setGrappledBuilding({
+        id: grappleTargetRef.current.id,
+        position: { x: attachmentPoint.x, y: attachmentPoint.y, z: attachmentPoint.z }
+      })
       
-      // Calculate direction in swing plane
-      if (swingPlaneNormalRef.current) {
-        // Create a vector perpendicular to both vertical and plane normal
-        const vertical = new THREE.Vector3(0, -1, 0)
-        const right = new THREE.Vector3().crossVectors(vertical, swingPlaneNormalRef.current).normalize()
-        
-        // Calculate direction based on swing angle
-        swingDirection.copy(vertical).multiplyScalar(-Math.cos(swingAngleRef.current))
-        swingDirection.addScaledVector(right, Math.sin(swingAngleRef.current))
-        swingDirection.normalize()
-      } else {
-        // Fallback: use simple vertical + horizontal component
-        swingDirection.set(
-          Math.sin(swingAngleRef.current),
-          -Math.cos(swingAngleRef.current),
-          0
-        ).normalize()
-      }
-      
-      // Calculate new position
-      const newPos = attachmentPoint.clone().add(swingDirection.multiplyScalar(ropeLengthRef.current))
-      
-      // Cap maximum grapple height to prevent launching too high (max 50 units above ground)
-      const MAX_GRAPPLE_HEIGHT = 50
-      if (newPos.y > MAX_GRAPPLE_HEIGHT) {
-        newPos.y = MAX_GRAPPLE_HEIGHT
-        // If we hit the height cap, cancel grapple
-        if (grappleTargetRef.current) {
-          const grappledBuildingId = grappleTargetRef.current.id
-          const buildings = findBuildings()
-          const grappledBuilding = buildings.find(b => b.uuid === grappledBuildingId)
-          if (grappledBuilding) {
-            const material = grappledBuilding.material as THREE.MeshStandardMaterial
-            if (material && grappledBuilding.userData.originalEmissive) {
-              material.emissive.copy(grappledBuilding.userData.originalEmissive)
-              material.emissiveIntensity = grappledBuilding.userData.originalEmissiveIntensity || 0
-              material.needsUpdate = true
-            }
-            highlightedBuildings.current.delete(grappledBuildingId)
-            highlightIntensities.current.delete(grappledBuildingId)
-          }
-        }
-        grappleTargetRef.current = null
-        setGrappledBuilding(null)
-        swingAngleRef.current = 0
-        angularVelocityRef.current = 0
-        ropeLengthRef.current = 0
-        initialRopeLengthRef.current = 0
-        swingPlaneNormalRef.current = null
-      } else {
-        // Update player position
-        updatePlayerPosition({
-          x: newPos.x,
-          y: newPos.y,
-          z: newPos.z
+      // Log grapple start
+      if (!wasGrappling.current) {
+        import('../utils/combatLog').then(({ addStatusLog }) => {
+          addStatusLog('Grappled to object', '#00ffff')
         })
-        
-        // Update grappled building state
-        if (grappleTargetRef.current) {
-          setGrappledBuilding({
-            id: grappleTargetRef.current.id,
-            position: { x: attachmentPoint.x, y: attachmentPoint.y, z: attachmentPoint.z }
-          })
-        }
+        wasGrappling.current = true
       }
     } else if (grappleTargetRef.current) {
       // Clean up if grapple target exists but physics not initialized
-      const grappledBuildingId = grappleTargetRef.current.id
-      const buildings = findBuildings()
-      const grappledBuilding = buildings.find(b => b.uuid === grappledBuildingId)
-      if (grappledBuilding) {
-        const material = grappledBuilding.material as THREE.MeshStandardMaterial
-        if (material && grappledBuilding.userData.originalEmissive) {
-          material.emissive.copy(grappledBuilding.userData.originalEmissive)
-          material.emissiveIntensity = grappledBuilding.userData.originalEmissiveIntensity || 0
-          material.needsUpdate = true
-        }
-        highlightedBuildings.current.delete(grappledBuildingId)
-        highlightIntensities.current.delete(grappledBuildingId)
+      // Log grapple stop
+      if (wasGrappling.current) {
+        import('../utils/combatLog').then(({ addStatusLog }) => {
+          addStatusLog('Grapple ended', '#888888')
+        })
+        wasGrappling.current = false
       }
       grappleTargetRef.current = null
       setGrappledBuilding(null)
+      setGrapplePullVelocity(null)
+    } else {
+      // No active grapple - clear pull velocity
+      setGrapplePullVelocity(null)
     }
   })
 
-  // Cleanup highlights on unmount
-  useEffect(() => {
-    return () => {
-      highlightedBuildings.current.forEach((building) => {
-        const originalMaterial = building.material as THREE.MeshStandardMaterial
-        if (originalMaterial && building.userData.originalEmissive && typeof building.userData.originalEmissive.copy === 'function') {
-          // Copy the original emissive color (don't assign reference)
-          // Only copy if originalEmissive is a valid THREE.Color object with copy method
-          try {
-            originalMaterial.emissive.copy(building.userData.originalEmissive)
-            originalMaterial.emissiveIntensity = building.userData.originalEmissiveIntensity || 0
-            originalMaterial.needsUpdate = true
-          } catch (error) {
-            // Fallback: set emissive to black if copy fails
-            if (import.meta.env.DEV) {
-              console.warn('Failed to restore building emissive color:', error)
-            }
-            originalMaterial.emissive.set(0, 0, 0)
-            originalMaterial.emissiveIntensity = 0
-            originalMaterial.needsUpdate = true
-          }
-        }
-      })
-      highlightedBuildings.current.clear()
-      highlightIntensities.current.clear()
-    }
-  }, [])
 
   // Get grapple line positions
   const grappledBuilding = useGameStore((s) => s.grappledBuilding)
@@ -493,7 +421,7 @@ export default function BuildingGrappleSystem() {
         player.position.z
       )
       
-      // End position: grappled building position (attachment point)
+      // End position: grappled object position (attachment point)
       const attachmentPoint = grappleTargetRef.current.position
       grappleEnd.current.set(
         attachmentPoint.x,

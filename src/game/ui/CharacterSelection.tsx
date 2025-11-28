@@ -5,9 +5,10 @@
 
 import { useState, useEffect } from 'react'
 import { useGameStore } from '../store/useGameStore'
-import { listCharacters, getCharacterCount, CharacterSummary } from '../utils/characterApi'
+import { listCharacters, getCharacterCount, loadCharacter, CharacterSummary } from '../utils/characterApi'
 import { Race } from '../types'
 import { RACES } from '../data/races'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface CharacterSelectionProps {
   firebaseUid: string
@@ -16,6 +17,7 @@ interface CharacterSelectionProps {
 }
 
 export default function CharacterSelection({ firebaseUid, onSelectCharacter, onCreateNew }: CharacterSelectionProps) {
+  const { t } = useTranslation()
   const [characters, setCharacters] = useState<CharacterSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string>('')
@@ -45,7 +47,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
       console.error('Failed to load characters:', err)
       // Connection refused means server isn't running - that's okay, we'll show create new
       if (err.message?.includes('CONNECTION_REFUSED') || err.message?.includes('Failed to fetch')) {
-        setError('Server is not available. You can still create a new character.')
+        setError(t('characterSelection.serverUnavailableMessage'))
         setCharacters([])
         setCharacterCount({
           count: 0,
@@ -53,7 +55,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
           canCreateMore: true
         })
       } else {
-        setError(err.message || 'Failed to load characters. Please try again.')
+        setError(err.message || t('characterSelection.failedToLoadCharacters'))
       }
     } finally {
       setIsLoading(false)
@@ -63,7 +65,6 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
   const handleSelectCharacter = async (character: CharacterSummary) => {
     try {
       // Load full character data from server
-      const { loadCharacter } = await import('../utils/characterApi')
       const fullCharacter = await loadCharacter(character.id)
       
       // Set a minimal player object - server will provide full data when joining
@@ -88,7 +89,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
       onSelectCharacter(character.id)
     } catch (error: any) {
       console.error('Failed to load character:', error)
-      setError(error.message || 'Failed to load character. Please try again.')
+      setError(error.message || t('characterSelection.failedToLoadCharacter'))
     }
   }
 
@@ -107,7 +108,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
       <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500 mx-auto mb-4"></div>
-          <p className="text-orange-500">Loading characters...</p>
+          <p className="text-orange-500">{t('characterSelection.loadingCharacters')}</p>
         </div>
       </div>
     )
@@ -117,23 +118,28 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
     <div className="fixed inset-0 bg-black flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-gray-900 border-2 rounded-lg p-6 max-w-4xl w-full neon-border" style={{ borderColor: '#ff6b35' }}>
         <h1 className="text-3xl font-bold text-orange-500 neon-glow mb-2 text-center" style={{ color: '#ff6b35' }}>
-          MARS://NEXUS
+          {t('app.title')}
         </h1>
-        <h2 className="text-xl mb-6 text-center" style={{ color: '#ff8c42' }}>Select Character</h2>
+        <h2 className="text-xl mb-6 text-center" style={{ color: '#ff8c42' }}>{t('characterSelection.title')}</h2>
 
         {error && (
           <div className="mb-4 p-3 bg-yellow-900 border border-yellow-500 rounded text-yellow-200">
-            <p className="font-bold mb-1">⚠️ Server Unavailable</p>
+            <p className="font-bold mb-1">{t('characterSelection.serverUnavailable')}</p>
             <p className="text-sm">{error}</p>
             <p className="text-xs mt-2 text-yellow-300">
-              You can still create a new character. It will be saved when the server is available.
+              {t('characterSelection.serverUnavailableSubtext')}
             </p>
+            {import.meta.env.DEV && (
+              <p className="text-xs mt-2 text-yellow-400 font-mono">
+                💡 To start the server: cd server && npm run dev
+              </p>
+            )}
           </div>
         )}
 
         {characterCount && !error && (
           <div className="mb-4 text-center text-gray-400 text-sm">
-            Characters: {characterCount.count} / {characterCount.max}
+            {t('characterSelection.characters')}: {characterCount.count} / {characterCount.max}
           </div>
         )}
 
@@ -160,13 +166,13 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
                       <p className="text-sm text-gray-400 capitalize">{character.race}</p>
                     </div>
                     <div className="text-right">
-                      <div className="text-orange-500 font-bold">Lv.{character.level}</div>
+                      <div className="text-orange-500 font-bold">{t('characterSelection.levelShort')}{character.level}</div>
                     </div>
                   </div>
                   
                   <div className="text-xs text-gray-500 mt-2">
-                    <div>Last played: {formatDate(character.lastLogin)}</div>
-                    <div>Created: {formatDate(character.createdAt)}</div>
+                    <div>{t('characterSelection.lastPlayed')} {formatDate(character.lastLogin)}</div>
+                    <div>{t('characterSelection.created')} {formatDate(character.createdAt)}</div>
                   </div>
                 </button>
               )
@@ -174,7 +180,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
           </div>
         ) : (
           <div className="mb-6 text-center text-gray-400 py-8">
-            <p>No characters found. Create your first character to begin!</p>
+            <p>{t('characterSelection.noCharactersFound')}</p>
           </div>
         )}
 
@@ -186,7 +192,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
               className="px-6 py-2 border-2 rounded-lg transition-all"
               style={{ borderColor: '#ff6b35', color: '#ff8c42' }}
             >
-              Refresh
+              {t('characterSelection.refresh')}
             </button>
           )}
           
@@ -200,7 +206,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
                 color: '#ffffff'
               }}
             >
-              Create New Character
+              {t('characterSelection.createNewCharacter')}
             </button>
           )}
           
@@ -208,7 +214,7 @@ export default function CharacterSelection({ firebaseUid, onSelectCharacter, onC
             <div className="px-6 py-3 border-2 rounded-lg text-center"
               style={{ borderColor: '#666', color: '#999' }}
             >
-              Character limit reached ({characterCount.max} characters)
+              {t('characterSelection.characterLimitReached', { max: characterCount.max })}
             </div>
           )}
         </div>

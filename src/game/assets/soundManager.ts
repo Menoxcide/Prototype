@@ -54,11 +54,14 @@ class SoundManager {
         }
         break
       case 'spell':
-        // Magical whoosh
+        // Magical whoosh / cyberpunk tech sound
         for (let i = 0; i < frameCount; i++) {
           const t = i / sampleRate
           const freq = 300 + t * 200
-          data[i] = Math.sin(2 * Math.PI * freq * t) * Math.exp(-t * 3) * 0.6
+          // Add cyberpunk flavor with harmonics
+          data[i] = (Math.sin(2 * Math.PI * freq * t) * 0.6 +
+                     Math.sin(2 * Math.PI * freq * 2 * t) * 0.3 +
+                     Math.sin(2 * Math.PI * freq * 3 * t) * 0.1) * Math.exp(-t * 3) * 0.6
         }
         break
       case 'pickup':

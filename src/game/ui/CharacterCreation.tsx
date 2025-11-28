@@ -83,7 +83,7 @@ export default function CharacterCreation({ firebaseUid: _firebaseUid, onComplet
     <div className="fixed inset-0 bg-black flex items-start justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-gray-900 border-2 rounded-lg p-6 max-w-md w-full neon-border my-4" style={{ borderColor: '#ff6b35' }}>
         <h1 className="text-3xl font-bold text-orange-500 neon-glow mb-6 text-center" style={{ color: '#ff6b35' }}>
-          MARS://NEXUS
+          {t('app.title')}
         </h1>
         <h2 className="text-xl mb-4 text-center" style={{ color: '#ff8c42' }}>{t('character.createTitle')}</h2>
 

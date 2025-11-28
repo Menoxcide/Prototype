@@ -5,6 +5,9 @@
 
 import * as THREE from 'three'
 import { modelLoader } from './modelLoader'
+import { isMobileDevice, getMobileOptimizationFlags } from '../utils/mobileOptimizations'
+import { getPooledTexture, releasePooledTexture } from '../utils/texturePool'
+import { materialPool } from '../utils/materialBatching'
 
 export interface AssetDefinition {
   id: string
@@ -38,9 +41,9 @@ class AssetManager {
   private materialRefs: Map<string, number> = new Map()
   private soundRefs: Map<string, number> = new Map()
   
-  // Unused asset cleanup
+  // Unused asset cleanup - aggressive timeout to prevent memory buildup
   private unusedAssetCheckInterval: NodeJS.Timeout | null = null
-  private readonly UNUSED_ASSET_TIMEOUT = 60000 // 60 seconds
+  private readonly UNUSED_ASSET_TIMEOUT = 30000 // 30 seconds (reduced from 60 to prevent memory buildup)
   private lastUsedTime: Map<string, number> = new Map()
   
   /**
@@ -115,23 +118,29 @@ class AssetManager {
     
     generator(ctx)
     
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.needsUpdate = true
+    // Use texture pool for efficient reuse
+    const texture = getPooledTexture(id, () => {
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.needsUpdate = true
+      
+      // Texture optimization settings
+      tex.generateMipmaps = options?.generateMipmaps !== false
+      tex.minFilter = options?.minFilter || (tex.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter)
+      tex.magFilter = (options?.magFilter as THREE.MagnificationTextureFilter) || THREE.LinearFilter
+      tex.anisotropy = options?.anisotropy || (quality === 'high' ? 16 : quality === 'medium' ? 8 : 4)
+      
+      // Compression hints (WebGL will use these if supported)
+      tex.format = THREE.RGBAFormat
+      tex.type = THREE.UnsignedByteType
+      
+      // Set wrap mode for better tiling
+      tex.wrapS = THREE.RepeatWrapping
+      tex.wrapT = THREE.RepeatWrapping
+      
+      return tex
+    })
     
-    // Texture optimization settings
-    texture.generateMipmaps = options?.generateMipmaps !== false
-    texture.minFilter = options?.minFilter || (texture.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter)
-    texture.magFilter = (options?.magFilter as THREE.MagnificationTextureFilter) || THREE.LinearFilter
-    texture.anisotropy = options?.anisotropy || (quality === 'high' ? 16 : quality === 'medium' ? 8 : 4)
-    
-    // Compression hints (WebGL will use these if supported)
-    texture.format = THREE.RGBAFormat
-    texture.type = THREE.UnsignedByteType
-    
-    // Set wrap mode for better tiling
-    texture.wrapS = THREE.RepeatWrapping
-    texture.wrapT = THREE.RepeatWrapping
-    
+    // Also track in asset manager for compatibility
     this.textures.set(id, texture)
     this.textureRefs.set(id, 1)
     this.lastUsedTime.set(id, Date.now())
@@ -203,12 +212,17 @@ class AssetManager {
 
       const img = new Image()
       img.onload = () => {
-        const texture = new THREE.Texture(img)
-        texture.needsUpdate = true
-        texture.generateMipmaps = true
-        texture.minFilter = THREE.LinearMipmapLinearFilter
-        texture.magFilter = THREE.LinearFilter
+        // Use texture pool for efficient reuse
+        const texture = getPooledTexture(id, () => {
+          const tex = new THREE.Texture(img)
+          tex.needsUpdate = true
+          tex.generateMipmaps = true
+          tex.minFilter = THREE.LinearMipmapLinearFilter
+          tex.magFilter = THREE.LinearFilter
+          return tex
+        })
         
+        // Also track in asset manager for compatibility
         this.textures.set(id, texture)
         this.textureRefs.set(id, 1)
         this.lastUsedTime.set(id, Date.now())
@@ -219,6 +233,42 @@ class AssetManager {
     })
   }
   
+  /**
+   * Load texture from path
+   */
+  async loadTexture(id: string, path: string): Promise<THREE.Texture> {
+    if (this.textures.has(id)) {
+      this.incrementTextureRef(id)
+      return this.textures.get(id)!
+    }
+
+    return new Promise((resolve, reject) => {
+      const loader = new THREE.TextureLoader()
+      loader.load(
+        path,
+        (texture) => {
+          texture.flipY = false
+          texture.generateMipmaps = true
+          texture.minFilter = THREE.LinearMipmapLinearFilter
+          texture.magFilter = THREE.LinearFilter
+          
+          // Use texture pool for efficient reuse
+          const pooledTexture = getPooledTexture(id, () => texture)
+          
+          // Also track in asset manager for compatibility
+          this.textures.set(id, pooledTexture)
+          this.textureRefs.set(id, 1)
+          this.lastUsedTime.set(id, Date.now())
+          resolve(pooledTexture)
+        },
+        undefined,
+        (error) => {
+          reject(new Error(`Failed to load texture from ${path}: ${error}`))
+        }
+      )
+    })
+  }
+
   /**
    * Increment texture reference count
    */
@@ -238,6 +288,8 @@ class AssetManager {
     } else {
       // Last reference - mark for potential cleanup
       this.textureRefs.set(id, 0)
+      // Release from texture pool
+      releasePooledTexture(id)
     }
   }
 
@@ -387,7 +439,7 @@ class AssetManager {
       this.incrementMaterialRef(id)
       return this.materials.get(id) as THREE.MeshStandardMaterial
     }
-
+    
     const materialOptions: Record<string, unknown> = {
       color: baseColor,
       emissive: emissiveColor || baseColor,
@@ -436,12 +488,16 @@ class AssetManager {
       materialOptions.sheenRoughness = options?.sheenRoughness || 0.5
     }
     
-    const material = new THREE.MeshStandardMaterial(materialOptions)
+    // Use material pool for efficient reuse
+    const material = materialPool.getMaterial(id, () => {
+      return new THREE.MeshStandardMaterial(materialOptions)
+    })
 
+    // Also track in asset manager for compatibility
     this.materials.set(id, material)
     this.materialRefs.set(id, 1)
     this.lastUsedTime.set(id, Date.now())
-    return material
+    return material as THREE.MeshStandardMaterial
   }
   
   /**
@@ -508,6 +564,8 @@ class AssetManager {
       this.materialRefs.set(id, current - 1)
     } else {
       this.materialRefs.set(id, 0)
+      // Release from material pool
+      materialPool.releaseMaterial(id)
     }
   }
 
@@ -546,15 +604,14 @@ class AssetManager {
       this.cleanupUnusedAssets()
       
       // If memory is high, perform more aggressive cleanup
-      try {
-        const { memoryMonitor } = require('../utils/memoryMonitor')
+      import('../utils/memoryMonitor').then(({ memoryMonitor }) => {
         if (memoryMonitor.checkMemoryThreshold(1500)) { // 1.5GB threshold
           // More aggressive cleanup when memory is high
           this.cleanupUnusedAssets(true)
         }
-      } catch (e) {
+      }).catch(() => {
         // Memory monitor not available, continue with normal cleanup
-      }
+      })
     }, interval)
   }
   
@@ -572,7 +629,7 @@ class AssetManager {
    * Cleanup unused assets
    * @param aggressive If true, uses shorter timeout for more aggressive cleanup
    */
-  private cleanupUnusedAssets(aggressive: boolean = false): void {
+  public cleanupUnusedAssets(aggressive: boolean = false): void {
     const now = Date.now()
     const timeout = aggressive ? this.UNUSED_ASSET_TIMEOUT / 2 : this.UNUSED_ASSET_TIMEOUT
     const toRemove: string[] = []
@@ -668,6 +725,93 @@ class AssetManager {
   }
 
   /**
+   * Load biome-specific asset
+   */
+  async loadBiomeAsset(
+    biome: string,
+    category: string,
+    name: string,
+    options?: {
+      scale?: number
+      onProgress?: (progress: number) => void
+    }
+  ): Promise<THREE.Group | THREE.Object3D> {
+    const assetId = `biome-${biome}-${category}-${name}`
+    const assetPath = `/assets/models/biomes/${biome}/${category}/${name}.glb`
+    return this.loadModel(assetId, assetPath, options)
+  }
+
+  /**
+   * Load prop asset
+   */
+  async loadProp(
+    name: string,
+    category: string = 'sci-fi',
+    options?: {
+      scale?: number
+      onProgress?: (progress: number) => void
+    }
+  ): Promise<THREE.Group | THREE.Object3D> {
+    const assetId = `prop-${category}-${name}`
+    const assetPath = `/assets/models/props/${category}/${name}.glb`
+    return this.loadModel(assetId, assetPath, options)
+  }
+
+  /**
+   * Load biome texture
+   */
+  async loadBiomeTexture(
+    biome: string,
+    textureName: string,
+    mapType: 'diffuse' | 'normal' | 'roughness' | 'metallic' | 'ao' = 'diffuse'
+  ): Promise<THREE.Texture> {
+    const textureId = `biome-texture-${biome}-${textureName}-${mapType}`
+    const texturePath = `/assets/textures/${biome}/${textureName}/${textureName}_${mapType}.jpg`
+    return this.loadTexture(textureId, texturePath)
+  }
+
+  /**
+   * Get available assets for a biome (from registry)
+   */
+  async getAvailableBiomeAssets(biome: string): Promise<{
+    floor: string[]
+    walls: string[]
+    columns: string[]
+    roof: string[]
+    doors: string[]
+    stairs: string[]
+    props: string[]
+  }> {
+    try {
+      const response = await fetch('/assets/models/ASSET_REGISTRY.json')
+      const registry = await response.json()
+      
+      const biomeAssets = registry.assets.filter((asset: any) => asset.biome === biome)
+      
+      return {
+        floor: biomeAssets.filter((a: any) => a.category === 'floor').map((a: any) => a.name),
+        walls: biomeAssets.filter((a: any) => a.category === 'walls').map((a: any) => a.name),
+        columns: biomeAssets.filter((a: any) => a.category === 'columns').map((a: any) => a.name),
+        roof: biomeAssets.filter((a: any) => a.category === 'roof').map((a: any) => a.name),
+        doors: biomeAssets.filter((a: any) => a.category === 'doors').map((a: any) => a.name),
+        stairs: biomeAssets.filter((a: any) => a.category === 'stairs').map((a: any) => a.name),
+        props: biomeAssets.filter((a: any) => a.category === 'props').map((a: any) => a.name)
+      }
+    } catch (error) {
+      console.warn('Failed to load asset registry:', error)
+      return {
+        floor: [],
+        walls: [],
+        columns: [],
+        roof: [],
+        doors: [],
+        stairs: [],
+        props: []
+      }
+    }
+  }
+
+  /**
    * Get asset usage statistics
    */
   getAssetStats(): {
@@ -736,7 +880,7 @@ class AssetManager {
     })
     
     // Create texture atlas for common textures (especially important on mobile)
-    const { isMobileDevice } = await import('../utils/mobileOptimizations')
+    // isMobileDevice is imported at the top
     if (isMobileDevice()) {
       await this.createTextureAtlas()
     }
@@ -751,7 +895,7 @@ class AssetManager {
    */
   private async createTextureAtlas(): Promise<void> {
     const { textureAtlasManager } = await import('../utils/textureAtlas')
-    const { getMobileOptimizationFlags } = await import('../utils/mobileOptimizations')
+    // getMobileOptimizationFlags is imported at the top
     
     const mobileFlags = getMobileOptimizationFlags()
     

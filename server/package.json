@@ -1,5 +1,5 @@
 {
-  "name": "nex-void-server",
+  "name": "mars-nexus-server",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
@@ -31,7 +31,7 @@
     "@types/express": "^5.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
-    "esbuild": "^0.24.2",
+    "esbuild": "^0.27.0",
     "jest": "^30.2.0",
     "patch-package": "^8.0.1",
     "postinstall-postinstall": "^2.1.0",
@@ -40,6 +40,7 @@
     "typescript": "^5.9.3"
   },
   "overrides": {
-    "nanoid": "^5.1.6"
+    "nanoid": "^5.1.6",
+    "glob": "^10.0.0"
   }
 }

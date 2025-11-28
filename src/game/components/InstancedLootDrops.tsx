@@ -9,6 +9,7 @@ import * as THREE from 'three'
 import { trackGeometry, getGeometryDisposalTracker } from '../utils/geometryDisposalTracker'
 import { LootDrop } from '../types'
 import { getPooledGeometry, releasePooledGeometry } from '../utils/geometryPool'
+import { materialPool } from '../utils/materialBatching'
 
 interface InstancedLootDropsProps {
   lootDrops: Map<string, LootDrop>
@@ -20,19 +21,23 @@ export default function InstancedLootDrops({ lootDrops }: InstancedLootDropsProp
 
   // Create geometry and material once (using geometry pool)
   const geometry = useMemo(() => {
-    const geom = getPooledGeometry('loot-cylinder', () => new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8))
-    // Track geometry for disposal monitoring (only once)
-    if (!geometryTrackedRef.current) {
-      trackGeometry(geom, `instanced-loot-geometry`, 'InstancedLootDrops')
+    return getPooledGeometry('loot-cylinder', () => new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8))
+  }, [])
+  
+  // Track geometry for disposal monitoring (only once, using useEffect to prevent re-tracking on re-renders)
+  useEffect(() => {
+    if (!geometryTrackedRef.current && geometry) {
+      trackGeometry(geometry, `instanced-loot-geometry`, 'InstancedLootDrops')
       geometryTrackedRef.current = true
     }
-    return geom
+  }, [geometry])
+  const material = useMemo(() => {
+    return materialPool.getMaterial('loot-default', () => new THREE.MeshStandardMaterial({
+      color: '#ffff00',
+      emissive: '#ffff00',
+      emissiveIntensity: 0.5
+    }))
   }, [])
-  const material = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#ffff00',
-    emissive: '#ffff00',
-    emissiveIntensity: 0.5
-  }), [])
   
   // Cleanup on unmount
   useEffect(() => {
@@ -42,7 +47,8 @@ export default function InstancedLootDrops({ lootDrops }: InstancedLootDropsProp
       tracker.markDisposed('instanced-loot-geometry')
       // Release geometry back to pool instead of disposing
       releasePooledGeometry('loot-cylinder')
-      material.dispose()
+      // Release material reference (pool handles disposal)
+      materialPool.releaseMaterial('loot-default')
       geometryTrackedRef.current = false
     }
   }, [geometry, material])

@@ -1,22 +1,26 @@
 /**
- * Enhanced Cyberpunk Terrain for NEX://VOID
+ * Enhanced Cyberpunk Terrain for MARS://NEXUS
  * Uses pixel art tilesets from Pixellab for zone-specific terrain
  * Loads progressively: Phase 1 (critical) loads basic terrain, Phase 2 loads enhanced textures
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import * as THREE from 'three'
 import { useGameStore } from '../store/useGameStore'
 import { tilesetLoader } from '../assets/tilesetLoader'
 import { assetManager } from '../assets/assetManager'
 import { progressiveLoader } from '../utils/progressiveLoader'
 import { useLoadingPhase } from '../hooks/useLoadingPhase'
+import { loadingOrchestrator } from '../utils/loadingOrchestrator'
 
 export default function EnhancedTerrain() {
   const player = useGameStore((state) => state.player)
   const currentZoneFromStore = useGameStore((state) => state.currentZone)
   const [_terrainTexture, setTerrainTexture] = useState<THREE.Texture | null>(null)
   const { phase } = useLoadingPhase()
+  
+  // Track registered assets to prevent duplicates (React StrictMode double-invocation)
+  const registeredAssetsRef = useRef<Set<string>>(new Set())
   
   // Determine current zone - prefer store, fallback to player.zone, then default
   const currentZone = currentZoneFromStore || player?.zone || 'nexus_city'
@@ -30,14 +34,19 @@ export default function EnhancedTerrain() {
     const loadBasicTexture = async () => {
       const textureId = `terrain-basic-${currentZone}`
       
-      // Register with progressive loader
-      progressiveLoader.addAsset({
-        id: textureId,
-        type: 'texture',
-        priority: 10, // High priority for Phase 1
-        critical: true,
-        phase: 'phase1'
-      })
+      // Only register if not already registered (prevents React StrictMode duplicates)
+      if (!registeredAssetsRef.current.has(textureId)) {
+        registeredAssetsRef.current.add(textureId)
+        
+        // Register with progressive loader
+        progressiveLoader.addAsset({
+          id: textureId,
+          type: 'texture',
+          priority: 10, // High priority for Phase 1
+          critical: true,
+          phase: 'phase1'
+        })
+      }
 
       try {
         // Try to load tileset texture
@@ -46,6 +55,8 @@ export default function EnhancedTerrain() {
         
         // Mark as loaded
         progressiveLoader.markAssetLoaded(textureId, 'phase1')
+        // Also mark texture feature as loaded in orchestrator
+        loadingOrchestrator.markFeatureLoaded('Textures')
       } catch (error) {
         console.error('Failed to load terrain texture:', error)
         // Fallback to procedural texture (faster, no network)
@@ -73,14 +84,19 @@ export default function EnhancedTerrain() {
     const loadEnhancedTexture = async () => {
       const textureId = `terrain-enhanced-${currentZone}`
       
-      // Register with progressive loader for Phase 2
-      progressiveLoader.addAsset({
-        id: textureId,
-        type: 'texture',
-        priority: 5, // Medium priority for Phase 2
-        critical: false,
-        phase: 'phase2'
-      })
+      // Only register if not already registered (prevents React StrictMode duplicates)
+      if (!registeredAssetsRef.current.has(textureId)) {
+        registeredAssetsRef.current.add(textureId)
+        
+        // Register with progressive loader for Phase 2
+        progressiveLoader.addAsset({
+          id: textureId,
+          type: 'texture',
+          priority: 5, // Medium priority for Phase 2
+          critical: false,
+          phase: 'phase2'
+        })
+      }
 
       try {
         // Try enhanced ground texture

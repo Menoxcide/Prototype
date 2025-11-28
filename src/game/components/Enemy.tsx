@@ -70,6 +70,22 @@ export default function Enemy({ enemy }: EnemyProps) {
     
     return () => {
       if (modelRef.current && groupRef.current) {
+        // Dispose of Three.js resources
+        if (modelRef.current instanceof THREE.Object3D) {
+          // Dispose geometries and materials recursively
+          modelRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              if (child.geometry) child.geometry.dispose()
+              if (child.material) {
+                if (Array.isArray(child.material)) {
+                  child.material.forEach((mat) => mat.dispose())
+                } else {
+                  child.material.dispose()
+                }
+              }
+            }
+          })
+        }
         groupRef.current.remove(modelRef.current)
         modelRef.current = null
       }

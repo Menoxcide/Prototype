@@ -41,7 +41,9 @@ export class SecurityServiceImpl implements SecurityService {
   private playerSuspicionLevels: Map<string, SuspicionLevel> = new Map()
 
   // Configuration
-  private readonly MAX_MOVE_SPEED = GAME_CONFIG.playerSpeed * 1.5 // Allow 50% tolerance
+  // Increased tolerance to 2.5x to account for network latency, packet reordering, and legitimate movement mechanics
+  // Base speed is 5.0, so max allowed is 12.5 units/sec (allows for running, abilities, network jitter)
+  private readonly MAX_MOVE_SPEED = GAME_CONFIG.playerSpeed * 2.5
   private readonly MAX_TELEPORT_DISTANCE = 50 // Max distance for teleport detection
   private readonly ACTION_RATE_LIMIT = 100 // Max actions per minute
   private readonly ACTION_WINDOW_MS = 60000 // 1 minute window
@@ -51,6 +53,10 @@ export class SecurityServiceImpl implements SecurityService {
     high: 10,
     critical: 20
   }
+  // Minimum time delta to prevent false positives from very small deltas (network jitter)
+  private readonly MIN_TIME_DELTA = 0.016 // ~1 frame at 60fps
+  // Maximum reasonable time delta (prevents issues from very old packets)
+  private readonly MAX_TIME_DELTA = 1.0 // 1 second
 
   /**
    * Validate player movement
@@ -63,40 +69,71 @@ export class SecurityServiceImpl implements SecurityService {
   ): boolean {
     const lastPosition = this.playerLastPositions.get(playerId)
     
-    // Calculate distance
+    // Use last validated position as the actual starting point if available
+    // This prevents false positives when multiple movements are rejected
+    const actualFrom = lastPosition ? { x: lastPosition.x, y: lastPosition.y, z: lastPosition.z } : from
+    
+    // Calculate distance from last validated position (or provided from if first movement)
     const distance = Math.sqrt(
-      Math.pow(to.x - from.x, 2) +
-      Math.pow(to.y - from.y, 2) +
-      Math.pow(to.z - from.z, 2)
+      Math.pow(to.x - actualFrom.x, 2) +
+      Math.pow(to.y - actualFrom.y, 2) +
+      Math.pow(to.z - actualFrom.z, 2)
     )
 
-    // Calculate time delta (in seconds)
-    const timeDelta = lastPosition ? (timestamp - lastPosition.timestamp) / 1000 : 0.1
+    // Calculate time delta (in seconds) using server-side timestamp
+    // Use a minimum time delta to prevent false positives from network jitter
+    let timeDelta = lastPosition ? (timestamp - lastPosition.timestamp) / 1000 : 0.1
+    
+    // Handle edge cases:
+    // 1. Very small deltas (< 1 frame) are likely network jitter - use minimum
+    // 2. Very large deltas (> 1 second) are likely packet reordering or connection issues - cap it
+    if (timeDelta < this.MIN_TIME_DELTA && lastPosition) {
+      timeDelta = this.MIN_TIME_DELTA
+    } else if (timeDelta > this.MAX_TIME_DELTA && lastPosition) {
+      // Packet is very old - likely reordered or from a stale connection
+      // Allow it but use the max delta for speed calculation
+      timeDelta = this.MAX_TIME_DELTA
+    }
+    
     const speed = timeDelta > 0 ? distance / timeDelta : 0
 
-    // Check for teleportation
+    // Check for teleportation (always check regardless of time delta)
     if (distance > this.MAX_TELEPORT_DISTANCE) {
       this.logSuspiciousActivity(
         playerId,
         `Teleportation detected: moved ${distance.toFixed(2)} units`,
         'high',
-        { from, to, distance, timestamp }
+        { from: actualFrom, to, distance, timestamp, timeDelta }
       )
       return false
     }
 
     // Check speed limit
-    if (speed > this.MAX_MOVE_SPEED && timeDelta > 0.01) {
-      this.logSuspiciousActivity(
-        playerId,
-        `Speed hack detected: ${speed.toFixed(2)} units/sec (max: ${this.MAX_MOVE_SPEED})`,
-        'medium',
-        { from, to, speed, maxSpeed: this.MAX_MOVE_SPEED, timestamp }
-      )
-      return false
+    // Only check speed if we have a valid time delta and last position
+    // Skip check on first movement (no lastPosition) or if timeDelta is invalid
+    if (lastPosition && timeDelta >= this.MIN_TIME_DELTA && speed > this.MAX_MOVE_SPEED) {
+      // Calculate how much over the limit the speed is
+      const speedOverLimit = speed / this.MAX_MOVE_SPEED
+      
+      // Only reject and log if speed is significantly over limit (more than 50% over)
+      // This reduces false positives from network jitter while still catching actual speed hacks
+      // With MAX_MOVE_SPEED at 12.5, this means we only flag speeds > 18.75 units/sec
+      if (speedOverLimit > 1.5) {
+        this.logSuspiciousActivity(
+          playerId,
+          `Speed hack detected: ${speed.toFixed(2)} units/sec (max: ${this.MAX_MOVE_SPEED.toFixed(2)})`,
+          'medium',
+          { from: actualFrom, to, speed, maxSpeed: this.MAX_MOVE_SPEED, timestamp, timeDelta, speedOverLimit }
+        )
+        return false
+      }
+      
+      // If speed is only moderately over (within 50% of max), allow it
+      // This handles network latency, packet reordering, and legitimate movement variations
+      // The increased MAX_MOVE_SPEED (2.5x base) should cover most legitimate cases
     }
 
-    // Update last position
+    // Update last position with server-side timestamp
     this.playerLastPositions.set(playerId, { x: to.x, y: to.y, z: to.z, timestamp })
 
     return true

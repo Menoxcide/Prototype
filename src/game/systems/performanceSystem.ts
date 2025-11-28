@@ -1,5 +1,6 @@
 import { getPerformanceConfig, isMobile } from '../data/config'
 import { getMobileOptimizationFlags } from '../utils/mobileOptimizations'
+import { getQualitySettings } from '../utils/qualitySettings'
 
 export interface PerformanceSettings {
   maxParticles: number
@@ -63,8 +64,7 @@ export function getLODLevel(distance: number, renderDistance: number): 'high' | 
   const settings = getPerformanceSettings()
   if (!settings.enableLOD) return 'high'
   
-  // Import quality settings for more aggressive LOD based on quality preset
-  const { getQualitySettings } = require('../utils/qualitySettings')
+  // Get quality settings for more aggressive LOD based on quality preset
   const qualitySettings = getQualitySettings()
   
   // Apply mobile-specific LOD multipliers for more aggressive LOD switching

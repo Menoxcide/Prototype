@@ -11,6 +11,7 @@ import {
   getRandomBuildingType, 
   generateBuildingDimensions, 
   getBuildingTextureType,
+  BUILDING_TYPE_CONFIGS,
   type BuildingTypeConfig 
 } from '../assets/buildingTypes'
 
@@ -292,8 +293,6 @@ function getBuildingTypeForZone(
   rng: () => number
 ): BuildingTypeConfig {
   // Filter building configs by zone preference
-  const { BUILDING_TYPE_CONFIGS } = require('../assets/buildingTypes')
-  
   if (zone === 'downtown') {
     // Prefer skyscrapers in downtown
     const downtownBuildings = BUILDING_TYPE_CONFIGS.filter(

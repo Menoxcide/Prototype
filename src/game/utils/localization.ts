@@ -2,7 +2,7 @@
  * Localization System - i18n infrastructure and translation
  */
 
-export type Locale = 'en' | 'es' | 'fr' | 'de' | 'ja' | 'zh' | 'ar' | 'ru'
+export type Locale = 'en' | 'es' | 'fr' | 'de' | 'ja' | 'zh' | 'ar' | 'ru' | 'pt'
 
 export interface Translation {
   [key: string]: string | Translation
@@ -23,6 +23,7 @@ class LocalizationManager {
   private localeData: Map<Locale, LocaleData> = new Map()
   private loadingPromises: Map<Locale, Promise<void>> = new Map()
   private listeners: Set<() => void> = new Set()
+  private initializationPromise: Promise<void>
 
   constructor() {
     this.initializeLocales()
@@ -30,17 +31,24 @@ class LocalizationManager {
     const savedLocale = localStorage.getItem('locale') as Locale | null
     if (savedLocale && this.localeData.has(savedLocale)) {
       this.currentLocale = savedLocale
-      this.setLocale(savedLocale) // This will load translations and apply RTL
+      this.initializationPromise = this.setLocaleAsync(savedLocale) // This will load translations and apply RTL
     } else {
       // Attempt to detect browser language
       const browserLanguage = navigator.language.split('-')[0] as Locale
       if (this.localeData.has(browserLanguage)) {
-        this.setLocale(browserLanguage)
+        this.initializationPromise = this.setLocaleAsync(browserLanguage)
       } else {
-        // Load default locale translations immediately
-        this.loadLocale('en')
+        // Load default locale translations immediately and notify when done
+        this.initializationPromise = this.loadLocale('en', true)
       }
     }
+  }
+
+  /**
+   * Wait for initialization to complete
+   */
+  async waitForInitialization(): Promise<void> {
+    await this.initializationPromise
   }
 
   private initializeLocales(): void {
@@ -123,12 +131,22 @@ class LocalizationManager {
       dateFormat: 'DD.MM.YYYY',
       numberFormat: 'ru-RU'
     })
+
+    // Portuguese (Brazil)
+    this.localeData.set('pt', {
+      locale: 'pt',
+      name: 'Português (Brasil)',
+      translations: {},
+      isRTL: false,
+      dateFormat: 'DD/MM/YYYY',
+      numberFormat: 'pt-BR'
+    })
   }
 
   /**
    * Load translations for a locale from JSON file
    */
-  async loadLocale(locale: Locale): Promise<void> {
+  async loadLocale(locale: Locale, notifyOnLoad: boolean = false): Promise<void> {
     // If already loading, return the existing promise
     if (this.loadingPromises.has(locale)) {
       return this.loadingPromises.get(locale)!
@@ -136,6 +154,9 @@ class LocalizationManager {
 
     // If already loaded, return immediately
     if (this.translations.has(locale)) {
+      if (notifyOnLoad) {
+        this.notifyListeners()
+      }
       return Promise.resolve()
     }
 
@@ -144,6 +165,16 @@ class LocalizationManager {
       try {
         const translations = await import(`../data/locales/${locale}.json`)
         this.loadTranslations(locale, translations.default)
+        
+        // If this is the current locale and we should notify, do so
+        if (notifyOnLoad && this.currentLocale === locale) {
+          const data = this.localeData.get(locale)
+          if (data) {
+            document.documentElement.dir = data.isRTL ? 'rtl' : 'ltr'
+            document.documentElement.lang = locale
+          }
+          this.notifyListeners()
+        }
       } catch (error) {
         console.error(`Failed to load translations for locale ${locale}:`, error)
         // Fallback to English if loading fails
@@ -151,6 +182,9 @@ class LocalizationManager {
           try {
             const enTranslations = await import(`../data/locales/en.json`)
             this.loadTranslations(locale, enTranslations.default)
+            if (notifyOnLoad && this.currentLocale === locale) {
+              this.notifyListeners()
+            }
           } catch (fallbackError) {
             console.error('Failed to load fallback English translations:', fallbackError)
           }
@@ -165,22 +199,30 @@ class LocalizationManager {
   }
 
   setLocale(locale: Locale): void {
-    if (this.currentLocale === locale) return
+    this.setLocaleAsync(locale).catch(error => {
+      console.error('Failed to set locale:', error)
+    })
+  }
+
+  private async setLocaleAsync(locale: Locale): Promise<void> {
+    if (this.currentLocale === locale && this.translations.has(locale)) {
+      return
+    }
 
     this.currentLocale = locale
     localStorage.setItem('locale', locale)
     
     // Load translations if not already loaded
-    this.loadLocale(locale).then(() => {
-      const data = this.localeData.get(locale)
-      if (data) {
-        // Apply RTL if needed
-        document.documentElement.dir = data.isRTL ? 'rtl' : 'ltr'
-        document.documentElement.lang = locale
-        // Notify listeners
-        this.notifyListeners()
-      }
-    })
+    await this.loadLocale(locale)
+    
+    const data = this.localeData.get(locale)
+    if (data) {
+      // Apply RTL if needed
+      document.documentElement.dir = data.isRTL ? 'rtl' : 'ltr'
+      document.documentElement.lang = locale
+      // Notify listeners
+      this.notifyListeners()
+    }
   }
 
   getLocale(): Locale {
@@ -188,6 +230,15 @@ class LocalizationManager {
   }
 
   t(key: string, params?: Record<string, string | number>): string {
+    // If translations aren't loaded yet, try to get them synchronously
+    // This handles the case where translations are still loading
+    const translations = this.translations.get(this.currentLocale)
+    if (!translations) {
+      // Translations not loaded yet - return key as fallback
+      // The component will re-render when translations load
+      return key
+    }
+
     const translation = this.getTranslation(key)
     if (!translation) {
       // In development, show the key to help identify missing translations

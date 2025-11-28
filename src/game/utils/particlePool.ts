@@ -90,10 +90,11 @@ function resetParticle(particle: Particle): void {
   particle.opacity = 1
 }
 
+// Pre-allocate larger pools for optimal performance: 500 particles
 export const particlePool: ObjectPool<Particle> = createObjectPool({
   factory: createParticle,
   reset: resetParticle,
-  initialSize: 50,
-  maxSize: 200
+  initialSize: 500, // Pre-allocate 500 particles at startup (increased from 50)
+  maxSize: 1000 // Increased max size to 1000
 })
 

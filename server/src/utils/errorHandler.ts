@@ -100,9 +100,12 @@ class ServerErrorHandler {
 
     // Attempt recovery if recoverable
     if (serverError.recoverable && serverError.recoveryStrategy) {
-      serverError.recoveryStrategy().catch(recoveryError => {
-        console.error('Recovery strategy failed:', recoveryError)
-      })
+      const result = serverError.recoveryStrategy()
+      if (result && typeof result.catch === 'function') {
+        result.catch((recoveryError: unknown) => {
+          console.error('Recovery strategy failed:', recoveryError)
+        })
+      }
     }
 
     return serverError
@@ -259,8 +262,23 @@ class ServerErrorHandler {
   private reportError(error: ServerError): void {
     // Only report high/critical severity errors
     if (error.severity === ErrorSeverity.HIGH || error.severity === ErrorSeverity.CRITICAL) {
-      // TODO: Integrate with error reporting service (Sentry, Rollbar, etc.)
-      console.log('Reporting error to external service:', error)
+      // Error reporting integration: Supports Sentry if available
+      // To enable Sentry on server, install @sentry/node and initialize:
+      // import * as Sentry from '@sentry/node'
+      // Sentry.init({ dsn: 'YOUR_DSN' })
+      if (typeof process !== 'undefined' && (global as any).Sentry) {
+        (global as any).Sentry.captureException(error.originalError || new Error(error.message), {
+          tags: {
+            errorType: error.type,
+            severity: error.severity
+          },
+          extra: error.context
+        })
+      } else {
+        // Fallback to console logging if no error reporting service is configured
+        console.error('Critical error:', error)
+      }
+      // Additional error reporting services can be added here (Rollbar, LogRocket, etc.)
     }
   }
 

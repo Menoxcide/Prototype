@@ -1,13 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { getItem } from '../data/items'
 import { acceptQuest, requestAvailableQuests } from '../network/quests'
 import { useTranslation } from '../hooks/useTranslation'
+import { windowManager } from '../utils/windowManager'
+
+const WINDOW_ID = 'quest-modal'
 
 export default function QuestModal() {
   const { isQuestOpen, toggleQuest, player, activeQuests, availableQuests } = useGameStore()
   const { t } = useTranslation()
   const [selectedCategory, setSelectedCategory] = useState<'active' | 'available'>('active')
+  const [windowState, setWindowState] = useState<{ zIndex: number; position: { x: number; y: number } } | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isQuestOpen && player) {
@@ -15,7 +20,42 @@ export default function QuestModal() {
     }
   }, [isQuestOpen, player])
 
-  if (!isQuestOpen || !player) return null
+  // Register window and get position/z-index
+  useEffect(() => {
+    if (isQuestOpen && player) {
+      const state = windowManager.registerWindow(WINDOW_ID, undefined, { width: 700, height: 600 })
+      setWindowState(state)
+      
+      // Bring to front when clicked
+      const handleClick = () => {
+        const newZIndex = windowManager.bringToFront(WINDOW_ID)
+        setWindowState(prev => prev ? { ...prev, zIndex: newZIndex } : null)
+      }
+      
+      const modal = modalRef.current
+      if (modal) {
+        modal.addEventListener('mousedown', handleClick)
+        return () => {
+          modal.removeEventListener('mousedown', handleClick)
+        }
+      }
+    } else {
+      windowManager.unregisterWindow(WINDOW_ID)
+      setWindowState(null)
+    }
+  }, [isQuestOpen, player])
+
+  // Focus the modal when it opens
+  useEffect(() => {
+    if (windowState && modalRef.current) {
+      const focusableElement = modalRef.current.querySelector('button, input, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement
+      if (focusableElement) {
+        focusableElement.focus()
+      }
+    }
+  }, [windowState])
+
+  if (!isQuestOpen || !player || !windowState) return null
 
   const renderActiveQuest = (questProgress: typeof activeQuests[0]) => {
     const allCompleted = questProgress.objectives.every(obj => obj.current >= obj.quantity)
@@ -30,7 +70,7 @@ export default function QuestModal() {
       >
         <div className="flex justify-between items-start mb-2">
           <div>
-            <h3 className="text-cyan-300 font-bold text-lg">Quest {questProgress.questId}</h3>
+            <h3 className="text-cyan-300 font-bold text-lg">{t('quests.title')} {questProgress.questId}</h3>
             {isExpired && (
               <p className="text-red-400 text-sm">{t('quests.expired')}</p>
             )}
@@ -88,7 +128,7 @@ export default function QuestModal() {
           <div>
             <h3 className="text-cyan-300 font-bold text-lg">{quest.name}</h3>
             <p className="text-gray-400 text-sm">{quest.description}</p>
-            <p className="text-gray-500 text-xs mt-1">Level {quest.level} • {quest.category}</p>
+            <p className="text-gray-500 text-xs mt-1">{t('common.level')} {quest.level} • {quest.category}</p>
           </div>
           <button
             onClick={() => acceptQuest(quest.id)}
@@ -103,8 +143,8 @@ export default function QuestModal() {
           <div className="flex gap-2 flex-wrap">
             {quest.rewards.map((reward: any, idx: number) => (
               <div key={idx} className="text-xs bg-gray-700 px-2 py-1 rounded">
-                {reward.type === 'xp' && `+${reward.amount} XP`}
-                {reward.type === 'credits' && `+${reward.amount} Credits`}
+                {reward.type === 'xp' && `+${reward.amount} ${t('common.xp')}`}
+                {reward.type === 'credits' && `+${reward.amount} ${t('common.credits')}`}
                 {reward.type === 'item' && reward.itemId && (
                   <span>
                     {getItem(reward.itemId)?.icon} {getItem(reward.itemId)?.name} x{reward.quantity}
@@ -119,12 +159,47 @@ export default function QuestModal() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto neon-border">
+    <div 
+      ref={modalRef}
+      className="fixed inset-0 bg-black/50"
+      style={{ 
+        zIndex: windowState.zIndex,
+        pointerEvents: 'auto'
+      }}
+      onMouseDown={(e) => {
+        // Bring to front when clicking on backdrop
+        if (e.target === e.currentTarget) {
+          const newZIndex = windowManager.bringToFront(WINDOW_ID)
+          setWindowState(prev => prev ? { ...prev, zIndex: newZIndex } : null)
+        }
+      }}
+      onClick={(e) => {
+        // Prevent click-through to game world
+        e.stopPropagation()
+      }}
+    >
+      <div 
+        className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto neon-border"
+        style={{
+          position: 'absolute',
+          left: `${windowState.position.x}px`,
+          top: `${windowState.position.y}px`,
+          pointerEvents: 'auto'
+        }}
+        onMouseDown={(e) => {
+          // Bring to front when clicking on modal
+          e.stopPropagation()
+          const newZIndex = windowManager.bringToFront(WINDOW_ID)
+          setWindowState(prev => prev ? { ...prev, zIndex: newZIndex } : null)
+        }}
+      >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-cyan-400 neon-glow">{t('quests.title')}</h2>
           <button
-            onClick={toggleQuest}
+            onClick={() => {
+              windowManager.unregisterWindow(WINDOW_ID)
+              toggleQuest()
+            }}
             className="text-gray-400 hover:text-cyan-400 text-2xl"
           >
             ×

@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { COSMETICS, getCosmeticsByType, Cosmetic } from '../data/cosmetics'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function CosmeticShop() {
+  const { t } = useTranslation()
   const { isShopOpen, toggleShop, player } = useGameStore()
   const [selectedType, setSelectedType] = useState<Cosmetic['type'] | 'all'>('all')
   const [ownedCosmetics, setOwnedCosmetics] = useState<Set<string>>(new Set())
@@ -11,7 +13,7 @@ export default function CosmeticShop() {
 
   const handlePurchase = (cosmetic: Cosmetic) => {
     if (player.credits < cosmetic.price) {
-      alert('Not enough credits!')
+      alert(t('cosmeticShop.notEnoughCredits'))
       return
     }
 
@@ -31,14 +33,14 @@ export default function CosmeticShop() {
       // 4. Update local state and show success message
       //
       // For now, show a message directing users to contact support
-      alert('Premium cosmetics require payment. Please contact support for premium purchases.\n\nStripe integration requires backend setup. See CosmeticShop.tsx for implementation details.')
+      alert(t('cosmeticShop.premiumRequiresPayment'))
       return
     }
 
     // Purchase with credits
     useGameStore.getState().addCredits(-cosmetic.price)
     setOwnedCosmetics(new Set([...ownedCosmetics, cosmetic.id]))
-    alert(`Purchased ${cosmetic.name}!`)
+    alert(t('cosmeticShop.purchased', { name: cosmetic.name }))
   }
 
   const displayedCosmetics = selectedType === 'all' 
@@ -58,7 +60,7 @@ export default function CosmeticShop() {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
       <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto neon-border">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-cyan-400 neon-glow">Cosmetic Shop</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 neon-glow">{t('cosmeticShop.title')}</h2>
           <div className="flex items-center gap-4">
             <div className="text-yellow-400 font-bold">💰 {player.credits}</div>
             <button

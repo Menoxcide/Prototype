@@ -3,7 +3,9 @@
  * Functions to add combat and status messages to the chat system
  */
 
-import { useGameStore } from '../store/useGameStore'
+// Import directly from gameStore to avoid circular dependency
+// (gameStore.ts dynamically imports this file)
+import { useGameStore } from '../store/gameStore'
 
 /**
  * Add a combat log message to chat

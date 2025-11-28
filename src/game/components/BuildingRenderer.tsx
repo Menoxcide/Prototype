@@ -7,6 +7,8 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import type { Building } from '../utils/chunkManager'
 import { getBuildingConfig, shouldHaveFeature } from '../assets/buildingTypes'
+import { useGameStore } from '../store/useGameStore'
+import { getQualitySettings } from '../utils/qualitySettings'
 import type { JSX } from 'react'
 
 interface BuildingRendererProps {
@@ -23,7 +25,21 @@ function seededRandom(seed: number) {
   }
 }
 
+// LOD distance thresholds
+const LOD_DISTANCE_HIGH = 50 // High detail within 50 units
+const LOD_DISTANCE_MEDIUM = 150 // Medium detail within 150 units
+const LOD_DISTANCE_LOW = 300 // Low detail within 300 units
+
+function getLODLevel(distance: number): 'high' | 'medium' | 'low' {
+  if (distance < LOD_DISTANCE_HIGH) return 'high'
+  if (distance < LOD_DISTANCE_MEDIUM) return 'medium'
+  if (distance < LOD_DISTANCE_LOW) return 'low'
+  return 'low'
+}
+
 export default function BuildingRenderer({ buildings, buildingTextures }: BuildingRendererProps) {
+  const player = useGameStore((s) => s.player)
+  const qualitySettings = getQualitySettings()
   const neonColors = [
     '#ff6b35', '#ff8c42', '#ffaa5c', '#ffcc7a',
     '#00ffff', '#00ff88', '#88ff00', '#ffff00',
@@ -36,6 +52,18 @@ export default function BuildingRenderer({ buildings, buildingTextures }: Buildi
     const rng = seededRandom(12345)
 
     for (const building of buildings) {
+      // Calculate distance from player for LOD
+      let distance = Infinity
+      if (player) {
+        const dx = building.position.x - player.position.x
+        const dz = building.position.z - player.position.z
+        distance = Math.sqrt(dx * dx + dz * dz)
+      }
+      
+      // Skip buildings beyond render distance
+      if (distance > qualitySettings.renderDistance) continue
+      
+      const lodLevel = getLODLevel(distance)
       const config = building.config
       if (!config) continue
 
@@ -81,9 +109,11 @@ export default function BuildingRenderer({ buildings, buildingTextures }: Buildi
         </mesh>
       )
 
-      // Neon strips (if enabled)
-      if (buildingConfig.hasNeonStrips) {
-        const stripCount = Math.floor(building.height / 8)
+      // Neon strips (only for high/medium LOD)
+      if (buildingConfig.hasNeonStrips && lodLevel !== 'low') {
+        const stripCount = lodLevel === 'high' 
+          ? Math.floor(building.height / 8) 
+          : Math.floor(building.height / 12) // Fewer strips for medium LOD
         for (let s = 0; s < stripCount; s++) {
           const side = rng() > 0.5 ? 1 : -1
           elements.push(
@@ -108,19 +138,25 @@ export default function BuildingRenderer({ buildings, buildingTextures }: Buildi
         }
       }
 
-      // Windows
-      createBuildingWindows(elements, building, buildingConfig, rng)
+      // Windows (only for high LOD, reduced for medium)
+      if (lodLevel === 'high') {
+        createBuildingWindows(elements, building, buildingConfig, rng)
+      } else if (lodLevel === 'medium') {
+        createBuildingWindows(elements, building, buildingConfig, rng, 0.5) // 50% window density
+      }
 
-      // Building features
-      for (const feature of buildingConfig.features) {
-        if (shouldHaveFeature(feature, rng)) {
-          renderBuildingFeature(elements, building, feature, rng)
+      // Building features (only for high LOD)
+      if (lodLevel === 'high') {
+        for (const feature of buildingConfig.features) {
+          if (shouldHaveFeature(feature, rng)) {
+            renderBuildingFeature(elements, building, feature, rng)
+          }
         }
       }
     }
 
     return elements
-  }, [buildings, buildingTextures])
+  }, [buildings, buildingTextures, player, qualitySettings.renderDistance])
 
   return <>{buildingElements}</>
 }
@@ -129,7 +165,8 @@ function createBuildingWindows(
   elements: JSX.Element[],
   building: Building,
   config: any,
-  rng: () => number
+  rng: () => number,
+  densityMultiplier: number = 1.0
 ): void {
   const windowSize = 1.5
   const windowSpacing = 2
@@ -142,7 +179,7 @@ function createBuildingWindows(
   // Front face
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      if (rng() < config.windowDensity) {
+      if (rng() < config.windowDensity * densityMultiplier) {
         const x = building.position.x
         const y = (row - rows / 2) * windowSpacing + building.height / 2
         const z = building.position.z + building.depth / 2 + 0.01

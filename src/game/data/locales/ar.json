@@ -29,7 +29,6 @@
     "mana": "المانا",
     "stamina": "التحمل",
     "all": "الكل",
-    "info": "معلومات",
     "details": "التفاصيل",
     "have": "لديك",
     "need": "تحتاج",
@@ -204,17 +203,6 @@
     "entitiesDefeated": "الكيانات المهزومة: {{defeated}} / {{total}}",
     "requiredLevel": "المستوى المطلوب: {{level}}"
   },
-  "errors": {
-    "networkError": "خطأ في الشبكة. يرجى التحقق من اتصالك.",
-    "serverError": "خطأ في الخادم. يرجى المحاولة مرة أخرى لاحقاً.",
-    "invalidInput": "إدخال غير صالح. يرجى التحقق من قيمك.",
-    "notEnoughCredits": "لا توجد ائتمانات كافية.",
-    "notEnoughItems": "لا توجد عناصر كافية.",
-    "itemNotFound": "العنصر غير موجود.",
-    "questNotFound": "المهمة غير موجودة.",
-    "dungeonNotFound": "الزنزانة غير موجودة.",
-    "failedToEnterDungeon": "فشل دخول الزنزانة"
-  },
   "auth": {
     "signInWithGoogle": "تسجيل الدخول باستخدام Google",
     "signingIn": "جاري تسجيل الدخول...",
@@ -235,6 +223,119 @@
     "creatingCharacter": "جاري إنشاء الشخصية...",
     "enterTheVoid": "الدخول إلى الفراغ",
     "failedToCreate": "فشل إنشاء الشخصية. يرجى المحاولة مرة أخرى."
+  },
+  "errors": {
+    "networkError": "خطأ في الشبكة. يرجى التحقق من اتصالك.",
+    "serverError": "خطأ في الخادم. يرجى المحاولة مرة أخرى لاحقاً.",
+    "invalidInput": "إدخال غير صالح. يرجى التحقق من قيمك.",
+    "notEnoughCredits": "لا توجد ائتمانات كافية.",
+    "notEnoughItems": "لا توجد عناصر كافية.",
+    "itemNotFound": "العنصر غير موجود.",
+    "questNotFound": "المهمة غير موجودة.",
+    "dungeonNotFound": "الزنزانة غير موجودة.",
+    "failedToEnterDungeon": "فشل دخول الزنزانة"
+  },
+  "app": {
+    "title": "MARS://NEXUS",
+    "subtitle": "Mars Cyberpunk MMO"
+  },
+  "characterSelection": {
+    "title": "اختر الشخصية",
+    "loadingCharacters": "جاري تحميل الشخصيات...",
+    "serverUnavailable": "⚠️ الخادم غير متاح",
+    "serverUnavailableMessage": "الخادم غير متاح. لا يزال بإمكانك إنشاء شخصية جديدة.",
+    "serverUnavailableSubtext": "لا يزال بإمكانك إنشاء شخصية جديدة. سيتم حفظها عندما يكون الخادم متاحًا.",
+    "characters": "الشخصيات",
+    "noCharactersFound": "لم يتم العثور على شخصيات. أنشئ شخصيتك الأولى للبدء!",
+    "refresh": "تحديث",
+    "createNewCharacter": "إنشاء شخصية جديدة",
+    "characterLimitReached": "تم الوصول إلى حد الشخصيات ({{max}} شخصية)",
+    "lastPlayed": "آخر مرة لعب:",
+    "created": "تم الإنشاء:",
+    "levelShort": "المستوى",
+    "failedToLoadCharacters": "فشل تحميل الشخصيات. يرجى المحاولة مرة أخرى.",
+    "failedToLoadCharacter": "فشل تحميل الشخصية. يرجى المحاولة مرة أخرى."
+  },
+  "npc": {
+    "next": "التالي",
+    "continue": "متابعة",
+    "availableQuests": "المهام المتاحة",
+    "noQuestsAvailable": "لا توجد مهام متاحة.",
+    "shop": "المتجر",
+    "noItemsForSale": "لا توجد عناصر للبيع.",
+    "services": "الخدمات",
+    "noServicesAvailable": "لا توجد خدمات متاحة.",
+    "serviceHeal": "استعادة الصحة الكاملة",
+    "serviceRepair": "استعادة المانا الكامل",
+    "serviceTeleport": "الانتقال إلى موقع آخر",
+    "serviceEnchant": "تسحر عناصرك",
+    "buy": "شراء",
+    "credits": "نقاط"
+  },
+  "chat": {
+    "selectPlayerToWhisper": "اختر اللاعب للهمس",
+    "selectPlayer": "اختر اللاعب...",
+    "global": "عام",
+    "guild": "النقابة",
+    "whisper": "همس",
+    "noMessagesYet": "لا توجد رسائل بعد. ابدأ المحادثة!",
+    "whisperTag": "[همس]",
+    "guildTag": "[النقابة]",
+    "typeMessage": "اكتب رسالة...",
+    "send": "إرسال",
+    "systemInfo": "معلومات النظام",
+    "connection": "الاتصال:",
+    "online": "متصل",
+    "offline": "غير متصل",
+    "latency": "زمن الاستجابة:",
+    "packetLoss": "فقدان الحزم:",
+    "serverStatus": "حالة الخادم:",
+    "connected": "متصل",
+    "disconnected": "غير متصل",
+    "gameInfo": "معلومات اللعبة",
+    "zone": "المنطقة:",
+    "unknown": "غير معروف",
+    "active": "نشط",
+    "serverState": "حالة الخادم:",
+    "playerInfo": "معلومات اللاعب",
+    "name": "الاسم:",
+    "race": "العرق:",
+    "tradition": "التقليد:"
+  },
+  "victoryDefeat": {
+    "victory": "انتصار!",
+    "defeat": "هزيمة",
+    "rewards": "المكافآت",
+    "items": "العناصر:",
+    "continue": "متابعة"
+  },
+  "system": {
+    "loading": "جاري التحميل..."
+  },
+  "battlePass": {
+    "premium": "✓ مميز",
+    "upgrade": "ترقية",
+    "premiumPass": "البطاقة المميزة"
+  },
+  "cosmeticShop": {
+    "title": "متجر التجميل",
+    "notEnoughCredits": "نقاط غير كافية!",
+    "premiumRequiresPayment": "تتطلب العناصر التجميلية المميزة الدفع. يرجى الاتصال بالدعم لشراء العناصر المميزة.\n\nيتطلب تكامل Stripe إعداد الخادم. راجع CosmeticShop.tsx للحصول على تفاصيل التنفيذ.",
+    "purchased": "تم شراء {{name}}!"
+  },
+  "guild": {
+    "nameLengthError": "يجب أن يكون اسم النقابة من 3 إلى 20 حرفًا",
+    "tagLengthError": "يجب أن يكون علامة النقابة من 2 إلى 4 أحرف",
+    "enterGuildId": "يرجى إدخال معرف النقابة",
+    "leaveGuildConfirm": "هل أنت متأكد أنك تريد مغادرة نقابتك؟"
+  },
+  "social": {
+    "partySystem": "نظام الفريق",
+    "guildTag": "علامة النقابة:",
+    "guildSystem": "نظام النقابة",
+    "removeFriendConfirm": "إزالة هذا الصديق؟",
+    "blockPlayerConfirm": "حظر هذا اللاعب؟ لن يتمكن من إرسال رسائل أو طلبات صداقة لك.",
+    "reportPlayerPrompt": "يرجى وصف المشكلة مع {{playerId}}:",
+    "addNotePrompt": "إضافة ملاحظة لهذا الصديق:"
   }
 }
-

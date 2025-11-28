@@ -1,6 +1,6 @@
 /**
  * Shadowrun Magic Traditions
- * Maps Shadowrun traditions to NEX://VOID's Quantum Slash "neon sorcery"
+ * Maps Shadowrun traditions to MARS://NEXUS's Quantum Slash "neon sorcery"
  */
 
 export type MagicTradition = 'hermetic' | 'shamanic' | 'technomancer' | 'adept' | 'none'

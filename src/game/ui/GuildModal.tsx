@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/useGameStore'
 import { sendGuildCreate, sendGuildJoin, sendGuildLeave, sendGuildChat } from '../network/colyseus'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function GuildModal() {
+  const { t } = useTranslation()
   const { player, isGuildOpen, toggleGuild } = useGameStore()
   const [guildName, setGuildName] = useState('')
   const [guildTag, setGuildTag] = useState('')
@@ -14,11 +16,11 @@ export default function GuildModal() {
 
   const handleCreateGuild = () => {
     if (guildName.length < 3 || guildName.length > 20) {
-      alert('Guild name must be 3-20 characters')
+      alert(t('guild.nameLengthError'))
       return
     }
     if (guildTag.length < 2 || guildTag.length > 4) {
-      alert('Guild tag must be 2-4 characters')
+      alert(t('guild.tagLengthError'))
       return
     }
     sendGuildCreate(guildName, guildTag.toUpperCase())
@@ -28,7 +30,7 @@ export default function GuildModal() {
 
   const handleJoinGuild = () => {
     if (!guildIdToJoin) {
-      alert('Please enter a guild ID')
+      alert(t('guild.enterGuildId'))
       return
     }
     sendGuildJoin(guildIdToJoin)
@@ -36,7 +38,7 @@ export default function GuildModal() {
   }
 
   const handleLeaveGuild = () => {
-    if (confirm('Are you sure you want to leave your guild?')) {
+    if (confirm(t('guild.leaveGuildConfirm'))) {
       sendGuildLeave()
     }
   }

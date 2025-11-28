@@ -1,4 +1,4 @@
--- Initial database schema for NEX://VOID
+-- Initial database schema for MARS://NEXUS
 -- Run this migration to set up the database
 
 CREATE TABLE IF NOT EXISTS players (

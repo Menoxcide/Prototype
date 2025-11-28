@@ -17,7 +17,7 @@ interface TutorialStep {
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'welcome',
-    title: 'Welcome to NEX://VOID',
+    title: 'Welcome to MARS://NEXUS',
     content: 'Welcome to the cyberpunk MMO! This tutorial will help you get started. You can skip this at any time.'
   },
   {

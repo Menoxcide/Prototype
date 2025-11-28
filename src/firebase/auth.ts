@@ -14,7 +14,7 @@ import {
   User as FirebaseUser,
   connectAuthEmulator
 } from 'firebase/auth'
-import { initializeApp } from 'firebase/app'
+import { initializeApp, getApp } from 'firebase/app'
 import { firebaseConfig, validateFirebaseConfig, shouldUseEmulators, getEmulatorConfig } from './config'
 
 // Initialize Firebase only if config is valid
@@ -23,7 +23,13 @@ let auth: any = null
 let emulatorConnected = false
 
 if (validateFirebaseConfig()) {
-  app = initializeApp(firebaseConfig)
+  try {
+    // Try to get existing app first (in case it was already initialized)
+    app = getApp()
+  } catch {
+    // App doesn't exist yet, initialize it
+    app = initializeApp(firebaseConfig)
+  }
   auth = getAuth(app)
   
   // Connect to Auth Emulator if in development mode
@@ -101,6 +107,17 @@ export async function signInWithGoogle(): Promise<AuthUser> {
         throw error
       }
       console.error('Error signing in with Google (redirect):', error)
+      
+      // Provide helpful error message for configuration issues
+      if (error.code === 'auth/configuration-not-found' || 
+          error.message?.includes('CONFIGURATION_NOT_FOUND') ||
+          error.message?.includes('configuration-not-found')) {
+        const helpfulMessage = 'Google Sign-In is not enabled in Firebase Console. ' +
+          'Please enable it: Firebase Console → Authentication → Sign-in method → Google → Enable'
+        console.error(helpfulMessage)
+        throw new Error(helpfulMessage)
+      }
+      
       throw new Error(error.message || 'Failed to sign in with Google')
     }
   } else {
@@ -117,6 +134,17 @@ export async function signInWithGoogle(): Promise<AuthUser> {
       }
     } catch (error: any) {
       console.error('Error signing in with Google:', error)
+      
+      // Provide helpful error message for configuration issues
+      if (error.code === 'auth/configuration-not-found' || 
+          error.message?.includes('CONFIGURATION_NOT_FOUND') ||
+          error.message?.includes('configuration-not-found')) {
+        const helpfulMessage = 'Google Sign-In is not enabled in Firebase Console. ' +
+          'Please enable it: Firebase Console → Authentication → Sign-in method → Google → Enable'
+        console.error(helpfulMessage)
+        throw new Error(helpfulMessage)
+      }
+      
       throw new Error(error.message || 'Failed to sign in with Google')
     }
   }
@@ -200,5 +228,13 @@ export async function getIdToken(): Promise<string | null> {
  */
 export function isFirebaseInitialized(): boolean {
   return auth !== null
+}
+
+/**
+ * Get Firebase app instance
+ * Used by other modules that need the Firebase app (e.g., Analytics)
+ */
+export function getFirebaseApp(): any {
+  return app
 }
 

@@ -9,13 +9,13 @@
  */
 
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAEzMI0o-CMX8Qdfc_L_lS5dT4Ygtr70Dw",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nex-void.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nex-void",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nex-void.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "9566759164",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:9566759164:web:a7ee78f2ef4bd5f9f70f79",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-JVFVV5TF5Y"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBC8Xccg2a1jlp4yR-gh8b7sk9kNJsyTRI",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "mars-nexus.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "mars-nexus",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "mars-nexus.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "649504816384",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:649504816384:web:dbc0d02979bf317fc907e5",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-PP17Q8XGPB"
 }
 
 /**
